@@ -128,9 +128,11 @@ the six characters \\u001b."
   "Return the buffer assistant text is fontified in, creating it if there is none.
 
 One buffer for every message of every session, because turning
-markdown-mode on is by far the expensive half of fontifying a
-paragraph and a fresh temporary buffer per message would pay it
-thousands of times over a long conversation.
+markdown-mode on costs about as much as fontifying the paragraph
+does and a fresh temporary buffer per message pays it thousands
+of times over a long conversation.  Measured over 300 messages of
+a paragraph each: 0.84 s with a temporary buffer per message
+against 0.44 s with one buffer reused.
 
 `delay-mode-hooks' keeps the operator's `markdown-mode-hook' out
 of a buffer he will never see.  With the leading space in the
