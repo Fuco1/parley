@@ -92,13 +92,14 @@ live session looks frozen.  `-c' keeps one object to one line,
 and a newline inside a JSON string stays escaped, so one message
 stays one line too.
 
-`-M' is not optional either, and for a reason that only shows up
-here: the pipeline's stdout is the buffer's pty, jq colourises
-when stdout is a terminal, and those colours are escape bytes.
-Measured over the 26 MB transcript, they were 143100 of them and
-795 kB of the 2 MB that reached Emacs.  With `-M' the stream
-carries no escape byte at all -- a control character inside a
-JSON string is written as the six characters \\u001b."
+`-M' costs three characters and closes a trap.  jq colourises
+when its stdout is a terminal and this one is a pipe, so it would
+not colourise anyway -- but `parley-transcript-mode' has taken
+the escape stripping out of the buffer, and `-M' is what keeps
+that safe if the pipeline ever ran on a terminal again.  Measured
+over the 26 MB transcript it leaves no escape byte in the stream
+at all: a control character inside a JSON string is written as
+the six characters \\u001b."
   (concat "tail -c +1 -F " (shell-quote-argument file)
           " | jq -M -c --unbuffered "
           (shell-quote-argument parley-transcript-projection)))
@@ -116,12 +117,9 @@ conversation is the renderer's job and not this mode's."
   ;; `comint-output-filter-functions' as of Emacs 28, and `jq -M'
   ;; leaves it nothing to find: measured over the 26 MB transcript, not
   ;; one escape byte reaches the buffer.  Scanning the 1.3 MB for them
-  ;; anyway costs 1.2 s of the 6.4 s the history takes to settle, and
+  ;; anyway costs 2.4 s of the 6.9 s that history takes to settle, and
   ;; not spending Emacs's one thread on a search that cannot succeed is
   ;; the whole reason jq is in this pipeline.
-  ;;
-  ;; Without `-M' it is not a tax but a wall: the same history had not
-  ;; finished arriving after 90 s.
   (setq-local comint-output-filter-functions
               (remq 'ansi-color-process-output comint-output-filter-functions))
   ;; The pipeline reads a file and nothing else, so its stdin is not a
@@ -190,17 +188,24 @@ and history and all."
         ;; say -- would be handed a command quoted for a shell it is
         ;; not.
         ;;
-        ;; A pty, and bound here rather than inherited: `comint-exec-1'
-        ;; calls `start-file-process' without binding
+        ;; A pipe, and bound here rather than inherited:
+        ;; `comint-exec-1' calls `start-file-process' without binding
         ;; `process-connection-type', so whatever it happens to be is
-        ;; what parley gets.  A pty is what makes killing the buffer
-        ;; enough to stop the pipeline, because Emacs signals a pty
-        ;; process's whole process group and `sh', `tail' and `jq' are
-        ;; all in it.  On a pipe only `sh' would be signalled, and
-        ;; `tail -F' on a quiet transcript would never write again to
-        ;; discover its reader is gone -- one orphan pair per buffer
-        ;; the operator closed.
-        (let ((process-connection-type t))
+        ;; what parley would get.
+        ;;
+        ;; A pipe rather than a pty for two measured reasons.  It is
+        ;; what makes `--unbuffered' mean anything: to a terminal jq
+        ;; line buffers on its own, so on a pty the flag is dead and
+        ;; its absence cannot be noticed until the day something else
+        ;; changes.  And it is much the faster of the two -- the 26 MB
+        ;; transcript settles in 4.5 s over a pipe against 10.1 s over
+        ;; a pty, which is the cost of a terminal line discipline
+        ;; between jq and Emacs.
+        ;;
+        ;; Killing the buffer stops the pipeline either way: Emacs puts
+        ;; the process in a group of its own whichever it allocates,
+        ;; and signals the group, so `sh', `tail' and `jq' go together.
+        (let ((process-connection-type nil))
           (make-comint-in-buffer
            (buffer-name) buffer "sh" nil "-c"
            (parley-transcript--command (plist-get session :transcript))))
