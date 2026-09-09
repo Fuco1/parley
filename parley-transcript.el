@@ -290,9 +290,12 @@ inserted and then rewritten in place."
           (setq run 0))
         (dolist (line complete)
           (let* ((record (parley-transcript--record line))
-                 (speech (if record
-                             (parley-transcript--speech record)
-                           (parley-transcript--block line))))
+                 (speech (cond
+                          ((null record) (parley-transcript--block line))
+                          ;; comint has already put this one in the
+                          ;; buffer; the transcript is only agreeing.
+                          ((parley-transcript--echoed-p record) "")
+                          (t (parley-transcript--speech record)))))
             ;; Anything the turn said ends the run that came before it,
             ;; and the calls it went on to make carry into the next
             ;; turn.  A turn that said nothing and only called tools is
@@ -433,6 +436,47 @@ and history and all."
 
 ;;; Typing into the pane
 
+(defcustom parley-transcript-echo-window 30
+  "Seconds a message sent from the prompt is given to come back.
+A user message the transcript delivers within this many seconds
+of the same message having been sent from this buffer is comint's
+echo of it arriving a second time, and is not shown again.
+Later than that it is taken for a message of its own.
+
+Which is what a session that was busy when the message arrived
+produces: it holds the input until the turn it was working on has
+finished and only then writes it to the transcript, minutes later
+if the turn was long.  Raising this makes that case rarer at the
+cost of swallowing a message genuinely typed twice."
+  :type 'number
+  :group 'parley)
+
+(defvar-local parley-transcript--sent nil
+  "What was last sent from this buffer, as a cons of the text and the time.
+Nil when there is nothing outstanding, which is both before
+anything has been sent and after the transcript has delivered the
+last thing that was.")
+
+(defun parley-transcript--echoed-p (record)
+  "Non-nil if RECORD is the transcript delivering what was sent from here.
+
+comint puts what the operator submitted into the buffer itself,
+and the session writes the same message to its transcript seconds
+later, so without this every prompt appears twice.
+
+The guard is the last string sent from this buffer, and it is
+spent on the first user message that matches it: a second message
+saying the very same thing was typed at the pane, and is shown.
+So is everything else the operator typed at the pane, which
+matches nothing that was sent from here."
+  (and parley-transcript--sent
+       (equal (alist-get 'role record) "user")
+       (equal (string-trim (or (alist-get 'text record) ""))
+              (car parley-transcript--sent))
+       (< (- (float-time) (cdr parley-transcript--sent))
+          parley-transcript-echo-window)
+       (progn (setq parley-transcript--sent nil) t)))
+
 (defun parley-transcript--tmux (input &rest arguments)
   "Run tmux with ARGUMENTS, INPUT on its standard input if it is a string.
 
@@ -496,7 +540,8 @@ into at all, and this is where the operator finds that out."
        ;; line of SQL is a line that ends in a semicolon.  Measured
        ;; against tmux 3.2a: `foo;' arrives as `foo'.
        (replace-regexp-in-string ";\\'" "\\\\;" string)))
-    (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")))
+    (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
+    (setq parley-transcript--sent (cons (string-trim string) (float-time)))))
 
 (provide 'parley-transcript)
 ;;; parley-transcript.el ends here

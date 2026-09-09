@@ -502,6 +502,12 @@ BODY sees `tmux-log', the file every call appends a record to;
     (insert text)
     (comint-send-input)))
 
+(defun parley-transcript-test--user-turn (text)
+  "Return a transcript line for a user turn that said TEXT."
+  (format (concat "{\"type\":\"user\",\"message\":"
+                  "{\"role\":\"user\",\"content\":\"%s\"}}")
+          text))
+
 (ert-deftest parley-transcript-sends-a-line-to-the-pane ()
   "A submitted line is typed into the session's pane and submitted there.
 It leaves by `comint-input-sender' and not down the process,
@@ -569,6 +575,66 @@ sent, which is the worst thing this could do."
                         :type 'user-error)))
         (should (string-match-p "read only" (cadr signalled))))
       (should-not (file-exists-p tmux-log)))))
+
+(ert-deftest parley-transcript-does-not-render-its-own-echo ()
+  "A message sent from the prompt is not shown again when it comes back.
+comint has already put it in the buffer, and the session writes
+the same message to its transcript seconds later; without the
+guard every prompt appears twice.
+
+The window is what makes it a guard rather than a permanent
+blindness to one string, and shutting it is what proves it is
+there: the second message is delivered and shown."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "hello there")
+                (parley-transcript-test--text-turn "of course")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "of course"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((shown (parley-transcript-test--shown buffer)))
+      (should (member "hello there" shown))
+      (should-not (member "> hello there" shown)))
+    (let ((parley-transcript-echo-window 0))
+      (parley-transcript-test--with-tmux
+        (parley-transcript-test--submit buffer "and again"))
+      (parley-transcript-test--write
+       file (list (parley-transcript-test--user-turn "and again")
+                  (parley-transcript-test--text-turn "quite")))
+      (should (parley-transcript-test--wait
+               (lambda () (member "quite"
+                                  (parley-transcript-test--shown buffer)))))
+      (should (member "> and again" (parley-transcript-test--shown buffer))))))
+
+(ert-deftest parley-transcript-renders-what-was-typed-at-the-pane ()
+  "A user message parley did not send is rendered, guard or no guard.
+The operator can type at the pane instead, and what he says there
+has to reach the buffer like everything else.
+
+The guard is spent on the first message that matches it, which is
+what makes that true even of a message identical to the one just
+sent: the first `hello there' here is the echo and is dropped,
+the second was typed at the pane and is shown."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "hello there")
+                (parley-transcript-test--user-turn "hello there")
+                (parley-transcript-test--user-turn "typed at the pane")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> typed at the pane"
+                                (parley-transcript-test--shown buffer)))))
+    (should (= 1 (seq-count (lambda (line) (equal line "> hello there"))
+                            (parley-transcript-test--shown buffer))))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
