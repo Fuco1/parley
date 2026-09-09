@@ -44,8 +44,9 @@
 ;;
 ;; comint requires a live process, since `comint-send-input' errors
 ;; without one, and this pipeline is it.  Nothing is ever written to
-;; its stdin: typing into the buffer is how the operator will drive the
-;; session's tmux pane, and a pane is not this process.
+;; its stdin: `comint-input-sender' takes what the operator submitted
+;; and types it into the session's tmux pane instead, which is the only
+;; door into a session parley did not start.
 
 ;;; Code:
 
@@ -289,9 +290,12 @@ inserted and then rewritten in place."
           (setq run 0))
         (dolist (line complete)
           (let* ((record (parley-transcript--record line))
-                 (speech (if record
-                             (parley-transcript--speech record)
-                           (parley-transcript--block line))))
+                 (speech (cond
+                          ((null record) (parley-transcript--block line))
+                          ;; comint has already put this one in the
+                          ;; buffer; the transcript is only agreeing.
+                          ((parley-transcript--echoed-p record) "")
+                          (t (parley-transcript--speech record)))))
             ;; Anything the turn said ends the run that came before it,
             ;; and the calls it went on to make carry into the next
             ;; turn.  A turn that said nothing and only called tools is
@@ -334,9 +338,9 @@ and never the objects."
   (add-hook 'comint-preoutput-filter-functions #'parley-transcript--filter
             nil t)
   ;; The pipeline reads a file and nothing else, so its stdin is not a
-  ;; way to reach the session.  Discarding the line keeps comint's echo
-  ;; of what was typed, which is all this mode can honestly offer.
-  (setq-local comint-input-sender #'ignore))
+  ;; way to reach the session.  What the operator submits goes to the
+  ;; session's tmux pane instead, which is the door that does reach it.
+  (setq-local comint-input-sender #'parley-transcript--send-input))
 
 (defun parley-transcript-buffer-name (session)
   "Return the name of the buffer that follows SESSION."
@@ -428,6 +432,116 @@ and history and all."
         ;; stop and ask the operator about.
         (set-process-query-on-exit-flag (get-buffer-process buffer) nil)))
     (pop-to-buffer buffer)))
+
+
+;;; Typing into the pane
+
+(defcustom parley-transcript-echo-window 30
+  "Seconds a message sent from the prompt is given to come back.
+A user message the transcript delivers within this many seconds
+of the same message having been sent from this buffer is comint's
+echo of it arriving a second time, and is not shown again.
+Later than that it is taken for a message of its own.
+
+Which is what a session that was busy when the message arrived
+produces: it holds the input until the turn it was working on has
+finished and only then writes it to the transcript, minutes later
+if the turn was long.  Raising this makes that case rarer at the
+cost of swallowing a message genuinely typed twice."
+  :type 'number
+  :group 'parley)
+
+(defvar-local parley-transcript--sent nil
+  "What was last sent from this buffer, as a cons of the text and the time.
+Nil when there is nothing outstanding, which is both before
+anything has been sent and after the transcript has delivered the
+last thing that was.")
+
+(defun parley-transcript--echoed-p (record)
+  "Non-nil if RECORD is the transcript delivering what was sent from here.
+
+comint puts what the operator submitted into the buffer itself,
+and the session writes the same message to its transcript seconds
+later, so without this every prompt appears twice.
+
+The guard is the last string sent from this buffer, and it is
+spent on the first user message that matches it: a second message
+saying the very same thing was typed at the pane, and is shown.
+So is everything else the operator typed at the pane, which
+matches nothing that was sent from here."
+  (and parley-transcript--sent
+       (equal (alist-get 'role record) "user")
+       (equal (string-trim (or (alist-get 'text record) ""))
+              (car parley-transcript--sent))
+       (< (- (float-time) (cdr parley-transcript--sent))
+          parley-transcript-echo-window)
+       (progn (setq parley-transcript--sent nil) t)))
+
+(defun parley-transcript--tmux (input &rest arguments)
+  "Run tmux with ARGUMENTS, INPUT on its standard input if it is a string.
+
+What tmux said is signalled if it exited non-zero, because the
+usual reason is that the pane has gone -- the session was quit,
+or its window closed -- and a message that vanished quietly would
+leave the operator waiting for an answer to something nobody
+received."
+  (with-temp-buffer
+    (let ((status (if input
+                      (progn
+                        (insert input)
+                        (apply #'call-process-region
+                               (point-min) (point-max) "tmux" t t nil
+                               arguments))
+                    (apply #'call-process "tmux" nil t nil arguments))))
+      (unless (eq status 0)
+        (user-error "tmux %s: %s" (car arguments)
+                    (string-trim (buffer-string)))))))
+
+(defun parley-transcript--send-input (_process string)
+  "Type STRING into the pane of this buffer's session and submit it.
+
+This is the buffer's `comint-input-sender', which comint calls
+with what was submitted instead of writing it to the process.  It
+has to be: the process is a `tail' over a file, and its standard
+input reaches nobody.  The pane is the session's own terminal and
+is the only way in.
+
+A single line goes as one `send-keys -l', where `-l' is what
+stops tmux reading the text as key names, and an `Enter' after it
+is what submits it.
+
+Anything with a newline in it goes through a paste buffer
+instead.  `send-keys' would type the newline and the CLI would
+submit at it, so a three line message would arrive as three
+messages; `paste-buffer -p' wraps the text in a bracketed paste,
+which the CLI takes as one paste and so as one message however
+many lines it has.  The text goes to tmux on standard input, so a
+paste is never an argument vector however long it is.
+
+A session started outside tmux has no pane and cannot be typed
+into at all, and this is where the operator finds that out."
+  (let ((pane (plist-get parley-transcript-session :pane)))
+    (unless pane
+      (user-error "Session %s is outside tmux and has no pane: read only"
+                  (or (plist-get parley-transcript-session :name)
+                      (plist-get parley-transcript-session :session-id))))
+    (if (string-match-p "\n" string)
+        (progn
+          (parley-transcript--tmux string "load-buffer" "-b" "parley" "-")
+          ;; Named and deleted on the way out, so the operator's own
+          ;; paste buffer stack is where he left it.
+          (parley-transcript--tmux nil "paste-buffer" "-d" "-p"
+                                   "-b" "parley" "-t" pane))
+      (parley-transcript--tmux
+       nil "send-keys" "-t" pane "-l" "--"
+       ;; tmux reads a trailing semicolon in an argument as the
+       ;; separator between two of its own commands and drops it,
+       ;; leaving a backslash before it as the way to write one.  A
+       ;; line of SQL is a line that ends in a semicolon.  Measured
+       ;; against tmux 3.2a: `foo;' arrives as `foo'.
+       (replace-regexp-in-string ";\\'" "\\\\;" string)))
+    (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
+    (setq parley-transcript--sent (cons (string-trim string) (float-time)))))
 
 (provide 'parley-transcript)
 ;;; parley-transcript.el ends here
