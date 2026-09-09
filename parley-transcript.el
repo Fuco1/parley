@@ -133,21 +133,25 @@ conversation is the renderer's job and not this mode's."
           (or (plist-get session :name) (plist-get session :session-id))))
 
 (defun parley-transcript--buffer (session)
-  "Return the buffer to show SESSION in.
+  "Return the buffer to show SESSION in, creating it if there is none.
 
-The name `claude agents' gives a session is not unique -- a
-background agent is named after its prompt -- so a buffer already
-following a different session gets the name uniquified rather
-than its contents mistaken for this session's."
-  (let* ((name (parley-transcript-buffer-name session))
-         (existing (get-buffer name)))
-    (if (or (null existing)
-            (equal (plist-get (buffer-local-value 'parley-transcript-session
-                                                  existing)
-                              :session-id)
-                   (plist-get session :session-id)))
-        (get-buffer-create name)
-      (generate-new-buffer name))))
+The buffer is found by the session id it records and not by its
+name, because the name `claude agents' gives a session is not
+unique: two sessions in sibling worktrees come back under one,
+and a background agent is named after its prompt.  A lookup by
+name would hand the second session the first one's buffer.
+
+`generate-new-buffer' is therefore what creates it -- the name
+carries no promise of being free, and every buffer that has one
+of these names already belongs to a session that is not this
+one."
+  (or (seq-find (lambda (buffer)
+                  (equal (plist-get (buffer-local-value 'parley-transcript-session
+                                                        buffer)
+                                    :session-id)
+                         (plist-get session :session-id)))
+                (buffer-list))
+      (generate-new-buffer (parley-transcript-buffer-name session))))
 
 (defun parley-transcript--read-session ()
   "Read one of the live sessions in the minibuffer."

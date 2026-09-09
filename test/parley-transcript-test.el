@@ -115,22 +115,39 @@ argument merely mentions `tail' is not mistaken for it."
   (seq-find (lambda (command) (string-prefix-p (concat program " ") command))
             (parley-transcript-test--group pgid)))
 
+(defun parley-transcript-test--session (name lines)
+  "Return a session record called NAME over a fresh transcript of LINES.
+Its transcript doubles as its session id, which no other record
+built here can share -- and which is what the buffers are told
+apart by."
+  (let ((file (make-temp-file "parley-transcript-test-" nil ".jsonl")))
+    (parley-transcript-test--write file lines)
+    (list :name name :session-id file :transcript file)))
+
+(defun parley-transcript-test--buffers ()
+  "Return every buffer following a session."
+  (seq-filter (lambda (buffer)
+                (buffer-local-value 'parley-transcript-session buffer))
+              (buffer-list)))
+
 (defmacro parley-transcript-test--with-session (lines &rest body)
   "Run BODY over a transcript buffer following a file holding LINES.
 BODY sees `file', the transcript, and `buffer', the buffer
-`parley-transcript' opened for a session record naming it.  Both
-the buffer and the file are gone afterwards, and so -- this being
-the point of the last test -- is the pipeline."
+`parley-transcript' opened for a session record naming it.  The
+buffer is the one that turned up rather than the one the naming
+looked up, so a test that leaked one is a test that fails here
+and not one that quietly reads someone else's buffer.  Both the
+buffer and the file are gone afterwards, and so -- this being the
+point of the last test -- is the pipeline."
   (declare (indent 1) (debug (form body)))
-  `(let* ((file (make-temp-file "parley-transcript-test-" nil ".jsonl"))
-          (session (list :name "test" :session-id "test" :transcript file))
+  `(let* ((session (parley-transcript-test--session "test" ,lines))
+          (file (plist-get session :transcript))
           (buffer nil))
      (unwind-protect
          (progn
-           (parley-transcript-test--write file ,lines)
            (save-window-excursion (parley-transcript session))
-           (setq buffer (get-buffer (parley-transcript-buffer-name session)))
-           (should buffer)
+           (should (= 1 (length (parley-transcript-test--buffers))))
+           (setq buffer (car (parley-transcript-test--buffers)))
            ,@body)
        (when (buffer-live-p buffer) (kill-buffer buffer))
        (delete-file file))))
@@ -210,6 +227,40 @@ group would have left that check with it."
       (should (parley-transcript-test--wait
                (lambda () (null (parley-transcript-test--group pgid)))))
       (should-not (parley-transcript-test--naming file)))))
+
+(ert-deftest parley-transcript-one-buffer-per-session ()
+  "A session gets one buffer however often the command is called.
+Two sessions get one each even when they share a name, which two
+in sibling worktrees do: what tells the buffers apart is the
+session id each records, and looking them up by name would give
+the second session the first one's buffer -- or, since the name
+is then taken, a fresh buffer and a fresh pipeline every time it
+was asked for."
+  (skip-unless (executable-find "jq"))
+  (let ((one (parley-transcript-test--session
+              "shared" parley-transcript-test--lines))
+        (two (parley-transcript-test--session
+              "shared" parley-transcript-test--lines))
+        (buffers nil))
+    (unwind-protect
+        (progn
+          (dolist (session (list one two two one two))
+            (save-window-excursion (parley-transcript session)))
+          (setq buffers (parley-transcript-test--buffers))
+          (should (= 2 (length buffers)))
+          (should (equal (sort (mapcar
+                                (lambda (buffer)
+                                  (plist-get (buffer-local-value
+                                              'parley-transcript-session buffer)
+                                             :session-id))
+                                buffers)
+                               #'string<)
+                         (sort (list (plist-get one :session-id)
+                                     (plist-get two :session-id))
+                               #'string<))))
+      (mapc #'kill-buffer buffers)
+      (delete-file (plist-get one :transcript))
+      (delete-file (plist-get two :transcript)))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
