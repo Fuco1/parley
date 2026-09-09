@@ -409,5 +409,45 @@ answer for a `face' property that is not there."
         (should-not (plist-get (text-properties-at emphasis) 'face))
         (should-not (plist-get (text-properties-at control) 'face))))))
 
+(ert-deftest parley-transcript-holds-back-a-split-line ()
+  "A message too big for one chunk of output still renders once, and whole.
+Emacs reads at most `read-process-output-max' bytes of process
+output at a time and a projected object is one line however long
+the message was, so any answer over that -- which is an ordinary
+answer -- arrives split down the middle.  The half a line is held
+back until the rest of it comes: what a chunk boundary must never
+do is leave JSON in the buffer."
+  (skip-unless (executable-find "jq"))
+  (let ((text (mapconcat #'identity (make-list 1000 "a long answer") " ")))
+    (should (> (length text) read-process-output-max))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--text-turn text))
+      (should (equal (parley-transcript-test--wait
+                      (lambda () (car (parley-transcript-test--shown buffer))))
+                     text))
+      (should (= 1 (length (parley-transcript-test--shown buffer)))))))
+
+(ert-deftest parley-transcript-shows-what-tail-says ()
+  "A line that is not JSON is shown as it stands.
+A session that has not spoken yet has no transcript to open and
+`tail -F' says so on stderr, which shares this buffer.  Dropping
+what cannot be parsed would leave the operator watching an empty
+buffer with no idea why."
+  (skip-unless (executable-find "jq"))
+  (let* ((file (make-temp-file "parley-transcript-test-" nil ".jsonl"))
+         (session (list :name "unspoken" :session-id file :transcript file))
+         (buffer nil))
+    (delete-file file)
+    (unwind-protect
+        (progn
+          (save-window-excursion (parley-transcript session))
+          (setq buffer (car (parley-transcript-test--buffers)))
+          (should (parley-transcript-test--wait
+                   (lambda ()
+                     (seq-find (lambda (line)
+                                 (string-match-p (regexp-quote file) line))
+                               (parley-transcript-test--shown buffer))))))
+      (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
