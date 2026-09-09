@@ -2,15 +2,17 @@
 
 ;;; Commentary:
 
-;; What is worth testing here is not the elisp, which is a dozen lines,
-;; but the pipeline: whether jq really drops the payloads, whether a
-;; line appended after the history has arrived really shows up, and
-;; whether killing the buffer really takes `tail' and `jq' with it.
-;; None of those can be established by reading the code, so every test
-;; below runs the real `parley-transcript' over a real temporary
-;; transcript and looks at what came out.
+;; What is worth testing here is not the elisp, which is short, but
+;; the pipeline and the render pass: whether jq really drops the
+;; payloads, whether a line appended after the history has arrived
+;; really shows up, whether killing the buffer really takes `tail' and
+;; `jq' with it, and whether the faces the renderer inserts are still
+;; on the text once font lock has been over it.  None of those can be
+;; established by reading the code, so every test below but one runs
+;; the real `parley-transcript' over a real temporary transcript and
+;; looks at what came out.
 ;;
-;; The tests need `jq' on PATH and are skipped without it.
+;; Those tests need `jq' on PATH and are skipped without it.
 
 ;;; Code:
 
@@ -27,12 +29,13 @@
 ;; should have stayed in the pipe reached Emacs.
 (defconst parley-transcript-test--payload "PAYLOAD-MUST-NOT-REACH-EMACS")
 
-;; Eight lines in the shapes a Claude Code transcript really holds: a
+;; Nine lines in the shapes a Claude Code transcript really holds: a
 ;; user turn whose content is a bare string, an assistant turn that
 ;; spoke and then made two tool calls, the `tool_result' turn that came
 ;; back, an assistant turn that was only thinking, a `system' line, a
-;; `summary' line, an assistant turn whose text spans two lines, and a
-;; user turn with no content at all.
+;; `summary' line, an assistant turn whose text spans two lines, a user
+;; turn with no content at all, and an assistant turn with markdown in
+;; it.
 (defconst parley-transcript-test--lines
   '("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"what is here\"}}"
     "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Let me look.\"},{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Bash\",\"input\":{\"command\":\"ls PAYLOAD-MUST-NOT-REACH-EMACS\"}},{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"Read\",\"input\":{\"file_path\":\"/PAYLOAD-MUST-NOT-REACH-EMACS\"}}]}}"
@@ -41,18 +44,42 @@
     "{\"type\":\"system\",\"content\":\"PAYLOAD-MUST-NOT-REACH-EMACS\",\"level\":\"info\"}"
     "{\"type\":\"summary\",\"summary\":\"PAYLOAD-MUST-NOT-REACH-EMACS\"}"
     "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"first line\\nsecond line\"}]}}"
-    "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}")
+    "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}"
+    "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"**done** now\"}]}}")
   "The transcript the tests project, one JSONL line per element.")
 
-;; What the eight lines above project to.  Three objects: the two turns
-;; that said something and the one that only made tool calls.  The
-;; tool result, the thinking, the two non-message lines and the empty
-;; turn are all dropped, and the text spanning two lines is still one.
-(defconst parley-transcript-test--projection
-  '("{\"role\":\"user\",\"text\":\"what is here\",\"tools\":0}"
-    "{\"role\":\"assistant\",\"text\":\"Let me look.\",\"tools\":2}"
-    "{\"role\":\"assistant\",\"text\":\"first line\\nsecond line\",\"tools\":0}")
-  "The objects `parley-transcript-test--lines' must reach Emacs as.")
+(defun parley-transcript-test--tool-turn (count)
+  "Return a transcript line for an assistant turn that made COUNT tool calls.
+It says nothing besides the calls, which is the shape an agent
+working produces: the run is what the renderer has to join, and
+the payload in every call is what must not come with it."
+  (format "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[%s]}}"
+          (mapconcat
+           (lambda (n)
+             (format (concat "{\"type\":\"tool_use\",\"id\":\"toolu_%d\","
+                             "\"name\":\"Bash\",\"input\":{\"command\":\"echo %s\"}}")
+                     n parley-transcript-test--payload))
+           (number-sequence 1 count) ",")))
+
+(defun parley-transcript-test--text-turn (text)
+  "Return a transcript line for an assistant turn that said TEXT."
+  (format (concat "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\","
+                  "\"content\":[{\"type\":\"text\",\"text\":\"%s\"}]}}")
+          text))
+
+;; What the nine lines above render to, blank lines dropped.  The tool
+;; result, the thinking, the two non-message lines and the empty turn
+;; contribute nothing at all; what the operator said is quoted; the two
+;; tool calls are one line, and it stands where the run happened rather
+;; than inside the turn that started it.
+(defconst parley-transcript-test--rendered
+  '("> what is here"
+    "Let me look."
+    "2 tool calls"
+    "first line"
+    "second line"
+    "**done** now")
+  "The conversation `parley-transcript-test--lines' must render to.")
 
 
 ;;; Driving a real buffer
@@ -75,11 +102,22 @@ pipeline's output is read while the test blocks."
       (accept-process-output nil 0.05))
     result))
 
-(defun parley-transcript-test--objects (buffer)
-  "Return the non-empty lines of BUFFER."
+(defun parley-transcript-test--shown (buffer)
+  "Return the non-blank lines BUFFER shows."
   (split-string (with-current-buffer buffer
                   (buffer-substring-no-properties (point-min) (point-max)))
                 "\n" t))
+
+(defun parley-transcript-test--runs (buffer)
+  "Return the lines of BUFFER a run of tool calls collapsed to."
+  (seq-filter (lambda (line) (string-match-p "tool calls?\\'" line))
+              (parley-transcript-test--shown buffer)))
+
+(defun parley-transcript-test--settled (buffer)
+  "Wait for the whole projected history to have rendered in BUFFER."
+  (parley-transcript-test--wait
+   (lambda () (equal (parley-transcript-test--shown buffer)
+                     parley-transcript-test--rendered))))
 
 (defun parley-transcript-test--commands (predicate)
   "Return the command line of every live process PREDICATE accepts.
@@ -165,26 +203,35 @@ point of the last test -- is the pipeline."
       (should (process-live-p (get-buffer-process buffer)))
       (should (equal (plist-get parley-transcript-session :transcript) file)))))
 
-(ert-deftest parley-transcript-projects-the-history ()
-  "The whole history reaches Emacs, projected and one object per line."
+(ert-deftest parley-transcript-renders-the-conversation ()
+  "The whole history reaches the buffer as a conversation and nothing else.
+The turn that was only thinking and the `tool_result' turn
+produce no buffer text whatever -- there is no line for either in
+what the buffer shows."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (equal (parley-transcript-test--wait
                     (lambda ()
-                      (let ((objects (parley-transcript-test--objects buffer)))
-                        (and (= (length objects)
-                                (length parley-transcript-test--projection))
-                             objects))))
-                   parley-transcript-test--projection))))
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= (length shown)
+                                (length parley-transcript-test--rendered))
+                             shown))))
+                   parley-transcript-test--rendered))
+    ;; The markdown faces in that text came from somewhere else: this
+    ;; buffer has comint's own font lock and no markdown rules in it.
+    (with-current-buffer buffer
+      (should (equal '(nil t) font-lock-defaults)))))
 
 (ert-deftest parley-transcript-drops-the-tool-payloads ()
   "Nothing a tool sent or received reaches the Emacs process."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
-    (parley-transcript-test--wait
-     (lambda ()
-       (= (length (parley-transcript-test--objects buffer))
-          (length parley-transcript-test--projection))))
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--tool-turn 3)))
+    (should (parley-transcript-test--wait
+             (lambda () (member "3 tool calls"
+                                (parley-transcript-test--shown buffer)))))
     (with-current-buffer buffer
       (goto-char (point-min))
       (should-not (search-forward parley-transcript-test--payload nil t)))))
@@ -196,19 +243,16 @@ which is never on a transcript this size, and this test is what
 notices."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
-    (should (parley-transcript-test--wait
-             (lambda ()
-               (= (length (parley-transcript-test--objects buffer))
-                  (length parley-transcript-test--projection)))))
+    (should (parley-transcript-test--settled buffer))
     (parley-transcript-test--write
      file '("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"and now this\"}}"))
     (should (equal (parley-transcript-test--wait
                     (lambda ()
-                      (let ((objects (parley-transcript-test--objects buffer)))
-                        (and (> (length objects)
-                                (length parley-transcript-test--projection))
-                             (car (last objects))))))
-                   "{\"role\":\"user\",\"text\":\"and now this\",\"tools\":0}"))))
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (> (length shown)
+                                (length parley-transcript-test--rendered))
+                             (car (last shown))))))
+                   "> and now this"))))
 
 (ert-deftest parley-transcript-kill-stops-the-pipeline ()
   "Killing the buffer leaves no `tail' and no `jq' behind.
@@ -261,6 +305,109 @@ was asked for."
       (mapc #'kill-buffer buffers)
       (delete-file (plist-get one :transcript))
       (delete-file (plist-get two :transcript)))))
+
+(ert-deftest parley-transcript-collapses-a-run-of-tool-calls ()
+  "A run of tool calls is one line, however many messages it spans.
+The count cannot be known when the line is first written, since a
+run cannot be counted until it has ended and a line that waited
+for that would appear only once the agent had stopped working.
+So the line is rewritten as the run grows: the twelve calls of
+one message and the three of the next are one line saying
+fifteen, not two lines and not fifteen.
+
+The line then stays where the run happened, above whatever the
+agent said when it was done, and the earlier run of two is still
+its own line further up."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--tool-turn 12)))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((runs (parley-transcript-test--runs buffer)))
+                        (and (= 2 (length runs)) runs))))
+                   '("2 tool calls" "12 tool calls")))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--tool-turn 3)))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((runs (parley-transcript-test--runs buffer)))
+                        (and (member "15 tool calls" runs) runs))))
+                   '("2 tool calls" "15 tool calls")))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--text-turn "and here it is")))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (equal "and here it is" (car (last shown)))
+                             (last shown 2)))))
+                   '("15 tool calls" "and here it is")))
+    (should (equal (parley-transcript-test--runs buffer)
+                   '("2 tool calls" "15 tool calls")))))
+
+(ert-deftest parley-transcript-fontifies-in-another-buffer ()
+  "Assistant text is fontified by markdown-mode, and not here.
+The fontification happens in a buffer of its own because markdown
+fontification is not a set of keywords that can be lifted out of
+markdown-mode: fences and inline code are found by its syntax
+table and its `syntax-propertize-function'.
+
+That buffer is reused from message to message, which is the
+hazard worth a test: whatever state one message leaves it in, the
+next message has to come back fontified too.  And what comes back
+carries `font-lock-face' and neither `face' nor any of the
+properties markdown-mode keeps for its own use."
+  (let ((bold (parley-transcript--fontify "**first**"))
+        (code (parley-transcript--fontify "`second`")))
+    (should (eq 'markdown-mode
+                (buffer-local-value 'major-mode
+                                    (parley-transcript--fontify-buffer))))
+    ;; The text is what it was; only properties were added to it.
+    (should (equal "**first**" (substring-no-properties bold)))
+    (should (memq 'markdown-bold-face
+                  (ensure-list (get-text-property 2 'font-lock-face bold))))
+    (should (memq 'markdown-inline-code-face
+                  (ensure-list (get-text-property 2 'font-lock-face code))))
+    (dolist (string (list bold code))
+      (dolist (position '(0 2))
+        (should-not (plist-get (text-properties-at position string) 'face))
+        (should-not (plist-get (text-properties-at position string) 'invisible))))))
+
+(ert-deftest parley-transcript-faces-survive-font-lock ()
+  "What was inserted still carries its faces after font lock has run.
+comint sets `font-lock-defaults' to `(nil t)', which is not nil,
+so global font lock turns font lock on in this buffer with no
+keywords at all, where the only thing it can do is strip.  A
+`face' property does not survive that -- the control inserted
+here is proof, since it is gone by the end of the test -- and the
+`font-lock-face' the renderer inserts does.
+
+The properties are read with `text-properties-at' and not
+`get-text-property', because font lock makes `face' an alias for
+`font-lock-face' in the buffer it is on in, and the alias would
+answer for a `face' property that is not there."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t)
+            (emphasis nil)
+            (control nil))
+        (goto-char (point-min))
+        (should (search-forward "**done**" nil t))
+        ;; Inside the word, which is what carries the face; the two
+        ;; characters before point are the closing markup.
+        (setq emphasis (- (point) 3))
+        (goto-char (point-max))
+        (setq control (point))
+        (insert (propertize "CONTROL" 'face 'markdown-bold-face))
+        (font-lock-ensure)
+        (should (memq 'markdown-bold-face
+                      (ensure-list (get-text-property emphasis
+                                                      'font-lock-face))))
+        (should-not (plist-get (text-properties-at emphasis) 'face))
+        (should-not (plist-get (text-properties-at control) 'face))))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here

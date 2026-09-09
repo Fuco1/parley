@@ -37,6 +37,11 @@
 ;; payloads, which are the bulk of those 26 MB, never enter the Emacs
 ;; process at all.
 ;;
+;; What arrives is one object per line, and the render pass turns each
+;; into buffer text: markdown for what the agent said, a quote for what
+;; the operator said, and a single line for a run of tool calls however
+;; many calls went into it.
+;;
 ;; comint requires a live process, since `comint-send-input' errors
 ;; without one, and this pipeline is it.  Nothing is ever written to
 ;; its stdin: typing into the buffer is how the operator will drive the
@@ -45,6 +50,8 @@
 ;;; Code:
 
 (require 'comint)
+(require 'subr-x)
+(require 'markdown-mode)
 (require 'parley)
 
 (defconst parley-transcript-projection
@@ -104,15 +111,211 @@ the six characters \\u001b."
           " | jq -M -c --unbuffered "
           (shell-quote-argument parley-transcript-projection)))
 
+;;; Rendering
+
+(defface parley-user '((t :inherit bold))
+  "Face for a turn the operator took."
+  :group 'parley)
+
+(defface parley-tool-run '((t :inherit shadow))
+  "Face for the one line a run of tool calls collapses to."
+  :group 'parley)
+
+(defvar parley-transcript--markdown-buffer nil
+  "The buffer assistant text is fontified in, nil before there is one.")
+
+(defun parley-transcript--fontify-buffer ()
+  "Return the buffer assistant text is fontified in, creating it if there is none.
+
+One buffer for every message of every session, because turning
+markdown-mode on is by far the expensive half of fontifying a
+paragraph and a fresh temporary buffer per message would pay it
+thousands of times over a long conversation.
+
+`delay-mode-hooks' keeps the operator's `markdown-mode-hook' out
+of a buffer he will never see.  With the leading space in the
+name it keeps font lock out too: `font-lock-mode' refuses a
+buffer whose name starts with a space, and nothing here runs
+`after-change-major-mode-hook' for `global-font-lock-mode' to act
+on -- so there is no jit-lock here and `font-lock-ensure' is the
+plain fontify-region it looks like."
+  (unless (buffer-live-p parley-transcript--markdown-buffer)
+    (setq parley-transcript--markdown-buffer
+          (get-buffer-create " *parley-markdown*"))
+    (with-current-buffer parley-transcript--markdown-buffer
+      (delay-mode-hooks (markdown-mode))))
+  parley-transcript--markdown-buffer)
+
+(defun parley-transcript--fontify (text)
+  "Return TEXT as markdown-mode fontifies it, in `font-lock-face' properties.
+
+The fontification happens in `parley-transcript--fontify-buffer'
+and not in the transcript buffer, because markdown fontification
+is not a set of keywords that can be lifted out of markdown-mode:
+fences and inline code are found by its syntax table and its
+`syntax-propertize-function', so the keywords alone would give a
+broken subset -- and font lock in the transcript buffer would
+refontify the whole conversation on every append.
+
+The faces are then copied onto a clean string rather than
+remapped in place, because markdown-mode also leaves `invisible'
+and its own `markdown-heading' properties behind and the
+transcript buffer has business with none of them.  `face' in
+particular has to go: comint sets `font-lock-defaults' to
+`(nil t)', which is not nil, so global font lock turns font lock
+on in that buffer with no keywords at all, where the only thing
+it can do is strip -- and `face' is exactly what
+`font-lock-default-unfontify-region' removes.  `font-lock-face'
+survives it, and is what comint itself puts on its prompt and its
+input.  Both were measured."
+  (with-current-buffer (parley-transcript--fontify-buffer)
+    (erase-buffer)
+    (insert text)
+    (font-lock-ensure)
+    (let ((string (substring-no-properties (buffer-string)))
+          (start (point-min))
+          (position (point-min)))
+      (while (< position (point-max))
+        (let ((next (next-single-property-change position 'face nil (point-max)))
+              (face (get-text-property position 'face)))
+          (when face
+            (put-text-property (- position start) (- next start)
+                               'font-lock-face face string))
+          (setq position next)))
+      string)))
+
+(defun parley-transcript--record (line)
+  "Return the projected object LINE holds, nil if it holds none.
+A line in this buffer is not always JSON: `tail -F' reports a
+transcript that does not exist yet on stderr, which shares the
+buffer, and a pipeline that died mid-object left half of one."
+  (and (string-prefix-p "{" line)
+       (ignore-errors (json-parse-string line :object-type 'alist))))
+
+(defun parley-transcript--block (string)
+  "Return STRING as one block of buffer text, or nothing if it says nothing.
+A block is a blank line, then STRING, then a newline.  So turns
+stand apart, and the last line of the buffer is always the last
+line of the last block -- which is what
+`parley-transcript--take-back-run' stands on."
+  (let ((trimmed (string-trim-right string)))
+    (if (string= trimmed "") "" (concat "\n" trimmed "\n"))))
+
+(defun parley-transcript--speech (record)
+  "Return the block of buffer text RECORD said, nothing if it said nothing.
+An assistant turn is markdown and is fontified as markdown.  The
+operator's own turn is quoted and otherwise left alone: what he
+typed at a terminal is not markdown, and fontifying it as though
+it were would invent emphasis he never wrote."
+  (let ((text (string-trim-right (or (alist-get 'text record) ""))))
+    (cond
+     ((string= text "") "")
+     ((equal (alist-get 'role record) "assistant")
+      (parley-transcript--block (parley-transcript--fontify text)))
+     (t (parley-transcript--block
+         (propertize (replace-regexp-in-string "^" "> " text)
+                     'font-lock-face 'parley-user))))))
+
+(defun parley-transcript--tool-run (count)
+  "Return the block of buffer text a run of COUNT tool calls collapses to.
+The operator wants the conversation, so the calls an agent made
+on its way to an answer are worth exactly one line however many
+of them there were.  The pane is still there for anyone who wants
+to watch the work."
+  (parley-transcript--block
+   (propertize (format "%d tool call%s" count (if (= count 1) "" "s"))
+               'font-lock-face 'parley-tool-run)))
+
+(defvar-local parley-transcript--partial ""
+  "Output that has arrived without the newline that would end it.")
+
+(defvar-local parley-transcript--run 0
+  "How many tool calls the run of them at the end of the buffer made.
+Zero when the buffer does not end in a run.")
+
+(defun parley-transcript--take-back-run ()
+  "Delete the tool run block at the end of the buffer, and say if it went.
+
+A run cannot be counted until it has ended, so a line that waited
+for the count would appear only once the agent had stopped
+working -- which is the frozen session `--unbuffered' exists to
+prevent.  The line is written as soon as the run starts and
+rewritten as the run grows instead, and taking the old one back
+out is how it is rewritten.
+
+Only if it is still there to take.  The operator can type into
+this buffer, and comint moves the process mark past what he
+typed, so what sits at the end may not be this line at all.  Text
+that is not the block this run emitted is left alone and the
+caller starts the count over, which is the truth about the
+buffer: something else is now between the calls."
+  (let* ((end (marker-position
+               (process-mark (get-buffer-process (current-buffer)))))
+         (start (save-excursion (goto-char end) (forward-line -2) (point)))
+         (block (parley-transcript--tool-run parley-transcript--run)))
+    (when (equal (buffer-substring-no-properties start end)
+                 (substring-no-properties block))
+      (let ((inhibit-read-only t))
+        ;; comint binds this around its own insertion but not around
+        ;; the preoutput filters, which is where this runs.
+        (delete-region start end))
+      t)))
+
+(defun parley-transcript--filter (string)
+  "Return the buffer text the newly arrived STRING renders to.
+
+STRING is whatever the pipeline has written since the last time,
+and it holds whole lines only by luck, so the tail of it after
+the last newline is held in `parley-transcript--partial' until
+the rest of that line arrives.
+
+This runs on `comint-preoutput-filter-functions' rather than on
+`comint-output-filter-functions': the projected objects are
+replaced by what they render to on the way in, instead of being
+inserted and then rewritten in place."
+  (let* ((lines (split-string (concat parley-transcript--partial string) "\n"))
+         (complete (butlast lines)))
+    (setq parley-transcript--partial (car (last lines)))
+    (if (null complete)
+        ;; Nothing to render, and in particular no reason to take the
+        ;; run line at the end of the buffer back out and put the very
+        ;; same one back.
+        ""
+      (let ((run parley-transcript--run)
+            (blocks nil))
+        (when (and (> run 0) (not (parley-transcript--take-back-run)))
+          (setq run 0))
+        (dolist (line complete)
+          (let* ((record (parley-transcript--record line))
+                 (speech (if record
+                             (parley-transcript--speech record)
+                           (parley-transcript--block line))))
+            ;; Anything the turn said ends the run that came before it,
+            ;; and the calls it went on to make carry into the next
+            ;; turn.  A turn that said nothing and only called tools is
+            ;; therefore not a break in the run.
+            (unless (string= speech "")
+              (when (> run 0)
+                (push (parley-transcript--tool-run run) blocks)
+                (setq run 0))
+              (push speech blocks))
+            (setq run (+ run (or (alist-get 'tools record) 0)))))
+        (setq parley-transcript--run run)
+        (when (> run 0)
+          (push (parley-transcript--tool-run run) blocks))
+        (mapconcat #'identity (nreverse blocks) "")))))
+
+
 (defvar-local parley-transcript-session nil
   "The session record this buffer follows.")
 
 (define-derived-mode parley-transcript-mode comint-mode "Parley"
-  "Major mode for the projected transcript of a Claude Code session.
+  "Major mode for the transcript of a Claude Code session.
 
-The buffer holds one JSON object per message, as
-`parley-transcript-projection' emitted it.  Turning those into a
-conversation is the renderer's job and not this mode's."
+The process writes one projected JSON object per message and
+`parley-transcript--filter' renders each into the buffer text
+that stands for it, so what the buffer holds is the conversation
+and never the objects."
   ;; `ansi-color-process-output' is in the default value of
   ;; `comint-output-filter-functions' as of Emacs 28, and `jq -M'
   ;; leaves it nothing to find: measured over the 26 MB transcript, not
@@ -122,6 +325,10 @@ conversation is the renderer's job and not this mode's."
   ;; the whole reason jq is in this pipeline.
   (setq-local comint-output-filter-functions
               (remq 'ansi-color-process-output comint-output-filter-functions))
+  ;; A preoutput filter, so the objects are turned into conversation on
+  ;; the way in rather than inserted and rewritten in place.
+  (add-hook 'comint-preoutput-filter-functions #'parley-transcript--filter
+            nil t)
   ;; The pipeline reads a file and nothing else, so its stdin is not a
   ;; way to reach the session.  Discarding the line keeps comint's echo
   ;; of what was typed, which is all this mode can honestly offer.
