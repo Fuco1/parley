@@ -40,5 +40,123 @@
 
 ;;; Code:
 
+(require 'seq)
+
+(defgroup parley nil
+  "A conversation view for local Claude Code sessions."
+  :group 'tools
+  :prefix "parley-")
+
+(defcustom parley-claude-program "claude"
+  "The `claude' executable session discovery asks for the live sessions."
+  :type 'string)
+
+(defcustom parley-projects-directory "~/.claude/projects"
+  "Directory Claude Code keeps session transcripts under.
+Each session's transcript is SESSION-ID.jsonl in the
+subdirectory named after the session's working directory."
+  :type 'directory)
+
+
+;;; Discovery
+
+;; `claude agents --json' needs no terminal and prints one entry per
+;; live session, but its `kind' field does not say what parley needs to
+;; know: a worker lane running `claude -p --input-format stream-json'
+;; is reported as interactive too.  Standard input is the discriminator
+;; that holds -- a session someone types at has a terminal on fd 0, a
+;; headless child has a pipe.
+
+(defun parley--agents-json ()
+  "Return the raw output of `claude agents --json'."
+  (with-temp-buffer
+    (let ((status (call-process parley-claude-program nil t nil
+                                "agents" "--json")))
+      (unless (eq status 0)
+        (error "`%s agents --json' failed (%S): %s" parley-claude-program
+               status (buffer-string)))
+      (buffer-string))))
+
+(defun parley--agents ()
+  "Return the entries of `claude agents --json' as a list of alists."
+  (append (json-parse-string (parley--agents-json)
+                             :object-type 'alist
+                             :null-object nil)
+          nil))
+
+(defun parley--stdin-target (pid)
+  "Return what standard input of PID resolves to, nil if unreadable."
+  (file-symlink-p (format "/proc/%s/fd/0" pid)))
+
+(defun parley--terminal-device-p (target)
+  "Non-nil if TARGET names a terminal device.
+TARGET is what `/proc/PID/fd/0' resolves to: a `/dev/pts/N' for a
+session someone is typing at, and `pipe:[N]' for a headless child."
+  (and (stringp target)
+       (string-match-p "\\`/dev/\\(pts/[0-9]+\\|tty[A-Za-z0-9]*\\)\\'" target)
+       t))
+
+(defun parley--process-environ (pid)
+  "Return the environment block of PID, nil if unreadable.
+The block is the NUL-separated string `/proc/PID/environ' holds."
+  (ignore-errors
+    (with-temp-buffer
+      (set-buffer-multibyte nil)
+      (insert-file-contents-literally (format "/proc/%s/environ" pid))
+      (buffer-string))))
+
+(defun parley--environ-tmux-pane (environ)
+  "Return the TMUX_PANE value in ENVIRON, nil if it carries none.
+ENVIRON is a NUL-separated environment block.  tmux exports
+TMUX_PANE into the pane and every descendant inherits it, so the
+value is there whoever started the session -- in the `%N' form
+`tmux send-keys -t' takes."
+  (let* ((entry (seq-find (lambda (var) (string-prefix-p "TMUX_PANE=" var))
+                          (split-string (or environ "") "\0" t)))
+         (pane (and entry (substring entry (length "TMUX_PANE=")))))
+    (unless (equal pane "") pane)))
+
+(defun parley--transcript-file (cwd session-id)
+  "Return the absolute path of the transcript of SESSION-ID run in CWD.
+Claude Code names the directory after CWD with every character
+outside [A-Za-z0-9] replaced by a dash, so `/home/me/a.b' keeps
+its transcripts in `-home-me-a-b'."
+  (expand-file-name
+   (concat session-id ".jsonl")
+   (expand-file-name (replace-regexp-in-string "[^A-Za-z0-9]" "-" cwd)
+                     parley-projects-directory)))
+
+(defun parley--session (entry)
+  "Return the session record for ENTRY, nil if parley cannot talk to it.
+ENTRY is one element of `claude agents --json'."
+  (let ((pid (alist-get 'pid entry))
+        (cwd (alist-get 'cwd entry))
+        (session-id (alist-get 'sessionId entry)))
+    (when (and pid cwd session-id
+               (parley--terminal-device-p (parley--stdin-target pid)))
+      (list :pid pid
+            :name (alist-get 'name entry)
+            :status (alist-get 'status entry)
+            :cwd cwd
+            :session-id session-id
+            :pane (parley--environ-tmux-pane (parley--process-environ pid))
+            :transcript (parley--transcript-file cwd session-id)))))
+
+(defun parley-sessions ()
+  "Return one record per live Claude Code session on this machine.
+A record is a plist with these keys:
+
+  :pid         the session process
+  :name        the name `claude agents' gives it, or nil
+  :status      \"idle\" or \"busy\" as reported, or nil
+  :cwd         its working directory
+  :session-id  its session id
+  :pane        the tmux pane it lives in, or nil if it is outside tmux
+  :transcript  the absolute path of its JSONL transcript
+
+Sessions whose standard input is not a terminal are headless
+children -- a lane running `claude -p' -- and are left out."
+  (delq nil (mapcar #'parley--session (parley--agents))))
+
 (provide 'parley)
 ;;; parley.el ends here
