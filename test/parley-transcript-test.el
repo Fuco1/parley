@@ -449,5 +449,126 @@ buffer with no idea why."
                                (parley-transcript-test--shown buffer))))))
       (when (buffer-live-p buffer) (kill-buffer buffer)))))
 
+
+;;; Typing into the pane
+
+;; A real tmux would need a real server, a real pane and a real Claude
+;; Code in it before it could say whether the right thing arrived.  The
+;; argument vector is the whole of what parley decides, so the argument
+;; vector is what these tests capture -- from a `tmux' on `exec-path'
+;; that writes down what it was given and nothing else.
+
+(defmacro parley-transcript-test--with-tmux (&rest body)
+  "Run BODY with a fake `tmux' first on `exec-path'.
+BODY sees `tmux-log', the file every call appends a record to;
+`parley-transcript-test--calls' reads them back."
+  (declare (indent 0) (debug t))
+  `(let* ((directory (make-temp-file "parley-tmux-" t))
+          (tmux-log (expand-file-name "log" directory))
+          (program (expand-file-name "tmux" directory))
+          (exec-path (cons directory exec-path)))
+     (unwind-protect
+         (progn
+           (with-temp-file program
+             (insert "#!/bin/sh\n"
+                     "{ printf '%s\\n' \"$@\" '--stdin--'\n"
+                     "  cat\n"
+                     "  printf '%s\\n' '' '--end--'\n"
+                     "} >> " (shell-quote-argument tmux-log) "\n"))
+           (set-file-modes program #o755)
+           ,@body)
+       (delete-directory directory t))))
+
+(defun parley-transcript-test--calls (log)
+  "Return one record per call in LOG, as (ARGUMENTS . STANDARD-INPUT)."
+  (mapcar (lambda (record)
+            (let ((halves (split-string record "\n--stdin--\n")))
+              (cons (split-string (car halves) "\n" t) (cadr halves))))
+          (split-string (with-temp-buffer
+                          (insert-file-contents log)
+                          (buffer-string))
+                        "\n--end--\n" t)))
+
+(defun parley-transcript-test--pane (buffer pane)
+  "Tell BUFFER's session that it lives in tmux pane PANE."
+  (with-current-buffer buffer
+    (setq parley-transcript-session
+          (plist-put parley-transcript-session :pane pane))))
+
+(defun parley-transcript-test--submit (buffer text)
+  "Type TEXT at BUFFER's prompt and submit it, as the operator would."
+  (with-current-buffer buffer
+    (goto-char (point-max))
+    (insert text)
+    (comint-send-input)))
+
+(ert-deftest parley-transcript-sends-a-line-to-the-pane ()
+  "A submitted line is typed into the session's pane and submitted there.
+It leaves by `comint-input-sender' and not down the process,
+whose standard input is a `tail' reading a file and reaches
+nobody.  `-l' is what stops tmux reading the text as key names,
+and the `Enter' after it is what submits it.
+
+The trailing semicolon of the second line is escaped because tmux
+reads one at the end of an argument as the separator between two
+of its own commands and drops it -- so `select 1;' would arrive
+as `select 1', which is a different question."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (with-current-buffer buffer
+      (should (eq comint-input-sender #'parley-transcript--send-input)))
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there")
+      (parley-transcript-test--submit buffer "select 1;")
+      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
+                     '(("send-keys" "-t" "%7" "-l" "--" "hello there")
+                       ("send-keys" "-t" "%7" "Enter")
+                       ("send-keys" "-t" "%7" "-l" "--" "select 1\\;")
+                       ("send-keys" "-t" "%7" "Enter")))))))
+
+(ert-deftest parley-transcript-pastes-input-with-a-newline-in-it ()
+  "Input with a newline in it reaches the pane as one bracketed paste.
+`send-keys' would type the newline and the CLI would submit at
+it, so a message of three lines would arrive as three messages.
+`paste-buffer -p' wraps it in a bracketed paste instead, which
+the CLI takes as one paste however many lines it has.
+
+The text goes to tmux on standard input rather than in the
+argument vector, and the paste buffer it lands in is named and
+deleted on the way out so that the operator's own buffer stack is
+where he left it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "first line\nsecond line")
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       '(("load-buffer" "-b" "parley" "-")
+                         ("paste-buffer" "-d" "-p" "-b" "parley" "-t" "%7")
+                         ("send-keys" "-t" "%7" "Enter"))))
+        (should (equal (cdar calls) "first line\nsecond line"))))))
+
+(ert-deftest parley-transcript-says-a-session-without-a-pane-is-read-only ()
+  "Submitting in a buffer whose session has no pane says so and sends nothing.
+A session started outside tmux inherited no TMUX_PANE, so there
+is no terminal to type into and the buffer can only be read.  A
+silent no-op would look exactly like a message that had been
+sent, which is the worst thing this could do."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (should-not (plist-get (buffer-local-value 'parley-transcript-session buffer)
+                           :pane))
+    (parley-transcript-test--with-tmux
+      (let ((signalled (should-error
+                        (parley-transcript-test--submit buffer "hello there")
+                        :type 'user-error)))
+        (should (string-match-p "read only" (cadr signalled))))
+      (should-not (file-exists-p tmux-log)))))
+
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
