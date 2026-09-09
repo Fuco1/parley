@@ -81,17 +81,37 @@ pipeline's output is read while the test blocks."
                   (buffer-substring-no-properties (point-min) (point-max)))
                 "\n" t))
 
+(defun parley-transcript-test--commands (predicate)
+  "Return the command line of every live process PREDICATE accepts.
+PREDICATE is called with the attribute alist of each process.
+`process-attributes' rather than a `pgrep' subprocess, which
+would have the pattern it is looking for in the command line of
+the shell that ran it and find itself."
+  (delq nil (mapcar (lambda (pid)
+                      (let ((attributes (process-attributes pid)))
+                        (and (funcall predicate attributes)
+                             (alist-get 'args attributes))))
+                    (list-system-processes))))
+
 (defun parley-transcript-test--group (pgid)
-  "Return the commands of the live processes in process group PGID.
-Each is what `pgrep -a' printed with its pid dropped, so that
-`tail' names the process and not the shell whose -c argument
-merely mentions it."
-  (mapcar (lambda (line) (replace-regexp-in-string "\\`[0-9]+ " "" line))
-          (split-string (shell-command-to-string (format "pgrep -a -g %d" pgid))
-                        "\n" t)))
+  "Return the command line of every live process in process group PGID."
+  (parley-transcript-test--commands
+   (lambda (attributes) (eq (alist-get 'pgrp attributes) pgid))))
+
+(defun parley-transcript-test--naming (file)
+  "Return the command line of every live process whose own names FILE.
+This is the check the process group cannot make: a `tail' that
+left the group -- and so escaped the signal that killing the
+buffer sends it -- still has the transcript in its command line."
+  (parley-transcript-test--commands
+   (lambda (attributes)
+     (let ((args (alist-get 'args attributes)))
+       (and args (string-search file args))))))
 
 (defun parley-transcript-test--running (pgid program)
-  "Return the command of PROGRAM in process group PGID, nil if it has none."
+  "Return the command of PROGRAM in process group PGID, nil if it has none.
+Matched on the head of the command line, so the shell whose -c
+argument merely mentions `tail' is not mistaken for it."
   (seq-find (lambda (command) (string-prefix-p (concat program " ") command))
             (parley-transcript-test--group pgid)))
 
@@ -175,8 +195,11 @@ notices."
 
 (ert-deftest parley-transcript-kill-stops-the-pipeline ()
   "Killing the buffer leaves no `tail' and no `jq' behind.
-The pipeline runs on a pty, so its shell heads its own process
-group and every process in it is what `pgrep -g' below lists."
+Emacs puts the pipeline's shell in a process group of its own, so
+the group is where `tail' and `jq' are found and where they have
+to be gone from.  The transcript is looked for across every
+process afterwards as well, because a `tail' that had left the
+group would have left that check with it."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (let ((pgid (process-id (get-buffer-process buffer))))
@@ -185,7 +208,8 @@ group and every process in it is what `pgrep -g' below lists."
       (should (parley-transcript-test--running pgid "jq"))
       (kill-buffer buffer)
       (should (parley-transcript-test--wait
-               (lambda () (null (parley-transcript-test--group pgid))))))))
+               (lambda () (null (parley-transcript-test--group pgid)))))
+      (should-not (parley-transcript-test--naming file)))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
