@@ -308,6 +308,8 @@ inserted and then rewritten in place."
         (mapconcat #'identity (nreverse blocks) "")))))
 
 
+;;; The buffer
+
 (defvar-local parley-transcript-session nil
   "The session record this buffer follows.")
 
