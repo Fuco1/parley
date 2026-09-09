@@ -121,6 +121,7 @@
   (parley-test--with-fixtures
     (let ((session (car (parley-sessions))))
       (should (equal (plist-get session :name) "orc-0c"))
+      (should (equal (plist-get session :kind) "interactive"))
       (should (equal (plist-get session :status) "idle"))
       (should (equal (plist-get session :cwd) "/home/matus/dev/go/orc"))
       (should (equal (plist-get session :session-id)

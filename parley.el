@@ -136,6 +136,7 @@ ENTRY is one element of `claude agents --json'."
                (parley--terminal-device-p (parley--stdin-target pid)))
       (list :pid pid
             :name (alist-get 'name entry)
+            :kind (alist-get 'kind entry)
             :status (alist-get 'status entry)
             :cwd cwd
             :session-id session-id
@@ -148,6 +149,9 @@ A record is a plist with these keys:
 
   :pid         the session process
   :name        the name `claude agents' gives it, or nil
+  :kind        \"interactive\" or \"background\" as reported; a headless
+               lane says \"interactive\" too, so this is passed on and
+               not believed
   :status      \"idle\" or \"busy\" as reported, or nil
   :cwd         its working directory
   :session-id  its session id
