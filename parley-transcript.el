@@ -460,7 +460,8 @@ from the list is also what lets those two markers go."
 ;;; The buffer
 
 (defvar-local parley-transcript-session nil
-  "The session record this buffer follows.")
+  "The session record this buffer follows, nil in a buffer that follows none.
+It is the plist `parley-sessions' returned for that session.")
 
 (define-derived-mode parley-transcript-mode comint-mode "Parley"
   "Major mode for the transcript of a Claude Code session.
@@ -510,23 +511,26 @@ and never the objects."
             #'parley-transcript--index-input nil t))
 
 (defun parley-transcript-buffer-name (session)
-  "Return the name of the buffer that follows SESSION."
-  (format "*parley: %s*"
-          (or (plist-get session :name) (plist-get session :session-id))))
+  "Return the name of the buffer that follows SESSION.
+The name carries the session's name and its tag, which is the two
+the switcher lists it under.  The name `claude agents' gives a
+session is not unique -- two in sibling worktrees come back under
+one, and two live sessions can even share a pane -- so what makes
+this name one session's own is `parley-session-tag'."
+  (format "*parley: %s %s*"
+          (or (plist-get session :name) "unnamed")
+          (parley-session-tag session)))
 
 (defun parley-transcript--buffer (session)
   "Return the buffer to show SESSION in, creating it if there is none.
 
 The buffer is found by the session id it records and not by its
-name, because the name `claude agents' gives a session is not
-unique: two sessions in sibling worktrees come back under one,
-and a background agent is named after its prompt.  A lookup by
-name would hand the second session the first one's buffer.
+name.  The name tells two live sessions apart, but a session that
+has ended leaves its buffer behind with its name still on it, and
+the next session in that pane would be handed it.
 
-`generate-new-buffer' is therefore what creates it -- the name
-carries no promise of being free, and every buffer that has one
-of these names already belongs to a session that is not this
-one."
+`generate-new-buffer' is therefore what creates it: a name taken
+by such a leftover is not a name this session can have."
   (or (seq-find (lambda (buffer)
                   (equal (plist-get (buffer-local-value 'parley-transcript-session
                                                         buffer)
@@ -565,9 +569,16 @@ and history and all."
     (unless (comint-check-proc buffer)
       (with-current-buffer buffer
         (parley-transcript-mode)
-        ;; After the mode, which is what `kill-all-local-variables'
-        ;; would otherwise clear this out of.
-        (setq parley-transcript-session session)
+        ;; The session's own working directory, so that what the
+        ;; operator does in this buffer happens where the session he is
+        ;; reading is working.  Only if it is still there: a worktree
+        ;; can be removed out from under a session that is still
+        ;; running, and a process cannot be started in a directory that
+        ;; is gone -- which would leave the conversation unreadable
+        ;; over a directory nothing here needs.
+        (let ((cwd (plist-get session :cwd)))
+          (when (and cwd (file-directory-p cwd))
+            (setq default-directory (file-name-as-directory cwd))))
         ;; `sh' by name and not `shell-file-name', which is whatever
         ;; the operator's SHELL is: `shell-quote-argument' quotes for
         ;; POSIX sh, so a login shell with other quoting rules -- fish,
@@ -598,6 +609,12 @@ and history and all."
         ;; The pipeline has no state to lose, so there is nothing to
         ;; stop and ask the operator about.
         (set-process-query-on-exit-flag (get-buffer-process buffer) nil)))
+    ;; After the mode, which is what `kill-all-local-variables' would
+    ;; otherwise clear this out of -- and outside the guard above,
+    ;; because a buffer already following this session is following the
+    ;; record it was opened with, and what `claude agents' says about a
+    ;; session goes stale.
+    (with-current-buffer buffer (setq parley-transcript-session session))
     (pop-to-buffer buffer)))
 
 

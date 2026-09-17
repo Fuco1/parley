@@ -63,19 +63,38 @@
 
 (defmacro parley-switch-test--with-sessions (&rest body)
   "Run BODY with `parley-sessions' returning the fixture records.
-The list is copied on every call because the switcher sorts it,
-and every transcript buffer BODY opened is killed afterwards."
+The list is copied on every call because the switcher sorts it.
+The records name working directories and transcripts that are not
+there, so BODY must not open a buffer over one: the test that
+opens one builds a session it can really follow."
   (declare (indent 0))
   `(cl-letf (((symbol-function 'parley-sessions)
               (lambda () (copy-sequence parley-switch-test--sessions))))
-     (unwind-protect (progn ,@body)
-       (dolist (buffer (buffer-list))
-         (when (string-prefix-p "*parley " (buffer-name buffer))
-           (kill-buffer buffer))))))
+     ,@body))
 
-(defun parley-switch-test--tags (sessions)
-  "Return the tag of each of SESSIONS, which no two of them share."
-  (mapcar #'parley-switch--tag sessions))
+(defun parley-switch-test--opened ()
+  "Return every buffer following a session."
+  (seq-filter (lambda (buffer)
+                (buffer-local-value 'parley-transcript-session buffer))
+              (buffer-list)))
+
+(defconst parley-switch-test--expected-tags
+  '((1 . "%23 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
+    (2 . "%61 1111ffff-0000-4000-8000-000000000001")
+    (3 . "7c1d0f9a-0000-4000-8000-000000000003")
+    (4 . "%62 2222ffff-0000-4000-8000-000000000002")
+    (5 . "9a5a5635-26c3-4705-b06e-4dc108d75439")
+    (6 . "%63 3333ffff-0000-4000-8000-000000000003"))
+  "The tag each fixture session is listed and named under, by pid.
+A whole session id, and the pane before it when the session has
+one.  These are written out rather than computed with
+`parley-session-tag', so that a test comparing a tag against one
+of them is comparing it against something a change to that
+function cannot move with it.")
+
+(defun parley-switch-test--tag (pid)
+  "Return the tag the fixture session whose pid is PID is listed under."
+  (cdr (assq pid parley-switch-test--expected-tags)))
 
 
 ;;; The columns
@@ -83,7 +102,8 @@ and every transcript buffer BODY opened is killed afterwards."
 (ert-deftest parley-switch-test-fields ()
   "A session is four separate fields: name, status, directory, pane."
   (should (equal (parley-switch--fields (parley-switch-test--session 2))
-                 ["orc-w1" "idle" "/srv/orc/trees/worker-1/orc" "%61"]))
+                 (vector "orc-w1" "idle" "/srv/orc/trees/worker-1/orc"
+                         (parley-switch-test--tag 2))))
   ;; The working directory is shown the way the operator writes it.
   (should (equal (aref (parley-switch--fields
                         (parley-switch-test--session 1))
@@ -92,18 +112,21 @@ and every transcript buffer BODY opened is killed afterwards."
   ;; A name and a status `claude agents' did not report still leave
   ;; four fields, and the pane column falls back to the session id.
   (should (equal (parley-switch--fields (parley-switch-test--session 3))
-                 ["unnamed" "unknown" "/srv/matus" "7c1d0f9a"])))
+                 (vector "unnamed" "unknown" "/srv/matus"
+                         (parley-switch-test--tag 3)))))
 
 (ert-deftest parley-switch-test-tag-tells-one-name-apart ()
   "The four sessions named `orc-w1' have four different tags.
-Two of them share a working directory as well, so the pane is all
-that is left to tell those apart."
-  (let ((tags (parley-switch-test--tags
-               (list (parley-switch-test--session 2)
-                     (parley-switch-test--session 4)
-                     (parley-switch-test--session 5)
-                     (parley-switch-test--session 6)))))
-    (should (equal tags '("%61" "%62" "9a5a5635" "%63")))
+Two of them share a working directory as well, and one lives
+outside tmux and has no pane to be told apart by, so what every
+tag ends in is the session id -- the one thing two records cannot
+share."
+  (let ((tags (mapcar #'parley-session-tag
+                      (list (parley-switch-test--session 2)
+                            (parley-switch-test--session 4)
+                            (parley-switch-test--session 5)
+                            (parley-switch-test--session 6)))))
+    (should (equal tags (mapcar #'parley-switch-test--tag '(2 4 5 6))))
     (should (equal (length (delete-dups (copy-sequence tags))) 4))))
 
 (ert-deftest parley-switch-test-row-begins-with-the-name ()
@@ -136,62 +159,80 @@ in, which is not the order they come out in here."
                    '(2 4 6 1 5 3)))))
 
 
-;;; The buffer
+;;; The buffer, which belongs to the transcript
 
-(ert-deftest parley-switch-test-buffer-names-are-unique ()
-  "Each session gets its own buffer name, carrying its name and tag."
-  (parley-switch-test--with-sessions
-    (let ((names (mapcar #'parley-switch--buffer-name
-                         (parley-switch--sessions))))
-      (should (equal names '("*parley orc-w1 %61*"
-                             "*parley orc-w1 %62*"
-                             "*parley orc-w1 %63*"
-                             "*parley app-8e %23*"
-                             "*parley orc-w1 9a5a5635*"
-                             "*parley unnamed 7c1d0f9a*")))
-      (should (equal (length (delete-dups (copy-sequence names))) 6)))))
+(ert-deftest parley-switch-test-shows-the-buffer-the-pipeline-runs-in ()
+  "The session picked is shown in the buffer its transcript is running in.
+Not an empty buffer of the switcher's own: the buffer is in
+`parley-transcript-mode', it has the pipeline in it and it
+records the session that was picked.
 
-(ert-deftest parley-switch-test-buffer-is-created-then-reused ()
-  "The buffer is created the first time and the same one comes back after."
-  (parley-switch-test--with-sessions
-    (let ((session (parley-switch-test--session 4)))
-      (should-not (get-buffer "*parley orc-w1 %62*"))
-      (let ((buffer (parley-switch--buffer session)))
-        (should (equal (buffer-name buffer) "*parley orc-w1 %62*"))
-        (with-current-buffer buffer
-          (should (eq parley-session session))
-          (should (equal default-directory "/srv/orc/trees/worker-2/orc/")))
-        (should (eq (parley-switch--buffer session) buffer))
-        (should (equal (length (seq-filter
-                                (lambda (b) (string-prefix-p
-                                             "*parley " (buffer-name b)))
-                                (buffer-list)))
-                       1))))))
+And it is the one buffer there is for that session.  Calling
+`parley-transcript' with the same record afterwards lands in it
+-- the same buffer object and the same process, so the history
+already in it is still there and no second pipeline was started."
+  (skip-unless (executable-find "jq"))
+  (let* ((file (make-temp-file "parley-switch-test-" nil ".jsonl"))
+         (session (list :pid 7 :name "orc-w1" :kind "interactive"
+                        :status "idle" :cwd temporary-file-directory
+                        :session-id "4444ffff-0000-4000-8000-000000000004"
+                        :pane "%64" :transcript file))
+         (buffer nil))
+    (unwind-protect
+        ;; The fallback frontend, picking this one session: the sallet
+        ;; source is taken away and `completing-read' answers with the
+        ;; row the session is listed under.
+        (cl-letf (((symbol-function 'parley-sessions) (lambda () (list session)))
+                  ((symbol-function 'sallet-source-parley) nil)
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _)
+                     (parley-switch--row (parley-switch--fields session)))))
+          ;; The assertions are inside, because leaving a
+          ;; `save-window-excursion' puts the old buffer back.
+          (save-window-excursion
+            (parley-switch)
+            (setq buffer (current-buffer))
+            (should (eq major-mode 'parley-transcript-mode))
+            (should (eq parley-transcript-session session))
+            (should (process-live-p (get-buffer-process buffer)))
+            (let ((process (get-buffer-process buffer))
+                  ;; The same session as `claude agents' reports it a
+                  ;; moment later: a record of its own, and the one the
+                  ;; buffer should be following afterwards.
+                  (again (plist-put (copy-sequence session) :status "busy")))
+              (parley-transcript again)
+              (should (eq (current-buffer) buffer))
+              (should (eq (get-buffer-process buffer) process))
+              (should (eq parley-transcript-session again)))
+            (should (equal (parley-switch-test--opened) (list buffer)))))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (delete-file file))))
 
 
 ;;; Without sallet
 
 (ert-deftest parley-switch-test-falls-back-to-completing-read ()
   "With no sallet source the command reads the session in the minibuffer.
-The one picked is the second of the three sessions named
-`orc-w1', so a switcher that told them apart by name alone would
-land in the wrong buffer here."
+The one picked is the second of the four sessions named `orc-w1',
+and it is that record `parley-transcript' is handed: a switcher
+that told them apart by name alone would hand over the wrong one.
+Where that record is shown is the transcript's business and is
+tested there, so the command is stubbed here."
   (parley-switch-test--with-sessions
     (let ((session (parley-switch-test--session 4))
           (asked nil)
+          (shown nil)
           (collection nil))
       (cl-letf (((symbol-function 'sallet-source-parley) nil)
+                ((symbol-function 'parley-transcript)
+                 (lambda (picked) (setq shown picked)))
                 ((symbol-function 'completing-read)
                  (lambda (_prompt table &rest _)
                    (setq asked t collection table)
                    (parley-switch--row (parley-switch--fields session)))))
-        ;; The assertions are inside, because leaving a
-        ;; `save-window-excursion' puts the old buffer back.
-        (save-window-excursion
-          (parley-switch)
-          (should asked)
-          (should (equal (buffer-name) "*parley orc-w1 %62*"))
-          (should (eq parley-session session)))
+        (parley-switch)
+        (should asked)
+        (should (eq shown session))
         ;; The rows are offered in the switcher order, and the
         ;; completion metadata is what stops the minibuffer from
         ;; sorting them alphabetically and losing it.
@@ -202,6 +243,29 @@ land in the wrong buffer here."
         (should (eq (alist-get 'display-sort-function
                                (cdr (completion-metadata "" collection nil)))
                     #'identity))))))
+
+(ert-deftest parley-switch-test-fallback-resolves-the-row-picked ()
+  "Two sessions alike in every column but their id are still two rows.
+A row is resolved back to its record by the string itself, so two
+records that produced one row would both resolve to the first of
+them and the operator would land in the other one's conversation.
+`claude agents' really can report two live sessions with one
+name, one status and one working directory, and a session
+suspended in a pane with another started there gives them one
+pane as well: all that is left to tell them apart is the session
+id, and the whole of it -- these two agree on its first eight
+characters, which is all a head of it would carry."
+  (let* ((one (list :pid 11 :name "orc-w1" :status "idle"
+                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
+                    :session-id "11111111-0000-4000-8000-000000000001"))
+         (two (list :pid 12 :name "orc-w1" :status "idle"
+                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
+                    :session-id "11111111-ffff-4000-8000-000000000002"))
+         (row (parley-switch--row (parley-switch--fields two))))
+    (should-not (equal row (parley-switch--row (parley-switch--fields one))))
+    (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
+              ((symbol-function 'completing-read) (lambda (&rest _) row)))
+      (should (eq (parley-switch--read-session) two)))))
 
 (ert-deftest parley-switch-test-fallback-with-nothing-running ()
   "Reading a session when none is running says so instead of picking one."
@@ -218,7 +282,7 @@ land in the wrong buffer here."
     (let ((candidates (parley-switch--candidates)))
       (should (equal (mapcar (lambda (candidate) (aref (car candidate) 3))
                              candidates)
-                     '("%61" "%62" "%63" "%23" "9a5a5635" "7c1d0f9a")))
+                     (mapcar #'parley-switch-test--tag '(2 4 6 1 5 3))))
       ;; The record travels with the candidate, so nothing has to look
       ;; a session up by a name four of them share.
       (should (eq (cdr (nth 1 candidates)) (parley-switch-test--session 4)))
@@ -237,13 +301,17 @@ land in the wrong buffer here."
         (should (string-match-p (regexp-quote field) rendered))))))
 
 (ert-deftest parley-switch-test-action-opens-the-candidate-session ()
-  "Acting on a candidate opens the buffer of the record it carries."
+  "Acting on a candidate shows the record it carries and no other.
+The candidate acted on is one of the four named `orc-w1', which
+is what makes this worth asserting: the record travels with the
+candidate, so nothing has to find it again by a name it shares."
   (parley-switch-test--with-sessions
-    (let ((candidate (nth 4 (parley-switch--candidates))))
-      (save-window-excursion
+    (let ((candidate (nth 4 (parley-switch--candidates)))
+          (shown nil))
+      (cl-letf (((symbol-function 'parley-transcript)
+                 (lambda (picked) (setq shown picked))))
         (parley-switch--action nil candidate)
-        (should (equal (buffer-name) "*parley orc-w1 9a5a5635*"))
-        (should (eq parley-session (parley-switch-test--session 5)))))))
+        (should (eq shown (parley-switch-test--session 5)))))))
 
 (ert-deftest parley-switch-test-matcher-matches-columns ()
   "Each column is matched on its own, and the prompt is matched in order."
@@ -259,14 +327,21 @@ land in the wrong buffer here."
                    (parley-switch--matcher
                     candidates (list (cons 'prompt prompt))))))
         (should (equal (tags "")
-                       '("%61" "%62" "%63" "%23" "9a5a5635" "7c1d0f9a")))
-        (should (equal (tags "orc-w1") '("%61" "%62" "%63" "9a5a5635")))
-        (should (equal (tags "/worker-2") '("%62")))
-        (should (equal (tags "%61") '("%61")))
-        (should (equal (tags ":busy") '("%23" "9a5a5635")))
-        (should (equal (tags ":idle") '("%61" "%62" "%63")))
-        (should (equal (tags "orc-w1 /worker-1") '("%61" "%63")))
-        (should (equal (tags "/worker-1 %63") '("%63")))
+                       (mapcar #'parley-switch-test--tag '(2 4 6 1 5 3))))
+        (should (equal (tags "orc-w1")
+                       (mapcar #'parley-switch-test--tag '(2 4 6 5))))
+        (should (equal (tags "/worker-2") (list (parley-switch-test--tag 4))))
+        ;; The pane is still what a % token finds, though the tag it
+        ;; sits in carries the session id after it.
+        (should (equal (tags "%61") (list (parley-switch-test--tag 2))))
+        (should (equal (tags ":busy")
+                       (mapcar #'parley-switch-test--tag '(1 5))))
+        (should (equal (tags ":idle")
+                       (mapcar #'parley-switch-test--tag '(2 4 6))))
+        (should (equal (tags "orc-w1 /worker-1")
+                       (mapcar #'parley-switch-test--tag '(2 6))))
+        (should (equal (tags "/worker-1 %63")
+                       (list (parley-switch-test--tag 6))))
         (should (equal (tags "orc-w1 %23") nil))
         (should (equal (tags "nothing") nil))))))
 

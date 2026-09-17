@@ -160,7 +160,8 @@ built here can share -- and which is what the buffers are told
 apart by."
   (let ((file (make-temp-file "parley-transcript-test-" nil ".jsonl")))
     (parley-transcript-test--write file lines)
-    (list :name name :session-id file :transcript file)))
+    (list :name name :cwd temporary-file-directory
+          :session-id file :transcript file)))
 
 (defun parley-transcript-test--buffers ()
   "Return every buffer following a session."
@@ -201,7 +202,11 @@ point of the last test -- is the pipeline."
       (should (derived-mode-p 'comint-mode))
       (should (eq major-mode 'parley-transcript-mode))
       (should (process-live-p (get-buffer-process buffer)))
-      (should (equal (plist-get parley-transcript-session :transcript) file)))))
+      (should (equal (plist-get parley-transcript-session :transcript) file))
+      ;; In the session's own directory, so that what the operator does
+      ;; here happens where the session he is reading is working.
+      (should (equal default-directory
+                     (file-name-as-directory temporary-file-directory))))))
 
 (ert-deftest parley-transcript-renders-the-conversation ()
   "The whole history reaches the buffer as a conversation and nothing else.
@@ -271,6 +276,48 @@ group would have left that check with it."
       (should (parley-transcript-test--wait
                (lambda () (null (parley-transcript-test--group pgid)))))
       (should-not (parley-transcript-test--naming file)))))
+
+(ert-deftest parley-transcript-names-two-sessions-of-one-name-apart ()
+  "Two live sessions reported under one name get two buffer names.
+
+`claude agents' names a session after the directory it was
+started in, so sessions in sibling worktrees come back under the
+same name and the name alone cannot say which buffer is whose.
+Nor can the pane on its own: two live sessions share one when the
+session running in it is suspended and another is started there,
+which is `same' and `sharing' below.  What ends every name is
+therefore the session id, the one thing two records cannot both
+carry -- and a session outside tmux, which has no pane at all, is
+named by that alone.
+
+Whole, and not a head of it: `same' and `sharing' agree on their
+name, their pane and the first eight characters of their id, so a
+name built from a prefix is one name for two live sessions.
+
+This needs no session to be running, which is why it is the one
+test here that does not start a pipeline."
+  (let* ((one (list :name "orc-w1" :pane "%61"
+                    :session-id "1111ffff-0000-4000-8000-000000000001"))
+         (two (list :name "orc-w1" :pane "%62"
+                    :session-id "2222ffff-0000-4000-8000-000000000002"))
+         (same (list :name "shared" :pane "%1"
+                     :session-id "44444444-0000-4000-8000-000000000004"))
+         (sharing (list :name "shared" :pane "%1"
+                        :session-id "44444444-ffff-4000-8000-000000000005"))
+         (outside (list :name "orc-w1" :pane nil
+                        :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
+         (unnamed (list :name nil :pane nil
+                        :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
+         (names (mapcar #'parley-transcript-buffer-name
+                        (list one two same sharing outside unnamed))))
+    (should (equal names
+                   '("*parley: orc-w1 %61 1111ffff-0000-4000-8000-000000000001*"
+                     "*parley: orc-w1 %62 2222ffff-0000-4000-8000-000000000002*"
+                     "*parley: shared %1 44444444-0000-4000-8000-000000000004*"
+                     "*parley: shared %1 44444444-ffff-4000-8000-000000000005*"
+                     "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
+                     "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
+    (should (equal (length (delete-dups (copy-sequence names))) 6))))
 
 (ert-deftest parley-transcript-one-buffer-per-session ()
   "A session gets one buffer however often the command is called.
