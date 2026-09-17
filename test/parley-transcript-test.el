@@ -830,6 +830,61 @@ is a buffer that has seen the message too."
     (should (= 1 (seq-count (lambda (line) (equal line "> hello there"))
                             (parley-transcript-test--shown buffer))))))
 
+(ert-deftest parley-transcript-test-drops-an-echo-however-late-it-comes-back ()
+  "Messages submitted at the prompt appear once each, however late they land.
+A session that is working holds everything submitted at it until
+the turn it is on has finished, so the operator can have more
+than one message in flight and the transcript can deliver them
+minutes later -- behind the whole of the turn that was running
+when they arrived, which is what stands between them here.
+
+Neither the conversation that went by in between nor the time it
+took spends the guard: both messages are still this buffer's own
+echoes when they land."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "first question")
+      (parley-transcript-test--submit buffer "second question"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--tool-turn 3)
+                (parley-transcript-test--text-turn "still working")
+                (parley-transcript-test--user-turn "first question")
+                (parley-transcript-test--user-turn "second question")
+                (parley-transcript-test--text-turn "both answered")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "both answered"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((shown (parley-transcript-test--shown buffer)))
+      (dolist (quoted '("> first question" "> second question"))
+        (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown)))))))
+
+(ert-deftest parley-transcript-test-drops-one-echo-for-each-copy-submitted ()
+  "The same message submitted twice is dropped twice when both come back.
+Each send stands on its own, so the first copy to arrive spends
+one of them and the second spends the other.  A guard that took
+every entry of that text at the first copy would have nothing
+left for the second, and would show it under the two the buffer
+already holds."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "say it again")
+      (parley-transcript-test--submit buffer "say it again"))
+    (parley-transcript-test--write
+     file (append (make-list 2 (parley-transcript-test--user-turn
+                                "say it again"))
+                  (list (parley-transcript-test--text-turn "twice then"))))
+    (should (parley-transcript-test--wait
+             (lambda () (member "twice then"
+                                (parley-transcript-test--shown buffer)))))
+    (should (= 2 (seq-count (lambda (line) (equal line "> say it again"))
+                            (parley-transcript-test--shown buffer))))))
+
 (ert-deftest parley-transcript-test-renders-what-was-typed-at-the-pane ()
   "A user message parley did not send is rendered, guard or no guard.
 The operator can type at the pane instead, and what he says there

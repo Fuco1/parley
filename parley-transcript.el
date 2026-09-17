@@ -641,46 +641,49 @@ and history and all."
 
 ;;; Typing into the pane
 
-(defcustom parley-transcript-echo-window 30
-  "Seconds a message sent from the prompt is given to come back.
-A user message the transcript delivers within this many seconds
-of the same message having been sent from this buffer is comint's
-echo of it arriving a second time, and is not shown again.
-Later than that it is taken for a message of its own.
-
-Which is what a session that was busy when the message arrived
-produces: it holds the input until the turn it was working on has
-finished and only then writes it to the transcript, minutes later
-if the turn was long.  Raising this makes that case rarer at the
-cost of swallowing a message genuinely typed twice."
-  :type 'number
-  :group 'parley)
-
 (defvar-local parley-transcript--sent nil
-  "What was last sent from this buffer, as a cons of the text and the time.
-Nil when there is nothing outstanding, which is both before
-anything has been sent and after the transcript has delivered the
-last thing that was.")
+  "What has been sent from this buffer and not yet come back, as a list of texts.
+Every send is outstanding until the transcript delivers it, and
+not only the last one: a session that is working holds everything
+submitted at it until the turn it is on has finished, so the
+operator can have several messages in flight at once.
+
+What order the list is in does not matter, since what is looked
+up in it is the text.  Two entries saying the same thing stand
+for two messages, and the one that arrives may be taken for
+either.")
 
 (defun parley-transcript--echoed-p (record)
   "Non-nil if RECORD is the transcript delivering what was sent from here.
 
-comint puts what the operator submitted into the buffer itself,
-and the session writes the same message to its transcript seconds
-later, so without this every prompt appears twice.
+`parley-transcript--render-input' has already put what the
+operator submitted in the buffer, and the session writes the same
+message to its transcript seconds later, so without this every
+prompt appears twice.
 
-The guard is the last string sent from this buffer, and it is
-spent on the first user message that matches it: a second message
-saying the very same thing was typed at the pane, and is shown.
-So is everything else the operator typed at the pane, which
-matches nothing that was sent from here."
-  (and parley-transcript--sent
-       (equal (alist-get 'role record) "user")
-       (equal (string-trim (or (alist-get 'text record) ""))
-              (car parley-transcript--sent))
-       (< (- (float-time) (cdr parley-transcript--sent))
-          parley-transcript-echo-window)
-       (progn (setq parley-transcript--sent nil) t)))
+One entry is spent on the first user message that matches it, and
+not every entry of that text: a second message saying the very
+same thing was typed at the pane, or submitted here twice, and is
+shown.  So is everything else the operator typed at the pane,
+which matches nothing that was sent from here.
+
+There is no bound on how late the transcript's copy may be,
+because there is no bound on how late it comes: a session that
+was busy when the message arrived holds the input until the turn
+it was working on has finished, and writes it minutes later if
+that turn was long -- and the message has to appear once whenever
+it lands.  What that costs is a message that never reaches the
+transcript at all, which leaves its entry standing: the next
+message of the same text typed at the pane is then taken for it
+and dropped."
+  (and (equal (alist-get 'role record) "user")
+       (let ((rest (member (string-trim (or (alist-get 'text record) ""))
+                           parley-transcript--sent)))
+         (when rest
+           (setq parley-transcript--sent
+                 (nconc (butlast parley-transcript--sent (length rest))
+                        (cdr rest)))
+           t))))
 
 (defun parley-transcript--render-input (string)
   "Rewrite STRING, which comint has just inserted at the prompt, as a block.
@@ -787,7 +790,7 @@ into at all, and this is where the operator finds that out."
        ;; against tmux 3.2a: `foo;' arrives as `foo'.
        (replace-regexp-in-string ";\\'" "\\\\;" string)))
     (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
-    (setq parley-transcript--sent (cons (string-trim string) (float-time)))
+    (push (string-trim string) parley-transcript--sent)
     ;; Last, so that a send that raised leaves the operator his text
     ;; where he typed it rather than quoted into the conversation as
     ;; though it had gone.
