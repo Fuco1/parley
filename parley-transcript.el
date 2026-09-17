@@ -519,11 +519,11 @@ too: a table line is one that starts with a bar, and a bar put on
 the end of a line moves nothing at the start of it.
 
 Nil if the aligned form is wider than WIDTH, because alignment
-only ever adds padding -- so a table that has to be wrapped to
-fit is one alignment has pushed further past the edge, and the
-columns it would have lined up are broken by the wrap anyway.
-The text the agent wrote is shown instead, which is the narrower
-of the two.
+only ever makes a table wider -- so a table that has to be
+wrapped to fit is one alignment has pushed further past the edge,
+and the columns it would have lined up are broken by the wrap
+anyway.  The text the agent wrote is shown instead, which is the
+narrower of the two.
 
 Nil, too, if TEXT is no longer a table: the operator can edit in
 this buffer, and what is under the overlay is what the aligned
