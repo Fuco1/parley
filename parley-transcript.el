@@ -511,7 +511,12 @@ them changed last."
 Aligned by markdown-mode's own `markdown-table-align', in the
 buffer `parley-transcript--fontify' renders in: what the operator
 would get by aligning the table himself is what he should get
-from reading it.
+from reading it.  What goes into that buffer is the copy
+`parley-transcript--table-closed' returns and never TEXT itself,
+because a row that ends without a bar loses its last cell to the
+aligner.  Asking that copy whether it is a table answers for TEXT
+too: a table line is one that starts with a bar, and a bar put on
+the end of a line moves nothing at the start of it.
 
 Nil if the aligned form is wider than WIDTH, because alignment
 only ever adds padding -- so a table that has to be wrapped to
@@ -534,13 +539,12 @@ caller which raises sorts the rows with -- `| --- | --- |' is a
 delimiter row, and anything reading the character after the bar
 takes it for a row of data.
 
-Nil, last, when the aligned form does not say what TEXT says.  A
-row with no bar at the end of it loses its last cell to
-`markdown--table-line-to-columns' -- measured against the
-repository's markdown-mode, the three lines of `| a', `|---' and
-`| 1' align to three bare bars -- and a `display' property showing
-that is a cell of the agent's the operator cannot read at all.
-The text as he wrote it is shown instead.
+Nil, last, when the aligned form does not say what TEXT says.
+The aligner is markdown-mode's and which markdown-mode is under
+this buffer is the operator's business, so a version of it that
+dropped a cell would put a `display' property over that cell's
+row showing text the agent never wrote -- and a cell he cannot
+read at all is worse than a table that is merely ragged.
 
 The face is on the string and not on the text under it.  What a
 `display' property shows is the string's own properties, and the
@@ -548,7 +552,7 @@ The face is on the string and not on the text under it.  What a
 reaches the screen through one."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
-    (insert text)
+    (insert (parley-transcript--table-closed text))
     (goto-char (point-min))
     (when (and (markdown-table-at-point-p)
                (not (seq-every-p #'markdown--is-delimiter-row
@@ -561,6 +565,28 @@ reaches the screen through one."
                           (parley-transcript--table-content text))
                    (<= (parley-transcript--columns aligned) width))
           (propertize aligned 'face 'markdown-table-face))))))
+
+(defun parley-transcript--table-closed (text)
+  "Return TEXT with a bar on the end of every row that ends without one.
+
+The outer bar at the end of a row is optional and an agent
+writing a table by hand leaves it off, and
+`markdown--table-line-to-columns' counts the characters of a line
+against a position in a buffer, so it drops a last cell of one
+column when no bar closes it: measured against the repository's
+markdown-mode, `| a', `|---' and `| 1' align to three bare bars
+and `| a | b |', `|---|---|', `| 1 | 2' loses the 2.
+
+It is the copy the alignment is computed from that is closed and
+never the buffer text, so the row the agent left open is still
+open in what the overlay covers.  What that copy shows in its
+place is one grid, and a grid has an edge."
+  (mapconcat (lambda (line)
+               (if (string-suffix-p "|" (string-trim-right line))
+                   line
+                 (concat line " |")))
+             (split-string text "\n")
+             "\n"))
 
 (defun parley-transcript--table-content (text)
   "Return what TEXT says, with everything the alignment may move taken out.

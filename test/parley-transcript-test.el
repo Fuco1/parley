@@ -1395,11 +1395,20 @@ Two turns, each with a table in it, because where a table is is
 an offset into what the render pass returned: the second table's
 is one the length of the first turn's block into that string, and
 a pass that forgot to count the turns before it would put the
-overlay over the wrong text and pass everything else here."
+overlay over the wrong text and pass everything else here.
+
+The rows of that second one end without the closing bar the first
+one's have, which is the other way an agent writes a table, and
+its last cell is one column wide -- which is the cell the aligner
+drops when no bar closes it, unless the copy it is given has that
+bar put back.  Every cell of it is read out of what is shown for
+that reason, and each of those one-column cells is a character
+the rest of the table does not hold."
   (skip-unless (executable-find "jq"))
-  (let ((other (concat "| id | note |\n"
-                       "|---|---|\n"
-                       "| 1 | the second table |")))
+  (let ((other (concat "| id | flag\n"
+                       "|---|---\n"
+                       "| 1 | x\n"
+                       "| 22 | q")))
     (parley-transcript-test--with-session
         (list (parley-transcript-test--text-turn
                (concat "Here it is:\n\n" parley-transcript-test--table
@@ -1419,12 +1428,15 @@ overlay over the wrong text and pass everything else here."
                                  (buffer-substring-no-properties (point-min)
                                                                  (point-max)))))
         (dolist (form shown)
+          (should (stringp form))
           (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
           (should (eq 'markdown-table-face (get-text-property 0 'face form))))
         (should (< 1 (length (seq-uniq (parley-transcript-test--bars
                                         parley-transcript-test--table)))))
         (dolist (cell '("name" "what it does" "bbbbbb" "a much longer cell"))
-          (should (string-search cell (car shown))))))))
+          (should (string-search cell (car shown))))
+        (dolist (cell '("id" "flag" "1" "x" "22" "q"))
+          (should (string-search cell (cadr shown))))))))
 
 (ert-deftest parley-transcript-test-aligns-again-when-the-window-changes-width ()
   "What is shown over a table follows the width of the window, and the text does not.
@@ -1492,22 +1504,50 @@ guard tightened until nothing at all is aligned fails here."
     (should-not (parley-transcript--aligned text 80)))
   (should (parley-transcript--aligned parley-transcript-test--table 80)))
 
-(ert-deftest parley-transcript-test-shows-a-table-it-cannot-align-whole-as-written ()
-  "A table whose aligned form would not say all of it is shown as the agent wrote it.
+(ert-deftest parley-transcript-test-aligns-a-table-whose-rows-end-without-a-bar ()
+  "A table whose rows leave the closing bar off is aligned, and all of it is there.
 
-A row with no bar at the end of it loses its last cell to
-`markdown--table-line-to-columns', and what a `display' property
-shows is all the operator has: a cell dropped there is a cell of
-the agent's he cannot read at all, where a table left as it
-stands is merely ragged.
+The outer bar at the end of a row is optional, which is how an
+agent writes a table by hand, and
+`markdown--table-line-to-columns' drops a last cell of one column
+when no bar closes it -- so what is aligned is a copy with those
+bars put back.  Every cell of the text has to stand in the
+aligned form, because a display over a table that lost a cell is
+a cell of the agent's the operator cannot read at all.
 
-The rows in these are ordinary and only the closing bar is
-missing, which is how an agent writes a table by hand -- and the
-last of them is the same table with that bar, to say that what is
-refused here is the dropping and not the table."
-  (should-not (parley-transcript--aligned "| a\n|---\n| 1" 80))
-  (should-not (parley-transcript--aligned "| a | b |\n|---|---|\n| 1 | 2" 80))
-  (should (parley-transcript--aligned "| a | b |\n|---|---|\n| 1 | 2 |" 80)))
+The last of them is a table of one column, where the cell that
+would be dropped is the only cell there is."
+  (dolist (case '(("| a | b |\n|---|---|\n| 1 | 2" . ("a" "b" "1" "2"))
+                  ("| name | note |\n|---|---|\n| x | a longer cell"
+                   . ("name" "note" "x" "a longer cell"))
+                  ("| a\n|---\n| 1" . ("a" "1"))))
+    (let ((aligned (parley-transcript--aligned (car case) 80)))
+      (should aligned)
+      (should (= 1 (length (seq-uniq (parley-transcript-test--bars aligned)))))
+      (should (= (length (split-string (car case) "\n"))
+                 (length (split-string aligned "\n"))))
+      (dolist (cell (cdr case))
+        (should (string-search cell aligned))))))
+
+(ert-deftest parley-transcript-test-shows-a-table-an-aligner-would-cut-as-written ()
+  "A table whose aligned form does not say what the text says is shown as written.
+
+Which markdown-mode is under the buffer is the operator's
+business, and an aligner that dropped a cell would put a display
+over the table showing text the agent never wrote.  The aligner
+is stood in for here because the one in this tree keeps every
+cell of a table the closing bars were put back on, and what is
+under test is what becomes of a result that does not.
+
+An aligner that leaves the table alone is stood in the same way,
+so that what refuses the first is the cell it dropped and not the
+standing in."
+  (let ((text "| a | b |\n|---|---|\n| 1 | 2 |"))
+    (cl-letf (((symbol-function 'markdown-table-align)
+               (lambda () (erase-buffer) (insert "| a | b |\n|---|---|\n| 1 |"))))
+      (should-not (parley-transcript--aligned text 80)))
+    (cl-letf (((symbol-function 'markdown-table-align) #'ignore))
+      (should (parley-transcript--aligned text 80)))))
 
 (ert-deftest parley-transcript-test-leaves-a-table-in-a-fence-as-written ()
   "A table inside a fenced code block is shown as the agent wrote it.
