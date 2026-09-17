@@ -1342,6 +1342,15 @@ else."
   "Return BUFFER's imenu index, as whatever imenu would ask it for."
   (with-current-buffer buffer (funcall imenu-create-index-function)))
 
+(defun parley-transcript-test--index-prompts (text n)
+  "Record N prompts of TEXT in the current buffer's index, one line each.
+The way the render pass records them, which is all the index
+needs and is what lets a test of the index start no pipeline."
+  (dotimes (_ n)
+    (let ((start (point)))
+      (insert text "\n")
+      (parley-transcript--index-prompt text start))))
+
 (defun parley-transcript-test--at (buffer entry)
   "Return the line of BUFFER that imenu ENTRY points at."
   (with-current-buffer buffer
@@ -1416,6 +1425,221 @@ was there before these two arrived still points at itself."
                      (list "> what is here"
                            "> first line of it"
                            (concat "> " (make-string 100 ?x))))))))
+
+(ert-deftest parley-transcript-test-tells-two-prompts-of-one-line-apart ()
+  "Two prompts with one first line get a name each, and both can be reached.
+
+`imenu' carries what the operator picked back to an entry with
+`assoc' on its name, so two entries under one name are one entry
+he can act on: the second is in the index, is offered once, and
+answers with the first.  The later of the two is numbered `<2>'
+instead, the way Emacs tells two buffers of one name apart, and
+the first keeps the name he was going to search for.
+
+`continue' is not a contrived prompt.  A long conversation is
+full of it, of `yes', and of the same question asked twice, which
+are exactly the short prompts an index is navigated by.
+
+The command itself is what has to land on each of the three,
+because `assoc' is the whole of the resolution and an index that
+merely looks right says nothing about it.  The prompts differ on
+their second line, which is how this can tell which of them it
+arrived at.
+
+The numbering counts the entries that share the label and not the
+messages before the prompt: nine lines of fixture and a prompt of
+their own stand in front of the first `continue', and it is still
+`continue'.
+
+No length limit is in force over the labels, which is what lets
+them be read whole here.  What a limit does to the number is the
+next two tests."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "continue\\nwith the first")
+                (parley-transcript-test--user-turn "continue\\nwith the second")
+                (parley-transcript-test--user-turn "continue\\nwith the third")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> with the third"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((imenu-max-item-length nil))
+      (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                     '("what is here" "continue" "continue<2>" "continue<3>"))))
+    (with-current-buffer buffer
+      (dolist (entry '(("continue" . "> with the first")
+                       ("continue<2>" . "> with the second")
+                       ("continue<3>" . "> with the third")))
+        (goto-char (point-min))
+        (imenu (car entry))
+        (should (looking-at-p "> continue"))
+        (forward-line 1)
+        (should (looking-at-p (regexp-quote (cdr entry))))))))
+
+(ert-deftest parley-transcript-test-renames-a-first-line-shaped-like-a-number ()
+  "A first line that is itself a suffix is renamed like any other duplicate.
+
+The index is built in one pass over the prompts in buffer order
+and the number is read off the entries already in it, so a prompt
+whose first line is `foo<2>' collides with the `foo<2>' an
+earlier duplicate of `foo' was handed and is renamed
+`foo<2><2>'.  The distinct first lines are not reserved in a pass
+of their own, which would leave that one bare.
+
+`generate-new-buffer-name' is what that is the transcript's copy
+of, and it is asked here rather than quoted: four buffers made in
+the same order under the same four names take the same four
+names, so the two rules are one rule and not two that happen to
+agree on the fixtures above.
+
+No length limit is in force, because what the limit does to a
+number is the next two tests and it would cut these names short
+of the point."
+  (let ((names '("foo" "foo" "foo<2>" "foo"))
+        (buffers nil)
+        (emacs nil)
+        (parley nil))
+    (unwind-protect
+        (setq emacs (mapcar (lambda (name)
+                              (let ((buffer (generate-new-buffer name)))
+                                (push buffer buffers)
+                                (buffer-name buffer)))
+                            names))
+      (mapc #'kill-buffer buffers))
+    (with-temp-buffer
+      (parley-transcript-mode)
+      (let ((imenu-max-item-length nil))
+        (dolist (name names)
+          (parley-transcript-test--index-prompts name 1))
+        (setq parley (mapcar #'car (parley-transcript--imenu-index)))))
+    (should (equal parley '("foo" "foo<2>" "foo<2><2>" "foo<3>")))
+    (should (equal parley emacs))))
+
+(ert-deftest parley-transcript-test-numbers-a-label-inside-the-length-limit ()
+  "The number on a label at the limit does not push itself off the end.
+
+`imenu--truncate-items' cuts every label to
+`imenu-max-item-length' with `substring', and it does so after
+`imenu-create-index-function' has returned -- so a `<2>' hung off
+a label already that long is cut straight back off, leaving two
+entries under one name again and the second of them out of reach.
+The label gives up the characters the number needs instead.
+
+Two prompts whose first line is longer than the limit are what
+shows it, and `imenu--make-index-alist' is what is asked, because
+imenu's own truncation is the thing under test and the index
+function returns before it runs.
+
+The limit is bound low here, to a length no default could be
+mistaken for.  It has to stay bound for the jump as well: the
+labels were truncated to it when the prompts arrived, and imenu
+rebuilds the index on every look."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (let ((imenu-max-item-length 20))
+      (parley-transcript-test--write
+       file (list (parley-transcript-test--user-turn
+                   (concat (make-string 30 ?x) "\\nthe first of them"))
+                  (parley-transcript-test--user-turn
+                   (concat (make-string 30 ?x) "\\nthe second of them"))))
+      (should (parley-transcript-test--wait
+               (lambda () (member "> the second of them"
+                                  (parley-transcript-test--shown buffer)))))
+      (with-current-buffer buffer
+        (let ((labels (mapcar #'car (imenu--make-index-alist))))
+          (should (= 3 (length labels)))
+          (should (= 3 (length (delete-dups (copy-sequence labels)))))
+          (should (seq-every-p (lambda (label) (<= (length label) 20)) labels))
+          (should (string-suffix-p "<2>" (car (last labels))))
+          (goto-char (point-min))
+          (imenu (car (last labels)))
+          (forward-line 1)
+          (should (looking-at-p "> the second of them")))))))
+
+(ert-deftest parley-transcript-test-numbers-a-label-a-short-limit-crowds-out ()
+  "A number that fills the limit takes the label's place rather than its own.
+
+`imenu-max-item-length' can be shorter than the number needs the
+label to give up.  A label that kept so much as its first
+character there would be cut back to exactly that by
+`imenu--truncate-items', losing the number -- which is the one
+part of the name telling it from the entry above it.
+
+A limit of 4 is the whole of the room `<10>' needs, and eleven
+prompts under one label reach it: the label is down to its
+ellipsis while the number is one digit and gone once it is two.
+Eleven, because the tenth is the first with nowhere to put a
+second digit.
+
+What is asserted is the resolution and not the strings: every
+label is looked up the way `imenu' looks one up, and the eleven
+have to come back pointing at eleven different places.  Two
+entries under one name resolve to one of them.
+
+The last two names are read as well, because a number imenu cut
+the end off is still a name of its own and the resolution alone
+would not notice: the tenth and eleventh are the number and
+nothing else, and the closing bracket is still on it.
+
+A limit narrower than the number is past what the numbering can
+hold -- imenu cuts the number itself there, which
+`parley-transcript--index-numbered' says -- and what is left to
+ask of it is that it come back: the eleven are all entries, and
+the search for a free number ends rather than going round after
+one it can never take.
+
+This starts no pipeline.  The prompts go into the index through
+the function the render pass puts them there with, which is all
+the index needs, and `imenu--make-index-alist' is what is asked
+for them because imenu's own truncation is the thing under test."
+  (with-temp-buffer
+    (parley-transcript-mode)
+    (let ((imenu-max-item-length 4))
+      (parley-transcript-test--index-prompts "continue with it" 11)
+      (let* ((index (imenu--make-index-alist))
+             (found (mapcar (lambda (entry) (cdr (assoc (car entry) index)))
+                            index)))
+        (should (= 11 (length index)))
+        (should (= 11 (length (delete-dups found))))
+        (should (equal (last (mapcar #'car index) 2) '("<10>" "<11>")))
+        (should (seq-every-p (lambda (entry) (<= (length (car entry)) 4))
+                             index)))))
+  (with-temp-buffer
+    (parley-transcript-mode)
+    (let ((imenu-max-item-length 2))
+      (parley-transcript-test--index-prompts "continue with it" 11)
+      (should (= 11 (length (imenu--make-index-alist)))))))
+
+(ert-deftest parley-transcript-test-numbers-a-label-imenu-counts-longer ()
+  "The number survives on a label whose characters outrun its columns.
+
+The two lengths are not the same length.  `imenu--truncate-items'
+cuts with `substring', which counts characters, and a label is
+made to fit with `truncate-string-to-width', which counts the
+columns it displays in -- so a label of five characters in two
+columns is inside a limit of five by one count and not by the
+other, and the `<2>' hung off it is what imenu takes back.
+
+The prompt here is `a' wearing three combining acute accents and
+then `b': five characters and two columns, which no room
+reserved in columns alone can keep the number on.  Both prompts
+are the same prompt, so the second is the one that has to be
+numbered, and it is the one the collision would swallow."
+  (with-temp-buffer
+    (parley-transcript-mode)
+    (let ((imenu-max-item-length 5)
+          (text (concat "a" (make-string 3 ?́) "b")))
+      (parley-transcript-test--index-prompts text 2)
+      (let* ((index (imenu--make-index-alist))
+             (found (mapcar (lambda (entry) (cdr (assoc (car entry) index)))
+                            index)))
+        (should (= 2 (length index)))
+        (should (= 2 (length (delete-dups found))))
+        (should (string-suffix-p "<2>" (car (nth 1 index))))
+        (should (seq-every-p (lambda (entry) (<= (length (car entry)) 5))
+                             index))))))
 
 (ert-deftest parley-transcript-test-labels-a-prompt-that-opens-blank ()
   "A prompt that opens with a blank line is named and pointed at its first line.
