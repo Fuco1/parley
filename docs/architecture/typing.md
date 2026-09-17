@@ -30,6 +30,63 @@ A block therefore needs no mechanism of parley's own. It reaches the sender as
 one string with newlines in it, which is the paste shape below, and so reaches
 the session as one message.
 
+## The input zone is marked, and the mark is shown rather than written
+
+**Nothing else in the buffer says where typing begins.** The pipeline emits no
+prompt, so there is no prompt string in the buffer at all and the operator's
+unsent text is the tail of a buffer whose tail is otherwise conversation. It
+moves under him as well: the transcript is followed, so output arrives while he
+types, and comint inserts it at the process mark and moves the mark past what it
+inserted.
+
+**What marks it is an overlay from the process mark to the end of the buffer.**
+A text property cannot mark the zone, because the zone holds no text until
+something is typed — and an empty zone is when he most needs to see where it is.
+An overlay has a position whether or not there is text under it.
+
+**Nothing the overlay shows may be buffer text.** `comint-send-input` sends
+`(buffer-substring (process-mark proc) (field-end))`, so a mark written into the
+buffer after that mark is a mark typed into the session. The `> ` at the head of
+the zone is the overlay's `before-string`: shown at a position where the buffer
+holds nothing, and it is the `> ` every turn of his is quoted with because what
+he is typing is the turn it is about to be. The band under it is a face of the
+zone's own, so his next turn stands apart from the turns it will join — and the
+run of lines a past turn is found by reads the face on buffer text at the head
+of a line, which this mark is not, so no line of the zone is taken for a turn
+already sent.
+
+**`line-prefix` is not what shows it**, though it is the right shape — it puts
+text at the head of a line on screen without putting it in the buffer. It is
+read off the character at the head of the line, and an empty overlay covers no
+character. Measured on Emacs 28.2 in a 191 column terminal: an empty overlay
+carrying `line-prefix` and a face shows neither of them, which loses exactly the
+case the mark exists for.
+
+**The band reaches the window edge on the zone's last line by a stretched
+space.** A background is a band only if the face extends it
+([transcript](transcript.md)), and what `:extend` paints from is the newline
+that ends a line. Every line of the zone ends in one except the last, which is
+the last line of the buffer: measured the same way, the colour there stops at
+the last character typed. That line is painted by a space carrying
+`(space :align-to right)`, shown after the zone as the overlay's `after-string`.
+Its `cursor` property is what keeps point drawn at the head of that space
+rather than at the far end of it, where the operator would be watching his
+cursor stand at the window edge as he typed.
+
+**The overlay is put back after every output**, since the mark it starts at has
+just moved; `comint-output-filter-functions` is where that is known, and
+`comint-send-input` runs the same hook with an empty string once the sender has
+returned, so the block a send leaves behind is covered by it too. It is also
+placed when the process is started: a session whose transcript is still empty
+renders nothing at all, and the first message of a session would be typed into a
+buffer with nothing in it to type at.
+
+**Marking the zone writes nothing into the buffer, and the line a run of tool
+calls collapses to depends on that.** That line is rewritten by comparing the
+two lines before the process mark against the block last written and taking
+them back out only if they match ([transcript](transcript.md)); an overlay
+leaves the comparison reading what it read before.
+
 ## Two send shapes, and the newline is what chooses
 
 **A single line goes as one `send-keys -l`**, where `-l` is what stops tmux
