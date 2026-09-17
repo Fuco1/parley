@@ -123,6 +123,77 @@ same reason the pipeline refuses colour at the source: measured over the 26 MB
 transcript not one escape byte reaches the buffer, and scanning the 1.3 MB for
 them costs 2.4 s of the 6.9 s that history takes to settle.
 
+## A table is aligned by an overlay, not by an edit
+
+A table lines up only if the agent lined it up, and a table whose columns do not
+line up is a table nobody reads. What the operator sees is the table aligned;
+what the buffer holds under it is the text the transcript delivered, character
+for character, because the aligned form is carried by an overlay in a `display`
+property.
+
+**The alignment is a rendering and not an edit**, and both halves of that are
+the reason for it:
+
+- the rendering can be recomputed when the window changes width, which text
+  written once on the way in never could — nothing refontifies or rewrites this
+  buffer after an insertion, by design; and
+- what it is computed from is the text under the overlay, so recomputing it
+  needs no record of anything.
+
+**Alignment only ever makes a table wider.** A table whose aligned form is wider
+than the window is one the padding has pushed further past the edge, and the
+columns it lined up are broken by the wrap anyway — so it is shown as the agent
+wrote it, which is the narrower of the two, and the alignment comes back when
+the window has room for it. That is what makes the width of the window the thing
+the rendering is recomputed on.
+
+**The aligned form closes a row the agent left open.** The outer bar at the end
+of a row is optional, and a table written by hand leaves it off; the aligned
+form always carries it, because what is aligned is a copy of the table with
+those bars put back. Without them the aligner reads such a row as a row with one
+cell fewer, and a `display` property is all the operator has — a cell dropped
+there is a cell of the agent's he cannot read at all, where a ragged table is
+merely ragged. The row stays open in the buffer text, which is what the overlay
+covers.
+
+**A table is what markdown-mode calls one**, which is narrower than what the
+agent may have meant. A line that does not open with a bar is not a table line
+to it, and a block of delimiter rows with no header row is a table it will not
+align — both are shown as the agent wrote them. The alignment is markdown-mode's
+own, so what it calls a table is the only thing parley can hand it.
+
+**A table inside a fenced code block is not a table**, it is text the agent is
+showing, and aligning it would rewrite what he quoted. The difference is
+markdown-mode's syntax over the fence, which is known in the buffer the
+fontification happens in and nowhere after it: the transcript buffer holds no
+markdown syntax at all, so a pass over the finished text could not tell a table
+an agent wrote from one it was quoting.
+
+**Where a table is comes from the render pass.** That pass returns a string
+comint has not inserted yet, so what it can say is how far into that string each
+table begins — the same offsets the index over the prompts is recorded from, and
+turned into buffer positions by the same output filter, because that is the
+first moment the text exists.
+
+**The faces the aligned form carries are on the display string itself.** What is
+under a `display` property is not what is shown, and the `font-lock-face`
+markdown-mode left on the buffer text does not reach the screen through one. The
+string carries the face markdown-mode paints a table with and nothing finer, so
+markup inside a cell stands in the aligned form as the agent wrote it.
+
+**What a realignment costs.** Measured on Emacs 28.2 in batch, byte-compiled,
+counted in CPU time and taken as the best of twenty runs of two hundred
+alignments, over a table of seven rows and four columns whose aligned form is 76
+columns wide: 6.4 ms to align one, of which markdown-mode's own aligner is
+2.9 ms. A conversation holding forty tables therefore costs 0.26 s of blocked
+redisplay on a resize. The hook this runs on is called for a window added,
+deleted or given another buffer as well, and the width the tables were last
+aligned to is what tells a resize from the rest — 3.3 µs when it has not
+changed, which is what keeps every other window change free.
+
+An overlay is the buffer's and not a window's, so a buffer shown in two windows
+of different widths is aligned to whichever of them changed last.
+
 ## A run of tool calls is one line
 
 The operator wants the conversation. The calls an agent made on its way to an

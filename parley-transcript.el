@@ -182,6 +182,46 @@ transcript buffer and strips `face'.  `invisible' and `display'
 are what markdown-mode hides markup with, and neither is in
 `font-lock-extra-managed-props', so both come through it.")
 
+(defvar parley-transcript--fontified-tables nil
+  "The tables the last `parley-transcript--fontify' found, newest call only.
+A list of (START . END) offsets into the text that call was
+given.  It is set on every call and read by the render pass right
+after it, which is the whole of its life: a table's place in the
+buffer is the overlay's business from then on.
+
+Not buffer local, because the buffer it is written in is the
+fontify buffer and the buffer it is read in is the transcript.")
+
+(defun parley-transcript--tables ()
+  "Return the tables in this buffer, as (START . END) offsets from `point-min'.
+
+A table is what markdown-mode calls one, and a table inside a
+fenced code block is not one: `markdown-table-at-point-p' asks
+`markdown-code-block-at-point-p', which reads the syntax
+markdown-mode propertized the fence with.  Here is the only
+place that is known -- the transcript buffer is a comint buffer
+and holds no markdown syntax at all, so a pass over the finished
+text could not tell a table an agent wrote from one it was
+quoting.
+
+END of a table is the end of its last line and not the newline
+after it, so that the overlay laid over one covers the table and
+nothing else."
+  (let ((start (point-min))
+        (tables nil))
+    (save-excursion
+      (goto-char start)
+      (while (not (eobp))
+        (if (not (markdown-table-at-point-p))
+            (forward-line 1)
+          (let ((begin (markdown-table-begin))
+                (end (markdown-table-end)))
+            (goto-char end)
+            (when (eq (char-before end) ?\n)
+              (setq end (1- end)))
+            (push (cons (- begin start) (- end start)) tables)))))
+    (nreverse tables)))
+
 (defun parley-transcript--fontify (text)
   "Return TEXT as markdown-mode fontifies it, in `font-lock-face' properties.
 
@@ -209,11 +249,16 @@ input.  Both were measured.
 
 Each property is walked over its own runs and not over the face
 runs, because `markdown-fontify-sub-superscripts' puts `display'
-on text that carries no face at all."
+on text that carries no face at all.
+
+The tables TEXT holds are left in
+`parley-transcript--fontified-tables' on the way past, because
+this is the one buffer that knows where they are."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
     (insert text)
     (font-lock-ensure)
+    (setq parley-transcript--fontified-tables (parley-transcript--tables))
     (let ((string (substring-no-properties (buffer-string)))
           (start (point-min)))
       (dolist (copy parley-transcript--fontified-properties)
@@ -321,6 +366,13 @@ string has not been inserted yet, which is also why the list
 outlives the pass: `parley-transcript--index-output' turns each
 into a position once comint has inserted it, and empties this.")
 
+(defvar-local parley-transcript--pending-tables nil
+  "The tables the last render pass produced, as a list of (START . END).
+Offsets into the string that pass returned, for the reason
+`parley-transcript--pending' holds offsets, and turned into the
+overlay over each table by `parley-transcript--align-output' once
+comint has inserted that string.")
+
 (defun parley-transcript--take-back-run ()
   "Delete the tool run block at the end of the buffer, and say if it went.
 
@@ -399,6 +451,18 @@ inserted and then rewritten in place."
               (when (equal (alist-get 'role record) "user")
                 (push (cons (alist-get 'text record) (1+ offset))
                       parley-transcript--pending))
+              ;; A table is recorded here for the same reason, and the
+              ;; same one character in: `parley-transcript--fontify'
+              ;; found it in the fontify buffer, which is the only
+              ;; buffer that can tell a table from a table inside a
+              ;; fence, and left where it was behind it.  Only what
+              ;; that call rendered, so the branch has to be the one
+              ;; that called it.
+              (when (equal (alist-get 'role record) "assistant")
+                (dolist (table parley-transcript--fontified-tables)
+                  (push (cons (+ offset 1 (car table))
+                              (+ offset 1 (cdr table)))
+                        parley-transcript--pending-tables)))
               (push speech blocks)
               (setq offset (+ offset (length speech))))
             (setq run (+ run (or (alist-get 'tools record) 0)))))
@@ -406,6 +470,204 @@ inserted and then rewritten in place."
         (when (> run 0)
           (push (parley-transcript--tool-run run) blocks))
         (mapconcat #'identity (nreverse blocks) "")))))
+
+
+;;; Aligning the tables
+
+;; A table lines up only if the agent lined it up, and a table whose
+;; columns do not line up is a table nobody reads.  The alignment is a
+;; rendering and not an edit: an overlay over the table carries the
+;; aligned form in a `display' property, and the text under it is the
+;; text the transcript delivered.
+;;
+;; That is what lets the rendering be recomputed when the window
+;; changes width.  Nothing refontifies or rewrites this buffer after
+;; an insertion, by design, so text written once on the way in could
+;; never answer a resize -- and what the rendering is computed from is
+;; the text under the overlay, so recomputing it needs no record of
+;; anything.
+
+(defvar-local parley-transcript--aligned-width nil
+  "The window width this buffer's tables were last aligned to, nil for none.
+`parley-transcript--realign-tables' runs on a hook that a resize
+is only one of the reasons for, and this is what tells the resize
+from the rest.")
+
+(defun parley-transcript--width ()
+  "Return the columns a table in this buffer has to fit in.
+
+The body of a window showing the buffer, and the selected
+window's when none does -- which is what an alignment computed
+before the buffer was ever displayed has to stand on.
+
+An overlay is the buffer's and not a window's, so a buffer shown
+in two windows of different widths is aligned to whichever of
+them changed last."
+  (window-body-width (get-buffer-window (current-buffer) t)))
+
+(defun parley-transcript--aligned (text width)
+  "Return TEXT with its columns aligned, nil if the result needs more than WIDTH.
+
+Aligned by markdown-mode's own `markdown-table-align', in the
+buffer `parley-transcript--fontify' renders in: what the operator
+would get by aligning the table himself is what he should get
+from reading it.  What goes into that buffer is the copy
+`parley-transcript--table-closed' returns and never TEXT itself,
+because a row that ends without a bar loses its last cell to the
+aligner.  Asking that copy whether it is a table answers for TEXT
+too: a table line is one that starts with a bar, and a bar put on
+the end of a line moves nothing at the start of it.
+
+Nil if the aligned form is wider than WIDTH, because alignment
+only ever makes a table wider -- so a table that has to be
+wrapped to fit is one alignment has pushed further past the edge,
+and the columns it would have lined up are broken by the wrap
+anyway.  The text the agent wrote is shown instead, which is the
+narrower of the two.
+
+Nil, too, if TEXT is no longer a table: the operator can edit in
+this buffer, and what is under the overlay is what the aligned
+form is computed from.
+
+Nil as well for a table of nothing but delimiter rows, which has
+nothing in it to line up: `markdown-table-align' formats from the
+cells, a delimiter row carries none, and with no row of data left
+it raises `Empty table' rather than saying so.  Whether a row is
+one is asked with markdown-mode's own
+`markdown--is-delimiter-row', because that is the predicate the
+caller which raises sorts the rows with -- `| --- | --- |' is a
+delimiter row, and anything reading the character after the bar
+takes it for a row of data.
+
+Nil, last, when the aligned form does not say what TEXT says.
+The aligner is markdown-mode's and which markdown-mode is under
+this buffer is the operator's business, so a version of it that
+dropped a cell would put a `display' property over that cell's
+row showing text the agent never wrote -- and a cell he cannot
+read at all is worse than a table that is merely ragged.
+
+The face is on the string and not on the text under it.  What a
+`display' property shows is the string's own properties, and the
+`font-lock-face' markdown-mode left on the buffer text never
+reaches the screen through one."
+  (with-current-buffer (parley-transcript--fontify-buffer)
+    (erase-buffer)
+    (insert (parley-transcript--table-closed text))
+    (goto-char (point-min))
+    (when (and (markdown-table-at-point-p)
+               (not (seq-every-p #'markdown--is-delimiter-row
+                                 (split-string text "\n"))))
+      (markdown-table-align)
+      (let ((aligned (string-trim-right
+                      (buffer-substring-no-properties (point-min) (point-max))
+                      "\n")))
+        (when (and (equal (parley-transcript--table-content aligned)
+                          (parley-transcript--table-content text))
+                   (<= (parley-transcript--columns aligned) width))
+          (propertize aligned 'face 'markdown-table-face))))))
+
+(defun parley-transcript--table-closed (text)
+  "Return TEXT with a bar on the end of every row that ends without one.
+
+The outer bar at the end of a row is optional and an agent
+writing a table by hand leaves it off, and
+`markdown--table-line-to-columns' counts the characters of a line
+against a position in a buffer, so it drops a last cell of one
+column when no bar closes it: measured against the repository's
+markdown-mode, `| a', `|---' and `| 1' align to three bare bars
+and `| a | b |', `|---|---|', `| 1 | 2' loses the 2.
+
+It is the copy the alignment is computed from that is closed and
+never the buffer text, so the row the agent left open is still
+open in what the overlay covers.  What that copy shows in its
+place is one grid, and a grid has an edge."
+  (mapconcat (lambda (line)
+               (if (string-suffix-p "|" (string-trim-right line))
+                   line
+                 (concat line " |")))
+             (split-string text "\n")
+             "\n"))
+
+(defun parley-transcript--table-content (text)
+  "Return what TEXT says, with everything the alignment may move taken out.
+
+The spaces a cell is padded with, the bars between two of them
+and the dashes and colons a delimiter row is written from -- so
+two forms of one table answer this the same way exactly when they
+hold the same cells, whatever either does with the width of a
+column.
+
+A cell's own dashes and colons go with them, which can only make
+two forms agree and never make them differ: what this is asked is
+whether the alignment dropped anything, and the answer may not be
+yes when it did not."
+  (replace-regexp-in-string "[ \t|:-]" "" text))
+
+(defun parley-transcript--columns (text)
+  "Return how many columns the widest line of TEXT takes up on screen.
+`string-width' and not `length', because a table of CJK text is
+aligned in columns and lines up in none."
+  (apply #'max 0 (mapcar #'string-width (split-string text "\n"))))
+
+(defun parley-transcript--align-overlay (overlay width)
+  "Show the table under OVERLAY aligned to WIDTH columns.
+
+An overlay left empty is dropped rather than realigned.  Nothing
+brings its ends together but the deletion of every line of its
+table -- `comint-truncate-buffer' taking the top of the
+conversation away, or the operator killing a stretch of it -- and
+an overlay over no text is an overlay nothing can bring back."
+  (if (= (overlay-start overlay) (overlay-end overlay))
+      (delete-overlay overlay)
+    (overlay-put overlay 'display
+                 (parley-transcript--aligned
+                  (buffer-substring-no-properties (overlay-start overlay)
+                                                  (overlay-end overlay))
+                  width))))
+
+(defun parley-transcript--align-output (_string)
+  "Lay an overlay over each table the last render pass produced, and align it.
+
+On `comint-output-filter-functions', for the reason
+`parley-transcript--index-output' is: the render pass ran before
+the insertion and could only say how far into its string each
+table was, and comint has just inserted that string at
+`comint-last-output-start'.
+
+The overlay takes in neither what is inserted at its start nor
+what is inserted at its end, because a table's own text is all it
+may show in place of.
+
+STRING is what the hook is called with and is not looked at: what
+arrived is already in the buffer."
+  (when parley-transcript--pending-tables
+    (let ((width (parley-transcript--width)))
+      (dolist (table parley-transcript--pending-tables)
+        (let ((overlay (make-overlay (+ comint-last-output-start (car table))
+                                     (+ comint-last-output-start (cdr table))
+                                     nil t)))
+          (overlay-put overlay 'parley-table t)
+          (parley-transcript--align-overlay overlay width))))
+    (setq parley-transcript--pending-tables nil)))
+
+(defun parley-transcript--realign-tables ()
+  "Align this buffer's tables to the width of the window showing it.
+
+On `window-configuration-change-hook', whose buffer-local value
+Emacs runs for each window showing the buffer once that window
+has changed its body size -- with the window selected, so the
+width read here is that window's.
+
+It runs on a window being added, deleted or given another buffer
+as well, and the tables are recomputed on none of those: the
+aligned form follows from the text and the width alone, so
+nothing but a width that has changed can change it."
+  (let ((width (parley-transcript--width)))
+    (unless (eq width parley-transcript--aligned-width)
+      (setq parley-transcript--aligned-width width)
+      (dolist (overlay (overlays-in (point-min) (point-max)))
+        (when (overlay-get overlay 'parley-table)
+          (parley-transcript--align-overlay overlay width))))))
 
 
 ;;; The imenu index
@@ -655,6 +917,16 @@ and never the objects."
   ;; pains to drop.
   (add-hook 'comint-output-filter-functions
             #'parley-transcript--index-output nil t)
+  ;; Where the tables the render pass found are is known here and not
+  ;; afterwards, for the reason the index is.
+  (add-hook 'comint-output-filter-functions
+            #'parley-transcript--align-output nil t)
+  ;; The aligned form of a table is what fits the window, so it is
+  ;; computed again when the window changes width.  Buffer locally,
+  ;; which is what has Emacs run it for each window showing this
+  ;; buffer with that window selected.
+  (add-hook 'window-configuration-change-hook
+            #'parley-transcript--realign-tables nil t)
   ;; The zone the operator types in starts at the process mark, and
   ;; comint has just moved that mark past what it inserted, so the
   ;; overlay that marks the zone is put back after every output.
