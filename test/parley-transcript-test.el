@@ -1165,6 +1165,48 @@ rebuilds the index on every look."
           (forward-line 1)
           (should (looking-at-p "> the second of them")))))))
 
+(ert-deftest parley-transcript-test-numbers-a-label-a-short-limit-crowds-out ()
+  "A number that fills the limit takes the label's place rather than its own.
+
+`imenu-max-item-length' can be shorter than the number needs the
+label to give up.  A label that kept so much as its first
+character there would be cut back to exactly that by
+`imenu--truncate-items', losing the number -- which is the one
+part of the name telling it from the entry above it.
+
+Limits of 3 and 4 are the whole of the room `<2>' and `<10>'
+need, and eleven prompts under one label reach both: at 3 every
+prompt after the first is named by its number alone, at 4 the
+label is down to its ellipsis until the number goes two digits.
+Eleven, because a one-digit suffix is the case the limit is
+widest for and it is the tenth that first has nowhere to put a
+second digit.
+
+What is asserted is the resolution and not the strings: every
+label is looked up the way `imenu' looks one up, and the eleven
+have to come back pointing at eleven different places.  Two
+entries under one name resolve to one of them.
+
+This starts no pipeline.  The prompts go into the index through
+the function the render pass puts them there with, which is all
+the index needs, and `imenu--make-index-alist' is what is asked
+for them because imenu's own truncation is the thing under test."
+  (dolist (limit '(3 4))
+    (with-temp-buffer
+      (parley-transcript-mode)
+      (let ((imenu-max-item-length limit))
+        (dotimes (_ 11)
+          (let ((start (point)))
+            (insert "continue with it\n")
+            (parley-transcript--index-prompt "continue with it" start)))
+        (let* ((index (imenu--make-index-alist))
+               (found (mapcar (lambda (entry) (cdr (assoc (car entry) index)))
+                              index)))
+          (should (= 11 (length index)))
+          (should (= 11 (length (delete-dups (copy-sequence found)))))
+          (should (seq-every-p (lambda (entry) (<= (length (car entry)) limit))
+                               index)))))))
+
 (ert-deftest parley-transcript-test-labels-a-prompt-that-opens-blank ()
   "A prompt that opens with a blank line is named and pointed at its first line.
 
