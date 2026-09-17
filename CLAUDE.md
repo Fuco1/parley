@@ -36,8 +36,8 @@ prevents the mistake.
 
 | file | holds |
 |---|---|
-| `parley.el` | discovery: `claude agents --json`, the stdin discriminator, the pane id, the transcript path, and the tag that tells two sessions apart. The base of the package |
-| `parley-switch.el` | picking a session: the status order, the four columns a session is listed by, the sallet source and the `completing-read` fallback |
+| `parley.el` | discovery: `claude agents --json`, the stdin discriminator, the pane id, the transcript path, and the tag that tells two sessions apart. Then listing what it found: the status order, the five columns a session is listed by, and the one `completing-read` over them. The base of the package |
+| `parley-switch.el` | picking a session with sallet: the source, the matcher that keeps the columns apart, the renderer, and the fallback to the minibuffer reader when sallet is missing |
 | `parley-transcript.el` | the conversation view: the `tail`/`jq` pipeline, the render pass, the imenu index, and typing into the pane |
 | `test/` | one file per source file, named `<source>-test.el` |
 | `.orc/config.toml` | the check commands, and which role runs each |

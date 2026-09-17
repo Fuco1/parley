@@ -209,6 +209,37 @@ point of the last test -- is the pipeline."
       (should (equal default-directory
                      (file-name-as-directory temporary-file-directory))))))
 
+(ert-deftest parley-transcript-test-reads-a-session-when-called-with-none ()
+  "Called as a command with nothing in hand, it reads a session first.
+It reads it with `parley-read-session', which is the reader the
+switcher falls back to as well, so what the minibuffer offers is
+a row of that one's making -- the name, the status, the read only
+mark, the working directory and the tag.  The record that row
+resolves to is what the buffer ends up following."
+  (skip-unless (executable-find "jq"))
+  (let* ((session (parley-transcript-test--session
+                   "test" parley-transcript-test--lines))
+         (file (plist-get session :transcript))
+         (offered nil)
+         (buffer nil))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'parley-sessions) (lambda () (list session)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection &rest _)
+                       (setq offered (all-completions "" collection))
+                       (car offered))))
+            (save-window-excursion (call-interactively #'parley-transcript)))
+          (should (equal offered
+                         (list (parley-session-row
+                                (parley-session-fields session)))))
+          (should (= 1 (length (parley-transcript-test--buffers))))
+          (setq buffer (car (parley-transcript-test--buffers)))
+          (should (eq (buffer-local-value 'parley-transcript-session buffer)
+                      session)))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (delete-file file))))
+
 (ert-deftest parley-transcript-test-renders-the-conversation ()
   "The whole history reaches the buffer as a conversation and nothing else.
 The turn that was only thinking and the `tool_result' turn
@@ -1380,25 +1411,6 @@ off it."
                      '("what is here" "after the run")))
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "> after the run")))))
-
-(ert-deftest parley-transcript-test-reads-two-sessions-of-one-name-apart ()
-  "Two sessions of one name in one directory are two candidates.
-That is two started in the same repo, which `claude agents'
-reports under one name; `assoc' resolves what was picked, so one
-candidate for both would open one conversation and type into the
-other session's pane."
-  (let ((one (list :name "orc" :cwd "/srv/orc" :pane "%1"
-                   :session-id "1111ffff-0000-4000-8000-000000000001"))
-        (two (list :name "orc" :cwd "/srv/orc" :pane "%2"
-                   :session-id "2222ffff-0000-4000-8000-000000000002"))
-        (offered nil))
-    (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
-              ((symbol-function 'completing-read)
-               (lambda (_prompt table &rest _)
-                 (setq offered (mapcar #'car table))
-                 (cadr offered))))
-      (should (eq (parley-transcript--read-session) two))
-      (should (= 2 (length (delete-dups (copy-sequence offered))))))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here

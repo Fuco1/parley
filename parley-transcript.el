@@ -563,32 +563,13 @@ by such a leftover is not a name this session can have."
                 (buffer-list))
       (generate-new-buffer (parley-transcript-buffer-name session))))
 
-(defun parley-transcript--read-session ()
-  "Read one of the live sessions in the minibuffer.
-
-The candidate carries `parley-session-tag', because neither the
-name `claude agents' gives a session nor the directory it runs in
-is its own: two sessions started in one repo come back under one
-name and one directory, so without the tag they are one
-candidate, and the `assoc' below would hand back whichever of
-them came first -- a buffer showing one conversation and typing
-into the other one's pane."
-  (let ((table (mapcar (lambda (session)
-                         (cons (format "%s  %s  %s"
-                                       (or (plist-get session :name) "unnamed")
-                                       (plist-get session :cwd)
-                                       (parley-session-tag session))
-                               session))
-                       (parley-sessions))))
-    (unless table
-      (user-error "No live Claude Code session to read"))
-    (cdr (assoc (completing-read "Session: " table nil t) table))))
-
 ;;;###autoload
 (defun parley-transcript (session)
   "Show the transcript of SESSION in a comint buffer.
 SESSION is a record as `parley-sessions' returns them.
-Interactively, read one of the live sessions in the minibuffer.
+Interactively, one is read in the minibuffer with
+`parley-read-session', which is the reader the switcher falls
+back to when sallet is missing: the same rows, in the same order.
 
 The buffer's process delivers the transcript from its first byte
 and then follows the file, so nothing appended while the history
@@ -596,7 +577,7 @@ was arriving is missed.  It is stopped when the buffer is killed.
 
 A buffer already following SESSION is shown as it stands, process
 and history and all."
-  (interactive (list (parley-transcript--read-session)))
+  (interactive (list (parley-read-session)))
   (let ((buffer (parley-transcript--buffer session)))
     (unless (comint-check-proc buffer)
       (with-current-buffer buffer
