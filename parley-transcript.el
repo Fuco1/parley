@@ -142,13 +142,28 @@ name it keeps font lock out too: `font-lock-mode' refuses a
 buffer whose name starts with a space, and nothing here runs
 `after-change-major-mode-hook' for `global-font-lock-mode' to act
 on -- so there is no jit-lock here and `font-lock-ensure' is the
-plain fontify-region it looks like."
+plain fontify-region it looks like.
+
+`markdown-toggle-markup-hiding' is on because the markup that is
+hidden with a `display' property -- a heading's `#', a
+blockquote's `>', a list bullet, a horizontal rule -- is the
+markup markdown-mode only marks when `markdown-hide-markup' is
+non-nil.  What it marks `invisible' it marks either way."
   (unless (buffer-live-p parley-transcript--markdown-buffer)
     (setq parley-transcript--markdown-buffer
           (get-buffer-create " *parley-markdown*"))
     (with-current-buffer parley-transcript--markdown-buffer
-      (delay-mode-hooks (markdown-mode))))
+      (delay-mode-hooks (markdown-mode))
+      (markdown-toggle-markup-hiding 1)))
   parley-transcript--markdown-buffer)
+
+(defconst parley-transcript--fontified-properties
+  '((face . font-lock-face) (invisible . invisible) (display . display))
+  "The properties copied out of the fontify buffer, and what each becomes.
+`face' becomes `font-lock-face' because font lock runs in the
+transcript buffer and strips `face'.  `invisible' and `display'
+are what markdown-mode hides markup with, and neither is in
+`font-lock-extra-managed-props', so both come through it.")
 
 (defun parley-transcript--fontify (text)
   "Return TEXT as markdown-mode fontifies it, in `font-lock-face' properties.
@@ -161,31 +176,40 @@ fences and inline code are found by its syntax table and its
 broken subset -- and font lock in the transcript buffer would
 refontify the whole conversation on every append.
 
-The faces are then copied onto a clean string rather than
-remapped in place, because markdown-mode also leaves `invisible'
-and its own `markdown-heading' properties behind and the
-transcript buffer has business with none of them.  `face' in
-particular has to go: comint sets `font-lock-defaults' to
+`parley-transcript--fontified-properties' is copied onto a clean
+string rather than the buffer string being taken whole, because
+markdown-mode also leaves `markdown-heading', `fontified',
+`font-lock-multiline' and a `syntax-table' property behind and
+the transcript buffer has business with none of them -- a
+`syntax-table' property in a comint buffer least of all.  `face'
+in particular has to go: comint sets `font-lock-defaults' to
 `(nil t)', which is not nil, so global font lock turns font lock
 on in that buffer with no keywords at all, where the only thing
 it can do is strip -- and `face' is exactly what
 `font-lock-default-unfontify-region' removes.  `font-lock-face'
 survives it, and is what comint itself puts on its prompt and its
-input.  Both were measured."
+input.  Both were measured.
+
+Each property is walked over its own runs and not over the face
+runs, because `markdown-fontify-sub-superscripts' puts `display'
+on text that carries no face at all."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
     (insert text)
     (font-lock-ensure)
     (let ((string (substring-no-properties (buffer-string)))
-          (start (point-min))
-          (position (point-min)))
-      (while (< position (point-max))
-        (let ((next (next-single-property-change position 'face nil (point-max)))
-              (face (get-text-property position 'face)))
-          (when face
-            (put-text-property (- position start) (- next start)
-                               'font-lock-face face string))
-          (setq position next)))
+          (start (point-min)))
+      (dolist (copy parley-transcript--fontified-properties)
+        (let ((property (car copy))
+              (position start))
+          (while (< position (point-max))
+            (let ((next (next-single-property-change
+                         position property nil (point-max)))
+                  (value (get-text-property position property)))
+              (when value
+                (put-text-property (- position start) (- next start)
+                                   (cdr copy) value string))
+              (setq position next)))))
       string)))
 
 (defun parley-transcript--record (line)
@@ -479,6 +503,12 @@ and never the objects."
   ;; the whole reason jq is in this pipeline.
   (setq-local comint-output-filter-functions
               (remq 'ansi-color-process-output comint-output-filter-functions))
+  ;; The markup markdown-mode marked `invisible markdown-markup' is
+  ;; hidden by the reading buffer's spec and not by the property, and
+  ;; the default spec of t would hide it without this -- but it is one
+  ;; `add-to-invisibility-spec' from anywhere else away from being a
+  ;; list this value is not in.
+  (add-to-invisibility-spec 'markdown-markup)
   ;; A preoutput filter, so the objects are turned into conversation on
   ;; the way in rather than inserted and rewritten in place.
   (add-hook 'comint-preoutput-filter-functions #'parley-transcript--filter
