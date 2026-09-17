@@ -99,7 +99,7 @@ function cannot move with it.")
 
 ;;; The columns
 
-(ert-deftest parley-switch-test-fields ()
+(ert-deftest parley-switch-test-a-session-is-five-fields ()
   "A session is five fields: name, status, mark, directory, pane."
   (should (equal (parley-switch--fields (parley-switch-test--session 2))
                  (vector "orc-w1" "idle" "" "/srv/orc/trees/worker-1/orc"
