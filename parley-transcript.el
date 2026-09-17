@@ -359,8 +359,9 @@ the two markers together and nothing else does.")
 (defun parley-transcript--index-label (text)
   "Return the imenu label for the prompt TEXT, nil if it has nothing to say.
 
-The first line of the prompt, which is what the operator will
-look for; how many messages ago it was is no help to him.  The
+The first line of the prompt that says anything, which is what
+the operator will look for; how many messages ago it was is no
+help to him.  The
 prompt is trimmed first and its first line taken after that, so
 that the line this names is the line the entry points at --
 `parley-transcript--speech' trims it the same way before quoting
