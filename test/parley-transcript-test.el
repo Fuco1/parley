@@ -1477,6 +1477,45 @@ next two tests."
         (forward-line 1)
         (should (looking-at-p (regexp-quote (cdr entry))))))))
 
+(ert-deftest parley-transcript-test-renames-a-first-line-shaped-like-a-number ()
+  "A first line that is itself a suffix is renamed like any other duplicate.
+
+The index is built in one pass over the prompts in buffer order
+and the number is read off the entries already in it, so a prompt
+whose first line is `foo<2>' collides with the `foo<2>' an
+earlier duplicate of `foo' was handed and is renamed
+`foo<2><2>'.  The distinct first lines are not reserved in a pass
+of their own, which would leave that one bare.
+
+`generate-new-buffer-name' is what that is the transcript's copy
+of, and it is asked here rather than quoted: four buffers made in
+the same order under the same four names take the same four
+names, so the two rules are one rule and not two that happen to
+agree on the fixtures above.
+
+No length limit is in force, because what the limit does to a
+number is the next two tests and it would cut these names short
+of the point."
+  (let ((names '("foo" "foo" "foo<2>" "foo"))
+        (buffers nil)
+        (emacs nil)
+        (parley nil))
+    (unwind-protect
+        (setq emacs (mapcar (lambda (name)
+                              (let ((buffer (generate-new-buffer name)))
+                                (push buffer buffers)
+                                (buffer-name buffer)))
+                            names))
+      (mapc #'kill-buffer buffers))
+    (with-temp-buffer
+      (parley-transcript-mode)
+      (let ((imenu-max-item-length nil))
+        (dolist (name names)
+          (parley-transcript-test--index-prompts name 1))
+        (setq parley (mapcar #'car (parley-transcript--imenu-index)))))
+    (should (equal parley '("foo" "foo<2>" "foo<2><2>" "foo<3>")))
+    (should (equal parley emacs))))
+
 (ert-deftest parley-transcript-test-numbers-a-label-inside-the-length-limit ()
   "The number on a label at the limit does not push itself off the end.
 
