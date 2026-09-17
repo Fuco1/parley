@@ -63,10 +63,12 @@ the payload in every call is what must not come with it."
            (number-sequence 1 count) ",")))
 
 (defun parley-transcript-test--text-turn (text)
-  "Return a transcript line for an assistant turn that said TEXT."
+  "Return a transcript line for an assistant turn that said TEXT.
+TEXT is encoded on the way in, so a message with the newlines of
+a table or a fence in it is written here as itself."
   (format (concat "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\","
-                  "\"content\":[{\"type\":\"text\",\"text\":\"%s\"}]}}")
-          text))
+                  "\"content\":[{\"type\":\"text\",\"text\":%s}]}}")
+          (json-serialize text)))
 
 ;; What the nine lines above render to, blank lines dropped.  The tool
 ;; result, the thinking, the two non-message lines and the empty turn
@@ -1334,6 +1336,172 @@ else."
   (should (get-text-property 0 'cursor parley-transcript--input-fill))
   (should (equal (face-attribute 'parley-input-marker :background nil t)
                  (face-attribute 'parley-input :background nil t))))
+
+
+;;; Aligning a table
+
+(defconst parley-transcript-test--table
+  (concat "| name | what it does |\n"
+          "|---|---|\n"
+          "| a | short |\n"
+          "| bbbbbb | a much longer cell |")
+  "A table as an agent writes one, whose columns do not line up.
+Its aligned form is 31 columns wide and the text itself is 30, so
+a window of 20 has room for neither.")
+
+(defun parley-transcript-test--tables (buffer)
+  "Return the overlays over a table in BUFFER, in buffer order."
+  (with-current-buffer buffer
+    (sort (seq-filter (lambda (overlay) (overlay-get overlay 'parley-table))
+                      (overlays-in (point-min) (point-max)))
+          (lambda (one other) (< (overlay-start one) (overlay-start other))))))
+
+(defun parley-transcript-test--under (overlay)
+  "Return the buffer text OVERLAY covers, which is not what it shows."
+  (with-current-buffer (overlay-buffer overlay)
+    (buffer-substring-no-properties (overlay-start overlay)
+                                    (overlay-end overlay))))
+
+(defun parley-transcript-test--bars (text)
+  "Return the columns the `|' of TEXT stand in, one list per line.
+A table is aligned when every line of it answers this the same
+way, and the fixture is the case that says a test of it can
+fail: the table an agent wrote answers it differently on every
+line."
+  (mapcar (lambda (line)
+            (let ((columns nil)
+                  (position 0))
+              (while (setq position (string-search "|" line position))
+                (push position columns)
+                (setq position (1+ position)))
+              (nreverse columns)))
+          (split-string text "\n")))
+
+(ert-deftest parley-transcript-test-aligns-a-table-over-the-text-as-written ()
+  "A table is shown with its columns aligned, over the text the transcript delivered.
+
+Both halves are what the overlay is for.  What it shows lines the
+columns up; what the buffer holds under it is the table the agent
+wrote, character for character -- so a rendering that left the
+text alone fails the alignment and one that rewrote the buffer
+fails the text.
+
+The face is asserted on the string the overlay shows and not on
+the text under it, because what a `display' property shows are
+the string's own properties: the `font-lock-face' markdown-mode
+left on the buffer text never reaches the screen through one.
+
+Two turns, each with a table in it, because where a table is is
+an offset into what the render pass returned: the second table's
+is one the length of the first turn's block into that string, and
+a pass that forgot to count the turns before it would put the
+overlay over the wrong text and pass everything else here."
+  (skip-unless (executable-find "jq"))
+  (let ((other (concat "| id | note |\n"
+                       "|---|---|\n"
+                       "| 1 | the second table |")))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--text-turn
+               (concat "Here it is:\n\n" parley-transcript-test--table
+                       "\n\nand that is all"))
+              (parley-transcript-test--text-turn (concat "And again:\n\n" other)))
+      (let* ((overlays (parley-transcript-test--wait
+                        (lambda ()
+                          (let ((found (parley-transcript-test--tables buffer)))
+                            (and (= 2 (length found)) found)))))
+             (shown (mapcar (lambda (overlay) (overlay-get overlay 'display))
+                            overlays)))
+        (should (= 2 (length overlays)))
+        (should (equal (list parley-transcript-test--table other)
+                       (mapcar #'parley-transcript-test--under overlays)))
+        (should (string-search parley-transcript-test--table
+                               (with-current-buffer buffer
+                                 (buffer-substring-no-properties (point-min)
+                                                                 (point-max)))))
+        (dolist (form shown)
+          (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+          (should (eq 'markdown-table-face (get-text-property 0 'face form))))
+        (should (< 1 (length (seq-uniq (parley-transcript-test--bars
+                                        parley-transcript-test--table)))))
+        (dolist (cell '("name" "what it does" "bbbbbb" "a much longer cell"))
+          (should (string-search cell (car shown))))))))
+
+(ert-deftest parley-transcript-test-aligns-again-when-the-window-changes-width ()
+  "What is shown over a table follows the width of the window, and the text does not.
+
+Alignment only ever adds padding, so a table whose aligned form
+is wider than the window is one the padding pushed past the edge:
+the text the agent wrote is shown instead, and the alignment
+comes back when there is room for it again.  That the rendering
+can answer a resize at all is why it is an overlay and not text
+written once on the way in.
+
+Batch Emacs never redisplays and this hook runs during redisplay,
+so it is run here by hand.  What is under test is what the hook
+does; that `parley-transcript-mode' puts it on the buffer's own
+value is what makes it the hook Emacs will call."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn parley-transcript-test--table))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda () (parley-transcript-test--tables buffer)))))
+                (aligned nil))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (set-frame-width (selected-frame) 100)
+              (with-current-buffer buffer
+                (run-hooks 'window-configuration-change-hook))
+              (setq aligned (overlay-get overlay 'display))
+              (should (stringp aligned))
+              (should (= 1 (length (seq-uniq
+                                    (parley-transcript-test--bars aligned)))))
+              (set-frame-width (selected-frame) 20)
+              (with-current-buffer buffer
+                (run-hooks 'window-configuration-change-hook))
+              (should-not (overlay-get overlay 'display))
+              (set-frame-width (selected-frame) 100)
+              (with-current-buffer buffer
+                (run-hooks 'window-configuration-change-hook))
+              (should (equal aligned (overlay-get overlay 'display))))
+            (should (equal parley-transcript-test--table
+                           (parley-transcript-test--under overlay)))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-leaves-a-table-in-a-fence-as-written ()
+  "A table inside a fenced code block is shown as the agent wrote it.
+
+It is not a table, it is text he is showing, and aligning it
+would rewrite what he quoted.  The difference is markdown-mode's
+syntax over the fence and is known in the buffer the render pass
+fontifies in -- the transcript buffer holds no markdown syntax at
+all, so a pass over the finished text could not tell the two
+apart.
+
+The message holds the same table twice, fenced and not, so a
+render pass that found no table anywhere fails the first
+assertion rather than passing this test by having done nothing."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--text-turn
+             (concat parley-transcript-test--table
+                     "\n\nwhich is written:\n\n```\n"
+                     parley-transcript-test--table "\n```")))
+    (let ((overlays (parley-transcript-test--wait
+                     (lambda () (parley-transcript-test--tables buffer)))))
+      (should (= 1 (length overlays)))
+      (should (equal parley-transcript-test--table
+                     (parley-transcript-test--under (car overlays))))
+      (with-current-buffer buffer
+        (save-excursion
+          (goto-char (point-min))
+          (should (search-forward parley-transcript-test--table nil t))
+          (should (search-forward parley-transcript-test--table nil t))
+          (should-not (seq-find (lambda (overlay)
+                                  (overlay-get overlay 'parley-table))
+                                (overlays-in (match-beginning 0)
+                                             (match-end 0)))))))))
 
 
 ;;; The imenu index
