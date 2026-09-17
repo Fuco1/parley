@@ -510,6 +510,9 @@ and never the objects."
   ;; way to reach the session.  What the operator submits goes to the
   ;; session's tmux pane instead, which is the door that does reach it.
   (setq-local comint-input-sender #'parley-transcript--send-input)
+  ;; What RET on a past turn sends.  comint's default reads the `field'
+  ;; property, which stands for something else in this buffer.
+  (setq-local comint-get-old-input #'parley-transcript--old-input)
   (setq-local imenu-create-index-function #'parley-transcript--imenu-index)
   ;; imenu remembers the index it built for a buffer and, left at its
   ;; default, never builds it again; switched on, it gives up again
@@ -809,6 +812,63 @@ into at all, and this is where the operator finds that out."
     ;; where he typed it rather than quoted into the conversation as
     ;; though it had gone.
     (parley-transcript--render-input string)))
+
+(defun parley-transcript--turn-line-p ()
+  "Non-nil if the line point is on is one line of a turn of the operator's.
+Read at the beginning of the line, so that point at the end of
+one -- past the last character the block carries a face on -- is
+still on it."
+  (eq (get-text-property (line-beginning-position) 'font-lock-face)
+      'parley-user))
+
+(defun parley-transcript--old-input ()
+  "Return the turn point stands in, with the quote the renderer put on it taken off.
+
+This is the buffer's `comint-get-old-input', which is what RET on
+a past turn resubmits.  comint's default reads the `field'
+property and is wrong here in two ways at once.  A turn the
+transcript delivered carries `field output', because
+`comint-output-filter' puts that on everything it inserts, so the
+default takes the line under point whole -- measured on Emacs
+28.2 over the rendered turn `what is here', it returns \"> what
+is here\", and the session is asked a question opening with a
+quote mark.  A turn submitted here carries no `field' at all,
+because `parley-transcript--render-input' deleted the text comint
+had just put `field input' on and inserted a block that inherits
+nothing, so the default returns the whole unfielded run around
+it: \"\\n> what is here\\n\" over the same buffer.  Both are one
+line where the turn may be four.
+
+A turn is the run of lines carrying `parley-user', which is the
+face `parley-transcript--quote' puts on every turn of the
+operator's whichever door it came in by, and `> ' is what it put
+in front of each of that run's lines.  The face rather than the
+`> ' itself, because an assistant turn quoting something is
+markdown with `> ' at the front of a line too, and that quote is
+markdown-mode's to hide rather than this one's to strip.
+
+Anything else -- an assistant turn, the line a run of tool calls
+collapsed to, a blank line between two blocks -- is nobody's turn
+for the operator to send again, and a `user-error' naming that
+beats typing a line of somebody else's markdown into a live
+session."
+  (unless (parley-transcript--turn-line-p)
+    (user-error "Only a turn of yours can be sent again, and point is not on one"))
+  (save-excursion
+    (beginning-of-line)
+    (while (and (not (bobp))
+                (save-excursion (forward-line -1)
+                                (parley-transcript--turn-line-p)))
+      (forward-line -1))
+    (let ((start (point)))
+      (end-of-line)
+      (while (and (not (eobp))
+                  (save-excursion (forward-line 1)
+                                  (parley-transcript--turn-line-p)))
+        (forward-line 1)
+        (end-of-line))
+      (replace-regexp-in-string
+       "^> " "" (buffer-substring-no-properties start (point))))))
 
 (provide 'parley-transcript)
 ;;; parley-transcript.el ends here

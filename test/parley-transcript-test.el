@@ -995,6 +995,138 @@ two of them and not one."
     (should (= 2 (seq-count (lambda (line) (equal line "> hello there"))
                             (parley-transcript-test--shown buffer))))))
 
+(defun parley-transcript-test--after (buffer text)
+  "Return the position in BUFFER just past the first TEXT in it.
+That is the end of the rendered line, where a reader's point
+naturally stands and where the block carries no face of its own."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (point-min))
+      (should (search-forward text nil t))
+      (point))))
+
+(defun parley-transcript-test--resubmit (buffer position)
+  "Press RET in BUFFER with point at POSITION, as the operator sends a turn again.
+The binding is looked up rather than `comint-send-input' called
+directly, because RET is how he reaches this at all."
+  (with-current-buffer buffer
+    (goto-char position)
+    (call-interactively (key-binding (kbd "RET")))))
+
+(ert-deftest parley-transcript-test-sends-a-past-turn-without-the-quote ()
+  "RET on a turn the operator took sends it again without the renderer's quote.
+`comint-get-old-input-default' branches on the `field' property,
+and `comint-output-filter' puts `field output' on everything it
+inserts -- so over a turn the transcript delivered it takes the
+line whole.  Measured on Emacs 28.2 over this fixture with point
+in the rendered `what is here', it returns \"> what is here\",
+and the session is asked a question opening with a quote mark.
+
+One `send-keys' and not a paste is also what says no newline came
+with it, which is the shape the other branch returns."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--resubmit
+       buffer (parley-transcript-test--after buffer "what is here"))
+      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
+                     '(("send-keys" "-t" "%7" "-l" "--" "what is here")
+                       ("send-keys" "-t" "%7" "Enter")))))))
+
+(ert-deftest parley-transcript-test-sends-every-line-of-a-past-turn ()
+  "RET on a turn of several lines sends all of them and not the one under point.
+The operator means the prompt when he sends one again, and both
+of comint's default branches are line oriented.  Point stands on
+the second of three lines, and one paste rather than three sends
+is what says the three reached the pane as one message."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn
+                 "alpha line\\nbeta line\\ngamma line")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> gamma line"
+                                (parley-transcript-test--shown buffer)))))
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--resubmit
+       buffer (parley-transcript-test--after buffer "beta line"))
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       '(("load-buffer" "-b" "parley" "-")
+                         ("paste-buffer" "-d" "-p" "-b" "parley" "-t" "%7")
+                         ("send-keys" "-t" "%7" "Enter"))))
+        (should (equal (cdar calls)
+                       "alpha line\nbeta line\ngamma line"))))))
+
+(ert-deftest parley-transcript-test-sends-a-turn-submitted-here-alike ()
+  "The two doors a turn reaches the buffer by send the same text again.
+A turn submitted here carries no `field' property at all:
+`parley-transcript--render-input' deleted the text comint had
+just put `field input' on and inserted a block that inherits
+nothing.  So `comint-get-old-input-default' takes its other
+branch and returns the whole unfielded run -- measured on Emacs
+28.2 over this buffer, \"\\n> what is here\\n\" rather than the
+turn.
+
+The same text is sent through both doors and both positions are
+taken before either is resubmitted, so the two calls compared are
+the delivered turn and the submitted one and not a resubmission
+of one of them."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "what is here"))
+    (let ((delivered (parley-transcript-test--after buffer "what is here"))
+          (submitted (with-current-buffer buffer
+                       (goto-char (point-max))
+                       (should (search-backward "what is here" nil t))
+                       (+ (point) 3)))
+          (first nil)
+          (second nil))
+      (parley-transcript-test--with-tmux
+        (parley-transcript-test--resubmit buffer delivered)
+        (setq first (parley-transcript-test--calls tmux-log)))
+      (parley-transcript-test--with-tmux
+        (parley-transcript-test--resubmit buffer submitted)
+        (setq second (parley-transcript-test--calls tmux-log)))
+      (should (equal (mapcar #'car first)
+                     '(("send-keys" "-t" "%7" "-l" "--" "what is here")
+                       ("send-keys" "-t" "%7" "Enter"))))
+      (should (equal first second)))))
+
+(ert-deftest parley-transcript-test-refuses-a-turn-that-is-not-the-operators ()
+  "RET on an assistant turn or on a tool-run line sends nothing and says why.
+Neither is the operator's to send again, and a line of somebody
+else's markdown typed into a live session is worse than an error
+saying nothing went.
+
+Nothing having been sent is asserted by the fake tmux never
+having run at all: its log is written by the program itself, so
+the file not existing is the strongest form of that claim.  The
+buffer standing untouched is the rest of it, since comint inserts
+what this hands back at the prompt before the sender ever sees
+it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (let ((before (parley-transcript-test--shown buffer)))
+      (parley-transcript-test--with-tmux
+        (dolist (line '("Let me look." "2 tool calls"))
+          (let ((signalled (should-error
+                            (parley-transcript-test--resubmit
+                             buffer (parley-transcript-test--after buffer line))
+                            :type 'user-error)))
+            (should (string-match-p "sent again" (cadr signalled)))))
+        (should-not (file-exists-p tmux-log)))
+      (should (equal (parley-transcript-test--shown buffer) before)))))
+
 
 ;;; The imenu index
 
