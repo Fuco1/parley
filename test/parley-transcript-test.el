@@ -1469,6 +1469,46 @@ value is what makes it the hook Emacs will call."
                            (parley-transcript-test--under overlay)))))
       (set-frame-width (selected-frame) columns))))
 
+(ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
+  "A table of nothing but delimiter rows is shown as the agent wrote it.
+
+There is nothing in it to line up, and `markdown-table-align'
+raises `Empty table' rather than saying so: it is the cells it
+formats from, and a delimiter row contributes none.  Nothing may
+come back out of here but the aligned form or nil, because this
+is called from an output filter and from a hook run during
+redisplay, where a signal is a conversation that stops rendering
+and says nothing about why.
+
+A delimiter row is what markdown-mode calls one and is asked with
+markdown-mode's own predicate, because the caller that raises
+uses that one: `| --- | --- |' is a delimiter row with a space
+after the bar, which reads as a row of data to anything matching
+on the character after it.
+
+The table with rows in it is aligned in the same breath, so a
+guard tightened until nothing at all is aligned fails here."
+  (dolist (text '("| --- | --- |" "|---|---|" "| :-: | --: |\n|---|---|"))
+    (should-not (parley-transcript--aligned text 80)))
+  (should (parley-transcript--aligned parley-transcript-test--table 80)))
+
+(ert-deftest parley-transcript-test-shows-a-table-it-cannot-align-whole-as-written ()
+  "A table whose aligned form would not say all of it is shown as the agent wrote it.
+
+A row with no bar at the end of it loses its last cell to
+`markdown--table-line-to-columns', and what a `display' property
+shows is all the operator has: a cell dropped there is a cell of
+the agent's he cannot read at all, where a table left as it
+stands is merely ragged.
+
+The rows in these are ordinary and only the closing bar is
+missing, which is how an agent writes a table by hand -- and the
+last of them is the same table with that bar, to say that what is
+refused here is the dropping and not the table."
+  (should-not (parley-transcript--aligned "| a\n|---\n| 1" 80))
+  (should-not (parley-transcript--aligned "| a | b |\n|---|---|\n| 1 | 2" 80))
+  (should (parley-transcript--aligned "| a | b |\n|---|---|\n| 1 | 2 |" 80)))
+
 (ert-deftest parley-transcript-test-leaves-a-table-in-a-fence-as-written ()
   "A table inside a fenced code block is shown as the agent wrote it.
 
