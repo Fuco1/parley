@@ -198,7 +198,7 @@ fontify buffer and the buffer it is read in is the transcript.")
 A table is what markdown-mode calls one, and a table inside a
 fenced code block is not one: `markdown-table-at-point-p' asks
 `markdown-code-block-at-point-p', which reads the syntax
-`markdown-mode' propertized the fence with.  Here is the only
+markdown-mode propertized the fence with.  Here is the only
 place that is known -- the transcript buffer is a comint buffer
 and holds no markdown syntax at all, so a pass over the finished
 text could not tell a table an agent wrote from one it was
@@ -582,14 +582,15 @@ may show in place of.
 
 STRING is what the hook is called with and is not looked at: what
 arrived is already in the buffer."
-  (let ((width (parley-transcript--width)))
-    (dolist (table parley-transcript--pending-tables)
-      (let ((overlay (make-overlay (+ comint-last-output-start (car table))
-                                   (+ comint-last-output-start (cdr table))
-                                   nil t)))
-        (overlay-put overlay 'parley-table t)
-        (parley-transcript--align-overlay overlay width))))
-  (setq parley-transcript--pending-tables nil))
+  (when parley-transcript--pending-tables
+    (let ((width (parley-transcript--width)))
+      (dolist (table parley-transcript--pending-tables)
+        (let ((overlay (make-overlay (+ comint-last-output-start (car table))
+                                     (+ comint-last-output-start (cdr table))
+                                     nil t)))
+          (overlay-put overlay 'parley-table t)
+          (parley-transcript--align-overlay overlay width))))
+    (setq parley-transcript--pending-tables nil)))
 
 (defun parley-transcript--realign-tables ()
   "Align this buffer's tables to the width of the window showing it.
