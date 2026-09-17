@@ -120,3 +120,29 @@ long — and the message has to appear exactly once whenever it lands. What that
 costs is a message that never reaches the transcript at all, which leaves its
 entry standing: the next message of the same text typed at the pane is then
 taken for it and dropped.
+
+## A past turn is sent again as it was written
+
+**`RET` with point on a turn the operator took sends that turn to the pane**,
+with the `> ` the renderer put on each of its lines taken off, and all of it: a
+prompt of four lines goes back as four lines and not as the line point stood
+on.
+
+**A turn is the run of lines carrying `parley-user`.** One function quotes
+every turn of his whichever door it reached the buffer by, so that face is on a
+turn the transcript delivered and on one submitted here alike — where `field`,
+which `comint-get-old-input-default` branches on, is `output` on the first and
+absent on the second, and each branch gives its own wrong answer. Measured
+against Emacs 28.2 over the test fixture with point in the rendered turn `what
+is here`, the default returns `> what is here` on the delivered one and
+`"\n> what is here\n"` on the one submitted here.
+
+**The face and not the `> ` itself is what says whose turn it is.** An
+assistant turn quoting something is markdown with `> ` at the front of a line
+too, and that quote is markdown-mode's to hide rather than the renderer's to
+strip.
+
+**Anything that is not such a run is refused with a message.** An assistant
+turn and the one line a run of tool calls collapsed to are what reach that
+branch, and neither is the operator's to send again; a line of somebody else's
+markdown typed into a live session is worse than an error saying nothing went.
