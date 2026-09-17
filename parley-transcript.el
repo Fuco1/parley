@@ -450,6 +450,38 @@ that function nothing left to do."
            (truncate-string-to-width line imenu-max-item-length nil nil t))
           (t line))))
 
+(defun parley-transcript--index-numbered (label n)
+  "Return LABEL with `<N>' on the end, short enough for imenu to keep whole.
+
+`imenu--truncate-items' cuts a label to `imenu-max-item-length'
+with `substring', and it does so after
+`imenu-create-index-function' has returned -- so a suffix hung
+off a label already that long would be cut straight back off, and
+the two entries it is there to tell apart would be under one name
+again.  The label gives up the characters the suffix needs
+instead.
+
+All of them, when the suffix needs the whole of the limit: a
+label that kept so much as its first character there would lose
+the suffix in exchange, which is the one part of the name that
+tells the two entries apart.  The number alone is what is left,
+and it is still a name no other entry has.
+
+A limit narrower than the number itself is where that stops, and
+it is a limit too short to name anything by: the suffix is
+returned whole, `imenu--truncate-items' cuts the number, and two
+prompts numbered far enough apart can come back under one name
+again -- at a limit of 3, `<100>' is cut to `<10' and lands on
+the tenth.  Cutting it here instead would hand the entry a number
+that is not its own, which is no better and no longer a number."
+  (let* ((suffix (format "<%d>" n))
+         (room (and (numberp imenu-max-item-length)
+                    (- imenu-max-item-length (length suffix)))))
+    (concat (cond ((null room) label)
+                  ((<= room 0) "")
+                  (t (truncate-string-to-width label room nil nil t)))
+            suffix)))
+
 (defun parley-transcript--index-prompt (text position)
   "Record the prompt TEXT, whose quote begins at POSITION, in the imenu index.
 
@@ -501,12 +533,43 @@ with it -- it survives at the boundary of the deletion, where it
 points at whatever text is there now -- so an entry is dropped
 once its two markers have met, which is to say once the line its
 label names has been deleted out from between them.  Dropping it
-from the list is also what lets those two markers go."
+from the list is also what lets those two markers go.
+
+Two prompts whose first line is the same have one label, and
+`imenu' resolves what the operator picked back to an entry with
+`assoc' -- so the second of them would be in the index, would be
+offered once, and would answer with the first.  A label an entry
+here already carries therefore gets `<2>' on the end and the one
+after that `<3>', the way Emacs tells two buffers of one name
+apart.  The number counts only the entries here that share the
+label, because those are what the operator is choosing between:
+how many messages came before a prompt is no more help in telling
+two of them apart than it was in naming one."
   (setq parley-transcript--index
         (seq-filter (lambda (entry) (< (nth 1 entry) (nth 2 entry)))
                     parley-transcript--index))
-  (mapcar (lambda (entry) (cons (car entry) (nth 1 entry)))
-          (reverse parley-transcript--index)))
+  ;; Two tables and not a walk over the list being built, because
+  ;; this runs on every `M-x imenu' -- `imenu-auto-rescan' is on in
+  ;; this buffer -- and the conversation it is here for is the one
+  ;; with hundreds of prompts in it.  `names' answers what `assoc'
+  ;; over that list would: 5000 prompts no two of which share a label
+  ;; cost 459 ms that way against 61 ms here.  `counts' holds the
+  ;; number the last prompt of a label took, so the next of them
+  ;; builds one candidate instead of every candidate from 2 up: 200
+  ;; prompts under one label cost 321 ms without it, and 1000 of
+  ;; them 6.8 s.
+  (let ((index nil)
+        (names (make-hash-table :test 'equal))
+        (counts (make-hash-table :test 'equal)))
+    (dolist (entry (reverse parley-transcript--index) (nreverse index))
+      (let ((label (car entry))
+            (n (gethash (car entry) counts 1)))
+        (while (gethash label names)
+          (setq n (1+ n))
+          (setq label (parley-transcript--index-numbered (car entry) n)))
+        (puthash (car entry) n counts)
+        (puthash label t names)
+        (push (cons label (nth 1 entry)) index)))))
 
 ;;; The buffer
 
