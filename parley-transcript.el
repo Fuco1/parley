@@ -426,6 +426,23 @@ which is the line LABEL names: it is there to say whether that
 line is still in the buffer, because deleting it is what brings
 the two markers together and nothing else does.")
 
+(defun parley-transcript--index-truncate (string limit)
+  "Return STRING cut to LIMIT, in characters as well as in columns.
+
+`truncate-string-to-width' counts the columns a string displays
+in, and `imenu--truncate-items' cuts with `substring', which
+counts characters -- and a combining mark is a character that
+displays in no column at all.  A label cut to the limit in
+columns is therefore not always inside it in characters, and
+imenu would cut what is over a second time, taking the end off a
+label this file had already made as long as it may be.
+
+Cutting both ways leaves imenu nothing to cut: the columns first,
+which is what puts the ellipsis on the end, and the characters
+after."
+  (let ((short (truncate-string-to-width string limit nil nil t)))
+    (if (> (length short) limit) (substring short 0 limit) short)))
+
 (defun parley-transcript--index-label (text)
   "Return the imenu label for the prompt TEXT, nil if it has nothing to say.
 
@@ -447,7 +464,7 @@ that function nothing left to do."
   (let ((line (car (split-string (string-trim text) "\n"))))
     (cond ((string= line "") nil)
           ((numberp imenu-max-item-length)
-           (truncate-string-to-width line imenu-max-item-length nil nil t))
+           (parley-transcript--index-truncate line imenu-max-item-length))
           (t line))))
 
 (defun parley-transcript--index-numbered (label n)
@@ -459,7 +476,9 @@ with `substring', and it does so after
 off a label already that long would be cut straight back off, and
 the two entries it is there to tell apart would be under one name
 again.  The label gives up the characters the suffix needs
-instead.
+instead, counted the way imenu counts them -- which is what
+`parley-transcript--index-truncate' is for.  What comes back is
+inside the limit already, so imenu leaves it alone.
 
 All of them, when the suffix needs the whole of the limit: a
 label that kept so much as its first character there would lose
@@ -479,7 +498,7 @@ that is not its own, which is no better and no longer a number."
                     (- imenu-max-item-length (length suffix)))))
     (concat (cond ((null room) label)
                   ((<= room 0) "")
-                  (t (truncate-string-to-width label room nil nil t)))
+                  (t (parley-transcript--index-truncate label room)))
             suffix)))
 
 (defun parley-transcript--index-prompt (text position)
