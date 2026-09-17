@@ -175,9 +175,17 @@ earlier prompt. It gets `<2>` on the end instead, the way Emacs tells two
 buffers of one name apart, and the number says which of the entries in front of
 the operator this is rather than how many messages came before the prompt.
 
-**A label no other prompt shares comes out of that untouched.** It is already
-the string the operator searches for, and suffixing every entry to make the
-collision case uniform would cost the common case for nothing.
+**A label no entry in the index already carries comes out of that untouched.**
+It is already the string the operator searches for, and suffixing every entry to
+make the collision case uniform would cost the common case for nothing.
+
+**The number is read off the index as it is built, in one pass in buffer
+order**, which is also all `generate-new-buffer-name` takes: a prompt whose own
+first line is `foo<2>` collides with the `foo<2>` an earlier duplicate of `foo`
+was handed, and is renamed `foo<2><2>` as a buffer of that name would be.
+Reserving the distinct first lines in a pass of their own would leave that one
+bare — a different rule from the one Emacs has, and a second rule for the
+operator to learn.
 
 **`imenu-create-index-function` is the whole of the interface, and parley ships
 no jump command of its own.** `M-x imenu` is always there and `sallet-imenu` is

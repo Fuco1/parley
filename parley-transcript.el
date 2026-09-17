@@ -560,10 +560,16 @@ Two prompts whose first line is the same have one label, and
 offered once, and would answer with the first.  A label an entry
 here already carries therefore gets `<2>' on the end and the one
 after that `<3>', the way Emacs tells two buffers of one name
-apart.  The number counts only the entries here that share the
-label, because those are what the operator is choosing between:
-how many messages came before a prompt is no more help in telling
-two of them apart than it was in naming one."
+apart.  The number is read off the entries already placed here,
+because those are what the operator is choosing between: how many
+messages came before a prompt is no more help in telling two of
+them apart than it was in naming one.
+
+One pass over the prompts in buffer order, which is also all
+`generate-new-buffer-name' takes: a prompt whose own first line
+is `foo<2>' collides with the `foo<2>' an earlier duplicate of
+`foo' was handed, and is renamed `foo<2><2>' as a buffer of that
+name would be."
   (setq parley-transcript--index
         (seq-filter (lambda (entry) (< (nth 1 entry) (nth 2 entry)))
                     parley-transcript--index))
