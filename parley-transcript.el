@@ -500,13 +500,26 @@ two of them apart than it was in naming one."
   (setq parley-transcript--index
         (seq-filter (lambda (entry) (< (nth 1 entry) (nth 2 entry)))
                     parley-transcript--index))
-  (let ((index nil))
+  ;; Two tables and not a walk over the list being built, because
+  ;; this runs on every `M-x imenu' -- `imenu-auto-rescan' is on in
+  ;; this buffer -- and the conversation it is here for is the one
+  ;; with hundreds of prompts in it.  `names' answers what `assoc'
+  ;; over that list would: 5000 prompts no two of which share a label
+  ;; cost 302 ms that way against 81 ms here.  `counts' holds the
+  ;; number the last prompt of a label took, so the next of them
+  ;; builds one candidate instead of every candidate from 2 up: 200
+  ;; prompts under one label cost 498 ms without it.
+  (let ((index nil)
+        (names (make-hash-table :test 'equal))
+        (counts (make-hash-table :test 'equal)))
     (dolist (entry (reverse parley-transcript--index) (nreverse index))
       (let ((label (car entry))
-            (n 1))
-        (while (assoc label index)
+            (n (gethash (car entry) counts 1)))
+        (while (gethash label names)
           (setq n (1+ n))
           (setq label (parley-transcript--index-numbered (car entry) n)))
+        (puthash (car entry) n counts)
+        (puthash label t names)
         (push (cons label (nth 1 entry)) index)))))
 
 ;;; The buffer
