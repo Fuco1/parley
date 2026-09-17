@@ -29,27 +29,18 @@
 ;; the view.  A dozen or two sessions is the whole list, so nothing
 ;; here is asynchronous.
 ;;
-;; A session is listed by five columns: the name `claude agents' gives
-;; it, its status, the mark saying it cannot be typed into, its
-;; working directory and the tmux pane it lives in.  With sallet they
-;; are a vector the source matches and renders column by column, which
-;; is the reason to reach for it here.  `completing-read' matches one
-;; flat string, so the fallback bakes the same five into one row with
-;; the name first.  Both frontends order the sessions by status and
-;; both build the list with `parley-switch--sessions': there is one
-;; way of building it.
+;; sallet is what this file is for.  The five columns of
+;; `parley-session-fields' are a vector it matches and renders one
+;; column at a time, which is the reason to reach for it here; without
+;; it the pick is `parley-read-session', which matches the same five
+;; baked into one flat row.  Both offer the sessions
+;; `parley-sessions-by-status' ordered.
 ;;
-;; A session with no pane cannot be typed into, and the mark is what
-;; says so while the operator is still choosing which one to open.
-;; Without it the first he hears of it is the error his first message
-;; raises, by which point he has written the message.
-;;
-;; The names are not unique -- two sessions in sibling worktrees come
-;; back under the same one -- so the last column is
-;; `parley-session-tag', which is what tells them apart.  It lives in
-;; `parley' because the buffer name needs it too, and the requiring
-;; goes one way only: the picker knows the view, the view knows
-;; nothing of the picker.
+;; The list, the columns and that reader are in `parley' because
+;; `parley-transcript' reads a session too -- it is a command as well,
+;; and one called with no session in hand has to ask for one.  The
+;; requiring goes one way only: the picker knows the view, the view
+;; knows nothing of the picker, so what both need is below both.
 ;;
 ;; sallet is optional.  It is required with noerror and its functions
 ;; are declared, so nothing in the package headers names it.
@@ -72,99 +63,7 @@
                   (filter-alist candidates indices pattern))
 
 
-;;; The list, and the columns a session is listed by
-
-(defconst parley-switch-status-order '("idle" "busy")
-  "The statuses sessions are listed in, first to last.
-An idle session is the one that will read what you type now, so
-it comes first.  A status this list does not name sorts after
-every status it does.")
-
-(defun parley-switch--status-rank (session)
-  "Return the rank of SESSION in `parley-switch-status-order'.
-A status the order does not name -- including the nil `claude
-agents' reports for a session it knows no status for -- ranks
-after every status it does."
-  (or (seq-position parley-switch-status-order (plist-get session :status))
-      (length parley-switch-status-order)))
-
-(defun parley-switch--sessions ()
-  "Return the live sessions ordered by status.
-This is the one place the switcher list is built: both frontends
-read it, so neither can disagree with the other about what is
-running or in what order.  `sort' is stable, so sessions sharing
-a status stay in the order `parley-sessions' discovered them in."
-  (sort (parley-sessions)
-        (lambda (a b) (< (parley-switch--status-rank a)
-                         (parley-switch--status-rank b)))))
-
-(defun parley-switch--fields (session)
-  "Return the columns SESSION is listed and matched by.
-A vector of five strings: its name, its status, the mark saying
-it cannot be typed into, its working directory and its tag -- the
-pane it lives in and its session id, see `parley-session-tag'.
-The tag is matched as one string, so a token beginning with %
-still finds the pane in it.
-
-The mark is read from the pane being nil, because the pane is the
-only way into a session and a record without one is a record
-nothing can be sent to.  A background agent has none, being
-dispatched from a terminal it does not own, and so does a session
-started outside tmux -- `:kind' names the first and says nothing
-at all about the second, so it is not what the mark can be read
-from.
-
-Nothing in a session record is guaranteed to be there, so the
-placeholders for a name and a status `claude agents' did not
-report are chosen once here rather than by each frontend."
-  (vector (or (plist-get session :name) "unnamed")
-          (or (plist-get session :status) "unknown")
-          (if (plist-get session :pane) "" "read only")
-          (abbreviate-file-name (plist-get session :cwd))
-          (parley-session-tag session)))
-
-(defun parley-switch--row (fields)
-  "Return FIELDS as one row of columns, the name first.
-FIELDS is a vector from `parley-switch--fields'.  A row is what
-`completing-read' completes over, because it matches one flat
-string and the annotation has to be inside it; the sallet
-renderer draws the same row from the same fields.
-
-The read only mark is early in the row and not after the tag,
-which is the longest column and the first thing a narrow window
-drops: a mark the operator has to scroll to see is one he types
-past."
-  (apply #'format "%-16s  %-7s  %-9s  %-40s  %s" (append fields nil)))
-
-
-;;; Without sallet: one flat row per session
-
-(defun parley-switch--read-session ()
-  "Read one of the live sessions in the minibuffer and return its record.
-The candidates are the rows of `parley-switch--row', so each
-begins with the session name and carries its tag.  The completion
-metadata keeps them in the order `parley-switch--sessions' put
-them in; the default would sort them alphabetically and lose the
-status order."
-  (let ((rows (mapcar (lambda (session)
-                        (cons (parley-switch--row
-                               (parley-switch--fields session))
-                              session))
-                      (parley-switch--sessions))))
-    (unless rows
-      (user-error "No live Claude Code session to switch to"))
-    (cdr (assoc (completing-read
-                 "Session: "
-                 (lambda (string predicate action)
-                   (if (eq action 'metadata)
-                       '(metadata (display-sort-function . identity)
-                                  (cycle-sort-function . identity))
-                     (complete-with-action action rows string predicate)))
-                 nil t)
-                rows))))
-
-
-;;; With sallet: the four columns kept apart
+;;; With sallet: the columns kept apart
 
 (defun parley-switch--candidates ()
   "Return one sallet candidate per live session.
@@ -173,8 +72,8 @@ was built from: the fields are what sallet matches and renders,
 the record is what the action needs.  Nothing looks a session up
 by name afterwards, which is what keeps two sessions sharing one
 from being confused."
-  (mapcar (lambda (session) (cons (parley-switch--fields session) session))
-          (parley-switch--sessions)))
+  (mapcar (lambda (session) (cons (parley-session-fields session) session))
+          (parley-sessions-by-status)))
 
 (defun parley-switch--field-filter (field)
   "Return a sallet filter matching its pattern against FIELD.
@@ -207,7 +106,7 @@ is the session named orc in that worktree."
 
 (defun parley-switch--renderer (candidate _state _user-data)
   "Render session CANDIDATE as its row of columns."
-  (parley-switch--row (car candidate)))
+  (parley-session-row (car candidate)))
 
 (defun parley-switch--action (_source candidate)
   "Show the transcript buffer of the session CANDIDATE was built for."
@@ -227,6 +126,9 @@ is the session named orc in that worktree."
            (header "Claude Code sessions"))
         t))
 
+
+;;; Switching to a session
+
 ;;;###autoload
 (defun parley-switch ()
   "Switch to the transcript buffer of a live Claude Code session.
@@ -245,7 +147,7 @@ there when this file was loaded, so that -- and not the feature
   (interactive)
   (if (fboundp 'sallet-source-parley)
       (sallet (list 'sallet-source-parley))
-    (parley-transcript (parley-switch--read-session))))
+    (parley-transcript (parley-read-session))))
 
 (provide 'parley-switch)
 ;;; parley-switch.el ends here

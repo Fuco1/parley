@@ -201,5 +201,42 @@
                                  "/-home-matus"
                                  "/7c1d0f9a-0000-4000-8000-000000000003.jsonl"))))))
 
+
+;;; Reading a session
+
+(ert-deftest parley-test-resolves-the-row-picked-to-its-own-record ()
+  "Two sessions alike in every column but their id are still two rows.
+A row is resolved back to its record by the string itself, so two
+records that produced one row would both resolve to the first of
+them and the operator would land in the other one's conversation.
+`claude agents' really can report two live sessions with one
+name, one status and one working directory, and a session
+suspended in a pane with another started there gives them one
+pane as well: all that is left to tell them apart is the session
+id, and the whole of it -- these two agree on its first eight
+characters, which is all a head of it would carry."
+  (let* ((one (list :pid 11 :name "orc-w1" :status "idle"
+                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
+                    :session-id "11111111-0000-4000-8000-000000000001"))
+         (two (list :pid 12 :name "orc-w1" :status "idle"
+                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
+                    :session-id "11111111-ffff-4000-8000-000000000002"))
+         (row (parley-session-row (parley-session-fields two))))
+    (should-not (equal row (parley-session-row (parley-session-fields one))))
+    (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
+              ((symbol-function 'completing-read) (lambda (&rest _) row)))
+      (should (eq (parley-read-session) two)))))
+
+(ert-deftest parley-test-reading-with-nothing-running-says-so ()
+  "Reading a session when none is running says so instead of asking.
+The minibuffer is never reached: an empty prompt the operator can
+only abort tells him nothing about why it is empty."
+  (let ((asked nil))
+    (cl-letf (((symbol-function 'parley-sessions) (lambda () nil))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _) (setq asked t) "")))
+      (should-error (parley-read-session) :type 'user-error)
+      (should-not asked))))
+
 (provide 'parley-test)
 ;;; parley-test.el ends here

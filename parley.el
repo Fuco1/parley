@@ -189,5 +189,115 @@ transcript buffer is named with it."
         (pane (plist-get session :pane)))
     (if pane (concat pane " " id) id)))
 
+
+;;; Listing a session, and reading one
+
+;; Every way into a session offers the same list in the same order and
+;; reads it the same way: `parley-switch' without sallet, and
+;; `parley-transcript' called with no session in hand.  Neither of
+;; those files can reach the other -- the picker requires the view and
+;; a `require' does not survive a cycle -- so the list, the columns and
+;; the one `completing-read' over them are here, below both.
+
+(defconst parley-status-order '("idle" "busy")
+  "The statuses sessions are listed in, first to last.
+An idle session is the one that will read what you type now, so
+it comes first.  A status this list does not name sorts after
+every status it does.")
+
+(defun parley--status-rank (session)
+  "Return the rank of SESSION in `parley-status-order'.
+A status the order does not name -- including the nil `claude
+agents' reports for a session it knows no status for -- ranks
+after every status it does."
+  (or (seq-position parley-status-order (plist-get session :status))
+      (length parley-status-order)))
+
+(defun parley-sessions-by-status ()
+  "Return the live sessions ordered by status.
+This is the one place the list a session is picked from is built,
+so no frontend can disagree with another about what is running or
+in what order.  `sort' is stable, so sessions sharing a status
+stay in the order `parley-sessions' discovered them in."
+  (sort (parley-sessions)
+        (lambda (a b) (< (parley--status-rank a)
+                         (parley--status-rank b)))))
+
+(defun parley-session-fields (session)
+  "Return the columns SESSION is listed and matched by.
+A vector of five strings: its name, its status, the mark saying
+it cannot be typed into, its working directory and its tag -- the
+pane it lives in and its session id, see `parley-session-tag'.
+The tag is matched as one string, so a token beginning with %
+still finds the pane in it.
+
+The mark is what says a session cannot be typed into while the
+operator is still choosing which one to open; without it the
+first he hears of it is the error his first message raises, by
+which point he has written the message.  It is read from the pane
+being nil, because the pane is the only way into a session and a
+record without one is a record nothing can be sent to.  A
+background agent has none, being dispatched from a terminal it
+does not own, and so does a session started outside tmux --
+`:kind' names the first and says nothing at all about the second,
+so it is not what the mark can be read from.
+
+Nothing in a session record is guaranteed to be there, so the
+placeholders for a name and a status `claude agents' did not
+report are chosen once here rather than by each frontend."
+  (vector (or (plist-get session :name) "unnamed")
+          (or (plist-get session :status) "unknown")
+          (if (plist-get session :pane) "" "read only")
+          (abbreviate-file-name (plist-get session :cwd))
+          (parley-session-tag session)))
+
+(defun parley-session-row (fields)
+  "Return FIELDS as one row of columns, the name first.
+FIELDS is a vector from `parley-session-fields'.  A row is what
+`completing-read' completes over, because it matches one flat
+string and the annotation has to be inside it; the sallet
+renderer draws the same row from the same fields.
+
+The read only mark is early in the row and not after the tag,
+which is the longest column and the first thing a narrow window
+drops: a mark the operator has to scroll to see is one he types
+past."
+  (apply #'format "%-16s  %-7s  %-9s  %-40s  %s" (append fields nil)))
+
+(defun parley-read-session ()
+  "Read one of the live sessions in the minibuffer and return its record.
+This is the only `completing-read' over the sessions there is:
+`parley-switch' reads with it when sallet is missing and
+`parley-transcript' when it is called with no session in hand, so
+a row is the same row and an empty list the same error whichever
+of them the operator reached for.
+
+The candidates are the rows of `parley-session-row', so each
+begins with the session name and carries its tag -- two sessions
+started in one repo come back under one name and one working
+directory, and without the tag they would be one candidate the
+`assoc' below resolves to whichever of them came first: a buffer
+showing one conversation and typing into the other one's pane.
+
+The completion metadata keeps the rows in the order
+`parley-sessions-by-status' put them in; the default would sort
+them alphabetically and lose the status order."
+  (let ((rows (mapcar (lambda (session)
+                        (cons (parley-session-row
+                               (parley-session-fields session))
+                              session))
+                      (parley-sessions-by-status))))
+    (unless rows
+      (user-error "No live Claude Code session"))
+    (cdr (assoc (completing-read
+                 "Session: "
+                 (lambda (string predicate action)
+                   (if (eq action 'metadata)
+                       '(metadata (display-sort-function . identity)
+                                  (cycle-sort-function . identity))
+                     (complete-with-action action rows string predicate)))
+                 nil t)
+                rows))))
+
 (provide 'parley)
 ;;; parley.el ends here

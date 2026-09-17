@@ -6,6 +6,13 @@
 ;; so every test here stubs `parley-sessions' with records and none of
 ;; them needs a live session.
 ;;
+;; The six records are what the sallet source is matched and rendered
+;; against, and the columns it draws them in are
+;; `parley-session-fields' -- which lives below both frontends,
+;; because `parley-transcript' reads a session too.  The columns and
+;; the order are asserted here, against the fixture they were built
+;; for; the reader over them is asserted where it lives.
+;;
 ;; sallet is not on the load path of the check that runs these, which
 ;; is exactly the environment the `completing-read' fallback exists
 ;; for, and the test of that fallback removes the sallet source even
@@ -101,17 +108,17 @@ function cannot move with it.")
 
 (ert-deftest parley-switch-test-a-session-is-five-fields ()
   "A session is five fields: name, status, mark, directory, pane."
-  (should (equal (parley-switch--fields (parley-switch-test--session 2))
+  (should (equal (parley-session-fields (parley-switch-test--session 2))
                  (vector "orc-w1" "idle" "" "/srv/orc/trees/worker-1/orc"
                          (parley-switch-test--tag 2))))
   ;; The working directory is shown the way the operator writes it.
-  (should (equal (aref (parley-switch--fields
+  (should (equal (aref (parley-session-fields
                         (parley-switch-test--session 1))
                        3)
                  "~/dev/ydistri/Ydistri.Pairing"))
   ;; A name and a status `claude agents' did not report still leave
   ;; five fields, and the pane column falls back to the session id.
-  (should (equal (parley-switch--fields (parley-switch-test--session 3))
+  (should (equal (parley-session-fields (parley-switch-test--session 3))
                  (vector "unnamed" "unknown" "read only" "/srv/matus"
                          (parley-switch-test--tag 3)))))
 
@@ -126,17 +133,17 @@ sessions without a pane are reported interactive, and a session
 started outside tmux is as unreachable as a background agent
 dispatched from the agent view."
   (dolist (pid '(3 5))
-    (let ((fields (parley-switch--fields (parley-switch-test--session pid))))
+    (let ((fields (parley-session-fields (parley-switch-test--session pid))))
       (should (equal (plist-get (parley-switch-test--session pid) :kind)
                      "interactive"))
       (should (equal (aref fields 2) "read only"))
-      (should (string-match-p "read only" (parley-switch--row fields)))))
+      (should (string-match-p "read only" (parley-session-row fields)))))
   ;; And a session with a pane carries no mark, so the row says
   ;; something about this session rather than about every session.
   (dolist (pid '(1 2 4 6))
-    (let ((fields (parley-switch--fields (parley-switch-test--session pid))))
+    (let ((fields (parley-session-fields (parley-switch-test--session pid))))
       (should (equal (aref fields 2) ""))
-      (should-not (string-match-p "read only" (parley-switch--row fields))))))
+      (should-not (string-match-p "read only" (parley-session-row fields))))))
 
 (ert-deftest parley-switch-test-tag-tells-one-name-apart ()
   "The four sessions named `orc-w1' have four different tags.
@@ -155,8 +162,8 @@ share."
 (ert-deftest parley-switch-test-row-begins-with-the-name ()
   "Every row begins with the session name and carries every field."
   (dolist (session parley-switch-test--sessions)
-    (let* ((fields (parley-switch--fields session))
-           (row (parley-switch--row fields)))
+    (let* ((fields (parley-session-fields session))
+           (row (parley-session-row fields)))
       (should (string-prefix-p (aref fields 0) row))
       (dolist (field (append fields nil))
         (should (string-match-p (regexp-quote field) row))))))
@@ -164,7 +171,7 @@ share."
 (ert-deftest parley-switch-test-rows-are-unique ()
   "No two sessions produce the same row, name sharing or not."
   (let ((rows (mapcar (lambda (session)
-                        (parley-switch--row (parley-switch--fields session)))
+                        (parley-session-row (parley-session-fields session)))
                       parley-switch-test--sessions)))
     (should (equal (length (delete-dups (copy-sequence rows)))
                    (length parley-switch-test--sessions)))))
@@ -178,7 +185,7 @@ Sessions sharing a status keep the order discovery returned them
 in, which is not the order they come out in here."
   (parley-switch-test--with-sessions
     (should (equal (mapcar (lambda (session) (plist-get session :pid))
-                           (parley-switch--sessions))
+                           (parley-sessions-by-status))
                    '(2 4 6 1 5 3)))))
 
 
@@ -209,7 +216,7 @@ already in it is still there and no second pipeline was started."
                   ((symbol-function 'sallet-source-parley) nil)
                   ((symbol-function 'completing-read)
                    (lambda (&rest _)
-                     (parley-switch--row (parley-switch--fields session)))))
+                     (parley-session-row (parley-session-fields session)))))
           ;; The assertions are inside, because leaving a
           ;; `save-window-excursion' puts the old buffer back.
           (save-window-excursion
@@ -252,7 +259,7 @@ tested there, so the command is stubbed here."
                 ((symbol-function 'completing-read)
                  (lambda (_prompt table &rest _)
                    (setq asked t collection table)
-                   (parley-switch--row (parley-switch--fields session)))))
+                   (parley-session-row (parley-session-fields session)))))
         (parley-switch)
         (should asked)
         (should (eq shown session))
@@ -266,29 +273,6 @@ tested there, so the command is stubbed here."
         (should (eq (alist-get 'display-sort-function
                                (cdr (completion-metadata "" collection nil)))
                     #'identity))))))
-
-(ert-deftest parley-switch-test-fallback-resolves-the-row-picked ()
-  "Two sessions alike in every column but their id are still two rows.
-A row is resolved back to its record by the string itself, so two
-records that produced one row would both resolve to the first of
-them and the operator would land in the other one's conversation.
-`claude agents' really can report two live sessions with one
-name, one status and one working directory, and a session
-suspended in a pane with another started there gives them one
-pane as well: all that is left to tell them apart is the session
-id, and the whole of it -- these two agree on its first eight
-characters, which is all a head of it would carry."
-  (let* ((one (list :pid 11 :name "orc-w1" :status "idle"
-                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
-                    :session-id "11111111-0000-4000-8000-000000000001"))
-         (two (list :pid 12 :name "orc-w1" :status "idle"
-                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
-                    :session-id "11111111-ffff-4000-8000-000000000002"))
-         (row (parley-switch--row (parley-switch--fields two))))
-    (should-not (equal row (parley-switch--row (parley-switch--fields one))))
-    (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
-              ((symbol-function 'completing-read) (lambda (&rest _) row)))
-      (should (eq (parley-switch--read-session) two)))))
 
 (ert-deftest parley-switch-test-fallback-with-nothing-running ()
   "Reading a session when none is running says so instead of picking one."
