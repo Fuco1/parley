@@ -51,6 +51,7 @@
 ;;; Code:
 
 (require 'comint)
+(require 'imenu)
 (require 'subr-x)
 (require 'markdown-mode)
 (require 'parley)
@@ -209,14 +210,20 @@ line of the last block -- which is what
 An assistant turn is markdown and is fontified as markdown.  The
 operator's own turn is quoted and otherwise left alone: what he
 typed at a terminal is not markdown, and fontifying it as though
-it were would invent emphasis he never wrote."
+it were would invent emphasis he never wrote.
+
+It is trimmed at both ends, though, and not only on the right.
+The first character of the block is where the imenu index points
+and the first line of it is what the entry is labelled with, so a
+prompt that opened with a blank line would put a quoted blank
+line under both."
   (let ((text (string-trim-right (or (alist-get 'text record) ""))))
     (cond
      ((string= text "") "")
      ((equal (alist-get 'role record) "assistant")
       (parley-transcript--block (parley-transcript--fontify text)))
      (t (parley-transcript--block
-         (propertize (replace-regexp-in-string "^" "> " text)
+         (propertize (replace-regexp-in-string "^" "> " (string-trim text))
                      'font-lock-face 'parley-user))))))
 
 (defun parley-transcript--tool-run (count)
@@ -235,6 +242,14 @@ to watch the work."
 (defvar-local parley-transcript--run 0
   "How many tool calls the run of them at the end of the buffer made.
 Zero when the buffer does not end in a run.")
+
+(defvar-local parley-transcript--pending nil
+  "The prompts the last render pass produced, as a list of (TEXT . OFFSET).
+OFFSET counts from the first character of the string that pass
+returned.  It is an offset and not a buffer position because the
+string has not been inserted yet, which is also why the list
+outlives the pass: `parley-transcript--index-output' turns each
+into a position once comint has inserted it, and empties this.")
 
 (defun parley-transcript--take-back-run ()
   "Delete the tool run block at the end of the buffer, and say if it went.
@@ -285,7 +300,8 @@ inserted and then rewritten in place."
         ;; same one back.
         ""
       (let ((run parley-transcript--run)
-            (blocks nil))
+            (blocks nil)
+            (offset 0))
         (when (and (> run 0) (not (parley-transcript--take-back-run)))
           (setq run 0))
         (dolist (line complete)
@@ -303,14 +319,143 @@ inserted and then rewritten in place."
             (unless (string= speech "")
               (when (> run 0)
                 (push (parley-transcript--tool-run run) blocks)
+                (setq offset (+ offset (length (car blocks))))
                 (setq run 0))
-              (push speech blocks))
+              ;; A prompt is an imenu entry, and here is where its
+              ;; position is known: one character into the block it is
+              ;; about to be, past the blank line every block opens
+              ;; with.  Nothing an agent said or did is indexed, so
+              ;; only this branch records anything.
+              (when (equal (alist-get 'role record) "user")
+                (push (cons (alist-get 'text record) (1+ offset))
+                      parley-transcript--pending))
+              (push speech blocks)
+              (setq offset (+ offset (length speech))))
             (setq run (+ run (or (alist-get 'tools record) 0)))))
         (setq parley-transcript--run run)
         (when (> run 0)
           (push (parley-transcript--tool-run run) blocks))
         (mapconcat #'identity (nreverse blocks) "")))))
 
+
+;;; The imenu index
+
+;; Navigating a long conversation means jumping between the prompts in
+;; it, which is what imenu is for.  The index is recorded as the
+;; messages are inserted, because that is where the position of a
+;; message is already known: the render pass has the record in hand
+;; and the offset of the block it made of it, and going back over the
+;; finished buffer instead would mean parsing rendered text into the
+;; structure that was in hand a moment earlier.
+
+(defvar-local parley-transcript--index nil
+  "The prompts in this buffer as (LABEL START END), newest first.
+START is where the prompt begins, and is what the imenu entry
+made of this points at.  END is the end of the line START is on,
+which is the line LABEL names: it is there to say whether that
+line is still in the buffer, because deleting it is what brings
+the two markers together and nothing else does.")
+
+(defun parley-transcript--index-label (text)
+  "Return the imenu label for the prompt TEXT, nil if it has nothing to say.
+
+The first line of the prompt that says anything, which is what
+the operator will look for; how many messages ago it was is no
+help to him.  The
+prompt is trimmed first and its first line taken after that, so
+that the line this names is the line the entry points at --
+`parley-transcript--speech' trims it the same way before quoting
+it, and the two would otherwise disagree about where a prompt
+that opened with a blank line begins.  A prompt that says nothing
+at all has no label, and so gets no entry.
+
+Truncated to `imenu-max-item-length', imenu's own variable for
+this length and the reason there is not a second one here.  Doing
+it here is what puts an ellipsis on the end, where
+`imenu--truncate-items' cuts with `substring' -- and it leaves
+that function nothing left to do."
+  (let ((line (car (split-string (string-trim text) "\n"))))
+    (cond ((string= line "") nil)
+          ((numberp imenu-max-item-length)
+           (truncate-string-to-width line imenu-max-item-length nil nil t))
+          (t line))))
+
+(defun parley-transcript--index-prompt (text position)
+  "Record the prompt TEXT, inserted at POSITION, in the imenu index.
+
+The entry is put where the prompt's first non-blank line begins,
+which is the line its label names.  Usually that is POSITION
+itself -- the render pass trims a prompt before it quotes it --
+but what comint inserts at the prompt is what the operator typed,
+blank first line and all, and an entry on that blank line would
+point at nothing and read as deleted the moment it was recorded.
+
+Positions are kept as markers and not as the numbers they are
+now, because this buffer is deleted from as well as appended to
+-- the tool run line at the end is taken back out whenever its
+run grows -- and the operator can edit in it himself.  An entry
+has to go on pointing at its prompt through all of that, or say
+that its prompt is gone."
+  (let ((label (parley-transcript--index-label text)))
+    (when label
+      (save-excursion
+        (goto-char position)
+        (skip-chars-forward " \t\n")
+        (push (list label (point-marker) (copy-marker (line-end-position)))
+              parley-transcript--index)))))
+
+(defun parley-transcript--index-output (_string)
+  "Place the prompts the last render pass produced in the imenu index.
+
+On `comint-output-filter-functions', which is the first moment
+the text exists: `parley-transcript--filter' ran before the
+insertion and could only say how far into its string each prompt
+was, and comint has just inserted that string at
+`comint-last-output-start'."
+  (dolist (prompt (nreverse parley-transcript--pending))
+    (parley-transcript--index-prompt
+     (car prompt) (+ comint-last-output-start (cdr prompt))))
+  (setq parley-transcript--pending nil))
+
+(defun parley-transcript--index-input (input)
+  "Record INPUT, just submitted at the prompt, in the imenu index.
+
+comint puts what the operator submits into the buffer itself and
+`parley-transcript--echoed-p' then drops the transcript's own
+copy of it, so the prompts the render pass never sees are exactly
+the ones he sent from here -- which are the ones he is most
+likely to be looking for again.
+
+On `comint-input-filter-functions', where the input is already in
+the buffer and the process mark is still at the start of it:
+`comint-send-input' moves that mark past the input, and sets
+`comint-last-input-start' to where it was, only once this hook has
+run."
+  (parley-transcript--index-prompt
+   input (process-mark (get-buffer-process (current-buffer)))))
+
+(defun parley-transcript--imenu-index ()
+  "Return this buffer's prompts as an imenu index, in buffer order.
+
+The buffer's `imenu-create-index-function', and it parses
+nothing: every entry was recorded as its prompt was inserted, so
+all this does is hand over what is already there.
+
+All but the prompts that have since been deleted, which is the
+one thing the recording cannot know.  `comint-truncate-buffer' is
+how a comint buffer is kept from growing without end and it
+deletes from the top, as does an operator killing a stretch of
+conversation he is done with.  A marker in what went does not die
+with it -- it survives at the boundary of the deletion, where it
+points at whatever text is there now -- so an entry is dropped
+once its two markers have met, which is to say once the line its
+label names has been deleted out from between them.  Dropping it
+from the list is also what lets those two markers go."
+  (setq parley-transcript--index
+        (seq-filter (lambda (entry) (< (nth 1 entry) (nth 2 entry)))
+                    parley-transcript--index))
+  (mapcar (lambda (entry) (cons (car entry) (nth 1 entry)))
+          (reverse parley-transcript--index)))
 
 ;;; The buffer
 
@@ -340,7 +485,29 @@ and never the objects."
   ;; The pipeline reads a file and nothing else, so its stdin is not a
   ;; way to reach the session.  What the operator submits goes to the
   ;; session's tmux pane instead, which is the door that does reach it.
-  (setq-local comint-input-sender #'parley-transcript--send-input))
+  (setq-local comint-input-sender #'parley-transcript--send-input)
+  (setq-local imenu-create-index-function #'parley-transcript--imenu-index)
+  ;; imenu remembers the index it built for a buffer and, left at its
+  ;; default, never builds it again; switched on, it gives up again
+  ;; above `imenu-auto-rescan-maxout'.  Both guards are there to keep
+  ;; imenu from re-parsing a large buffer, and there is nothing here to
+  ;; parse -- the index is recorded as the conversation arrives and the
+  ;; function above only hands it over.  A transcript grows for as long
+  ;; as its session runs, and the 26 MB one renders to 1.3 MB of buffer
+  ;; against a 600 KB default, so the operator would be reading a
+  ;; conversation whose index stopped at the message he opened it on.
+  (setq-local imenu-auto-rescan t)
+  (setq-local imenu-auto-rescan-maxout most-positive-fixnum)
+  ;; After `comint-output-filter-functions' has been given its local
+  ;; value above, and not before: `add-hook' would otherwise create
+  ;; that binding itself, with the t in it that runs the global value
+  ;; as well -- and the global value is where
+  ;; `ansi-color-process-output' is, which this mode has just taken
+  ;; pains to drop.
+  (add-hook 'comint-output-filter-functions
+            #'parley-transcript--index-output nil t)
+  (add-hook 'comint-input-filter-functions
+            #'parley-transcript--index-input nil t))
 
 (defun parley-transcript-buffer-name (session)
   "Return the name of the buffer that follows SESSION."

@@ -636,5 +636,259 @@ the second was typed at the pane and is shown."
     (should (= 1 (seq-count (lambda (line) (equal line "> hello there"))
                             (parley-transcript-test--shown buffer))))))
 
+
+;;; The imenu index
+
+(defun parley-transcript-test--index (buffer)
+  "Return BUFFER's imenu index, as whatever imenu would ask it for."
+  (with-current-buffer buffer (funcall imenu-create-index-function)))
+
+(defun parley-transcript-test--at (buffer entry)
+  "Return the line of BUFFER that imenu ENTRY points at."
+  (with-current-buffer buffer
+    (save-excursion
+      (goto-char (cdr entry))
+      (buffer-substring-no-properties (point) (line-end-position)))))
+
+(ert-deftest parley-transcript-indexes-the-prompts ()
+  "The imenu index of the buffer is its prompts and nothing else.
+
+The nine fixture lines hold one prompt that renders, so the index
+has one entry: what the agent said, the line its two tool calls
+collapsed to and the turns that rendered to nothing are all
+absent, and an operator jumping through the index lands only on
+his own turns.
+
+The entry points at the prompt itself and not at the blank line
+the block it stands in opens with."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer
+      (should (eq imenu-create-index-function
+                  #'parley-transcript--imenu-index)))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) '("what is here")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "> what is here")))
+    ;; And an entry is something imenu can act on, not merely something
+    ;; shaped like one: the command itself is what has to land on the
+    ;; prompt.
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (imenu "what is here")
+      (should (looking-at-p "> what is here")))))
+
+(ert-deftest parley-transcript-labels-an-entry-with-the-first-line ()
+  "An entry is labelled with the first line of its prompt, truncated.
+
+The first line, because that is what the operator will search the
+index for; the rest of the message is not in the label and a
+count of messages would tell him nothing.
+
+Truncated to `imenu-max-item-length' -- bound low here, to a
+length no default could be mistaken for -- which is imenu's own
+variable for this and the reason parley does not have one of its
+own.
+
+The entries come back in the order the prompts were inserted,
+which is the order they stand in the buffer, and the prompt that
+was there before these two arrived still points at itself."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (let ((imenu-max-item-length 20))
+      (parley-transcript-test--write
+       file (list (parley-transcript-test--user-turn
+                   "first line of it\\nsecond line")
+                  (parley-transcript-test--user-turn (make-string 100 ?x))
+                  (parley-transcript-test--text-turn "seen")))
+      (should (parley-transcript-test--wait
+               (lambda () (member "seen"
+                                  (parley-transcript-test--shown buffer))))))
+    (let* ((index (parley-transcript-test--index buffer))
+           (labels (mapcar #'car index)))
+      (should (equal (butlast labels) '("what is here" "first line of it")))
+      (should (= 20 (length (car (last labels)))))
+      (should (string-prefix-p (make-string 15 ?x) (car (last labels))))
+      (should (equal (mapcar (lambda (entry)
+                               (parley-transcript-test--at buffer entry))
+                             index)
+                     (list "> what is here"
+                           "> first line of it"
+                           (concat "> " (make-string 100 ?x))))))))
+
+(ert-deftest parley-transcript-labels-a-prompt-that-opens-blank ()
+  "A prompt that opens with a blank line is named and pointed at its first line.
+
+The label and the position have to be the same line.  So the
+prompt is trimmed before it is quoted: the block opens with the
+first thing the prompt says, the label is that line, and the
+entry points at it.
+
+The alternative was to take the prompt's literal first line --
+which for this prompt is the empty string, so the entry would be
+labelled with nothing and the operator could not search for it at
+all."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn
+                 "\\n  \\nfind the bug\\nand fix it")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> and fix it"
+                                (parley-transcript-test--shown buffer)))))
+    ;; The blank lines the prompt opened with are not quoted into the
+    ;; buffer, which is what leaves the label and the entry on one line.
+    (should-not (member "> " (parley-transcript-test--shown buffer)))
+    (let ((entry (assoc "find the bug"
+                        (parley-transcript-test--index buffer))))
+      (should entry)
+      (should (equal (parley-transcript-test--at buffer entry)
+                     "> find the bug")))))
+
+(ert-deftest parley-transcript-indexes-a-prompt-sent-from-the-prompt ()
+  "A message submitted at the prompt is one entry, pointing at it.
+
+comint put that message in the buffer itself and the guard on the
+echo drops the transcript's copy of it when it comes back, so the
+render pass never sees the prompts the operator sent from here.
+They are also the prompts he is most likely to go looking for, so
+they are recorded where they are inserted: as comint takes the
+input.
+
+One entry and not two, which is what makes this the echo and not
+a second message."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "ask it something"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "ask it something")
+                (parley-transcript-test--text-turn "of course")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "of course"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index)
+                     '("what is here" "ask it something")))
+      (should (equal (parley-transcript-test--at buffer (cadr index))
+                     "ask it something")))))
+
+(ert-deftest parley-transcript-indexes-a-prompt-typed-below-a-blank-line ()
+  "A message submitted at the prompt is entered at the first thing it says.
+
+comint puts what the operator submitted in the buffer exactly as
+he wrote it, blank opening line and all, where the render pass
+would have trimmed it first.  The entry is labelled with the
+first line that says something either way, so that is the line it
+has to point at -- an entry on the blank line above would be
+pointing at a line the operator cannot see and which nothing in
+the buffer holds in place."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "\n  \nask it something"))
+    (let ((entry (assoc "ask it something"
+                        (parley-transcript-test--index buffer))))
+      (should entry)
+      (should (equal (parley-transcript-test--at buffer entry)
+                     "ask it something")))))
+
+(ert-deftest parley-transcript-index-survives-a-truncated-buffer ()
+  "The top of the buffer going takes its entries and moves the rest.
+
+`comint-truncate-buffer' is how a comint buffer is kept from
+growing without end, and it deletes from the top -- as does an
+operator killing a stretch of conversation he is done with.
+
+Either moves every prompt below it, which is why an entry holds a
+marker rather than the number that marker had when the prompt
+arrived; and either deletes the prompts above it, which a marker
+does not notice.  A marker in deleted text survives at the
+boundary of the deletion, so the entry for a prompt that is no
+longer in the buffer would keep its label and point at whatever
+text is at that boundary now -- here, at the message after the
+one it names.  It has to go instead."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "the last word")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> the last word"
+                                (parley-transcript-test--shown buffer)))))
+    (with-current-buffer buffer
+      (let ((comint-buffer-maximum-size 4))
+        (comint-truncate-buffer))
+      (should-not (member "> what is here" (parley-transcript-test--shown buffer))))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) '("the last word")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "> the last word")))))
+
+(ert-deftest parley-transcript-index-does-not-go-stale ()
+  "imenu finds a prompt that arrived after it last looked.
+
+`imenu--make-index-alist' remembers the index it built for a
+buffer and, left at its default, never builds it again.  A
+transcript grows for as long as
+its session runs, so the remembered index is the conversation as
+it stood when the operator first opened the index -- and this one
+costs a `reverse' to rebuild, since it was never parsed out of the
+buffer in the first place.
+
+The size at which imenu gives up rebuilding anyway is lifted in
+the mode as well, which this cannot show: no fixture here renders
+the 600 KB that guard turns on."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer
+      (should (equal (mapcar #'car (imenu--make-index-alist))
+                     '("what is here"))))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "and one more thing")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> and one more thing"
+                                (parley-transcript-test--shown buffer)))))
+    (with-current-buffer buffer
+      (should (equal (mapcar #'car (imenu--make-index-alist))
+                     '("what is here" "and one more thing"))))))
+
+(ert-deftest parley-transcript-indexes-a-prompt-after-a-run ()
+  "A prompt that arrives with a rewritten tool run line still points at itself.
+
+The prompt ends the run of two, so the chunk that carries it
+takes the line that run collapsed to back out of the buffer and
+writes it again above the prompt.  The prompt therefore does not
+land at the start of what that chunk rendered, and neither the
+take-back nor the line put back in front of it may move the entry
+off it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--tool-turn 2)))
+    (should (parley-transcript-test--wait
+             (lambda () (member "2 tool calls"
+                                (parley-transcript-test--shown buffer)))))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "after the run")
+                (parley-transcript-test--tool-turn 3)))
+    (should (parley-transcript-test--wait
+             (lambda () (member "3 tool calls"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index)
+                     '("what is here" "after the run")))
+      (should (equal (parley-transcript-test--at buffer (cadr index))
+                     "> after the run")))))
+
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
