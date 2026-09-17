@@ -68,9 +68,10 @@ need goes down into `parley.el`, because the other direction closes a cycle and
   renders as a link.
 - **Two spaces after a period**, in docstrings and in comments.
 - **`;;; ` headings divide every source file into sections.**
-- **A test is named for the property it asserts**, not for the function it calls
-  — `parley-transcript-drops-the-tool-payloads`, not a numbered variant of the
-  function's name. A helper in a test file carries a `-test--` prefix.
+- **A test is named `<the file's feature>-test-<the property it asserts>`**, not
+  for the function it calls —
+  `parley-transcript-test-drops-the-tool-payloads`, never a numbered variant of
+  the function's name. A helper in a test file carries `-test--`.
 - **Never shout. A run of capitals is not emphasis.** Capitals are for a token
   spelled that way: `TMUX_PANE`, `PATH`, `JSONL`.
 - **Prefer the form that can only fail.** `jq -M` where colour would be wrong

@@ -194,7 +194,7 @@ point of the last test -- is the pipeline."
 
 ;;; The tests
 
-(ert-deftest parley-transcript-opens-a-comint-buffer ()
+(ert-deftest parley-transcript-test-opens-a-comint-buffer ()
   "The command opens a live comint buffer for a session record."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
@@ -208,7 +208,7 @@ point of the last test -- is the pipeline."
       (should (equal default-directory
                      (file-name-as-directory temporary-file-directory))))))
 
-(ert-deftest parley-transcript-renders-the-conversation ()
+(ert-deftest parley-transcript-test-renders-the-conversation ()
   "The whole history reaches the buffer as a conversation and nothing else.
 The turn that was only thinking and the `tool_result' turn
 produce no buffer text whatever -- there is no line for either in
@@ -227,7 +227,7 @@ what the buffer shows."
     (with-current-buffer buffer
       (should (equal '(nil t) font-lock-defaults)))))
 
-(ert-deftest parley-transcript-drops-the-tool-payloads ()
+(ert-deftest parley-transcript-test-drops-the-tool-payloads ()
   "Nothing a tool sent or received reaches the Emacs process."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
@@ -241,7 +241,7 @@ what the buffer shows."
       (goto-char (point-min))
       (should-not (search-forward parley-transcript-test--payload nil t)))))
 
-(ert-deftest parley-transcript-follows-the-file ()
+(ert-deftest parley-transcript-test-follows-the-file ()
   "A line appended after the history has arrived arrives too.
 Without `--unbuffered' jq holds the append until its block fills,
 which is never on a transcript this size, and this test is what
@@ -259,7 +259,7 @@ notices."
                              (car (last shown))))))
                    "> and now this"))))
 
-(ert-deftest parley-transcript-kill-stops-the-pipeline ()
+(ert-deftest parley-transcript-test-kill-stops-the-pipeline ()
   "Killing the buffer leaves no `tail' and no `jq' behind.
 Emacs puts the pipeline's shell in a process group of its own, so
 the group is where `tail' and `jq' are found and where they have
@@ -277,7 +277,7 @@ group would have left that check with it."
                (lambda () (null (parley-transcript-test--group pgid)))))
       (should-not (parley-transcript-test--naming file)))))
 
-(ert-deftest parley-transcript-names-two-sessions-of-one-name-apart ()
+(ert-deftest parley-transcript-test-names-two-sessions-of-one-name-apart ()
   "Two live sessions reported under one name get two buffer names.
 
 `claude agents' names a session after the directory it was
@@ -319,7 +319,7 @@ test here that does not start a pipeline."
                      "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
     (should (equal (length (delete-dups (copy-sequence names))) 6))))
 
-(ert-deftest parley-transcript-one-buffer-per-session ()
+(ert-deftest parley-transcript-test-one-buffer-per-session ()
   "A session gets one buffer however often the command is called.
 Two sessions get one each even when they share a name, which two
 in sibling worktrees do: what tells the buffers apart is the
@@ -353,7 +353,7 @@ was asked for."
       (delete-file (plist-get one :transcript))
       (delete-file (plist-get two :transcript)))))
 
-(ert-deftest parley-transcript-collapses-a-run-of-tool-calls ()
+(ert-deftest parley-transcript-test-collapses-a-run-of-tool-calls ()
   "A run of tool calls is one line, however many messages it spans.
 The count cannot be known when the line is first written, since a
 run cannot be counted until it has ended and a line that waited
@@ -393,7 +393,7 @@ its own line further up."
     (should (equal (parley-transcript-test--runs buffer)
                    '("2 tool calls" "15 tool calls")))))
 
-(ert-deftest parley-transcript-fontifies-in-another-buffer ()
+(ert-deftest parley-transcript-test-fontifies-in-another-buffer ()
   "Assistant text is fontified by markdown-mode, and not here.
 The fontification happens in a buffer of its own because markdown
 fontification is not a set of keywords that can be lifted out of
@@ -419,7 +419,7 @@ carries `font-lock-face' and not `face'."
       (dolist (position '(0 2))
         (should-not (plist-get (text-properties-at position string) 'face))))))
 
-(ert-deftest parley-transcript-marks-the-markup-hidden ()
+(ert-deftest parley-transcript-test-marks-the-markup-hidden ()
   "Markup comes back carrying the two properties markdown-mode hides it with.
 `invisible markdown-markup' is what the emphasis, code and fence
 markers carry, and `display' is what a heading's `#' carries --
@@ -440,7 +440,7 @@ only looked where a face was would drop it."
     (should (get-text-property 2 'display super))
     (should-not (get-text-property 2 'font-lock-face super))))
 
-(ert-deftest parley-transcript-copies-three-properties-and-no-others ()
+(ert-deftest parley-transcript-test-copies-three-properties-and-no-others ()
   "What comes back carries `font-lock-face', `invisible', `display' and nothing else.
 markdown-mode leaves `markdown-heading', `font-lock-multiline'
 and, on an HTML comment, a `syntax-table' property behind in the
@@ -470,7 +470,7 @@ this test rather than pass it with a string carrying nothing."
         (should (text-property-not-all (point-min) (point-max)
                                        property nil))))))
 
-(ert-deftest parley-transcript-mode-hides-the-markdown-markup ()
+(ert-deftest parley-transcript-test-mode-hides-the-markdown-markup ()
   "The mode names `markdown-markup' in the buffer's invisibility spec.
 The default spec is t, under which any non-nil `invisible' hides,
 so naming it changes nothing on its own -- and one
@@ -480,7 +480,7 @@ list this value would not be in."
     (parley-transcript-mode)
     (should (memq 'markdown-markup (ensure-list buffer-invisibility-spec)))))
 
-(ert-deftest parley-transcript-faces-survive-font-lock ()
+(ert-deftest parley-transcript-test-faces-survive-font-lock ()
   "What was inserted still carries its faces after font lock has run.
 comint sets `font-lock-defaults' to `(nil t)', which is not nil,
 so global font lock turns font lock on in this buffer with no
@@ -515,7 +515,7 @@ answer for a `face' property that is not there."
         (should-not (plist-get (text-properties-at emphasis) 'face))
         (should-not (plist-get (text-properties-at control) 'face))))))
 
-(ert-deftest parley-transcript-hiding-survives-font-lock ()
+(ert-deftest parley-transcript-test-hiding-survives-font-lock ()
   "The markup hidden in what was inserted is still hidden after font lock has run.
 The whole feature rests on it: neither `invisible' nor `display'
 is in `font-lock-extra-managed-props', so the strip that takes
@@ -550,7 +550,7 @@ and font lock is the only thing here that can take one away."
         (should (eq 'markdown-markup (get-text-property asterisk 'invisible)))
         (should (get-text-property marker 'display))))))
 
-(ert-deftest parley-transcript-holds-back-a-split-line ()
+(ert-deftest parley-transcript-test-holds-back-a-split-line ()
   "A message too big for one chunk of output still renders once, and whole.
 Emacs reads at most `read-process-output-max' bytes of process
 output at a time and a projected object is one line however long
@@ -568,7 +568,7 @@ do is leave JSON in the buffer."
                      text))
       (should (= 1 (length (parley-transcript-test--shown buffer)))))))
 
-(ert-deftest parley-transcript-shows-what-tail-says ()
+(ert-deftest parley-transcript-test-shows-what-tail-says ()
   "A line that is not JSON is shown as it stands.
 A session that has not spoken yet has no transcript to open and
 `tail -F' says so on stderr, which shares this buffer.  Dropping
@@ -649,7 +649,7 @@ BODY sees `tmux-log', the file every call appends a record to;
                   "{\"role\":\"user\",\"content\":\"%s\"}}")
           text))
 
-(ert-deftest parley-transcript-sends-a-line-to-the-pane ()
+(ert-deftest parley-transcript-test-sends-a-line-to-the-pane ()
   "A submitted line is typed into the session's pane and submitted there.
 It leaves by `comint-input-sender' and not down the process,
 whose standard input is a `tail' reading a file and reaches
@@ -675,7 +675,7 @@ as `select 1', which is a different question."
                        ("send-keys" "-t" "%7" "-l" "--" "select 1\\;")
                        ("send-keys" "-t" "%7" "Enter")))))))
 
-(ert-deftest parley-transcript-pastes-input-with-a-newline-in-it ()
+(ert-deftest parley-transcript-test-pastes-input-with-a-newline-in-it ()
   "Input with a newline in it reaches the pane as one bracketed paste.
 `send-keys' would type the newline and the CLI would submit at
 it, so a message of three lines would arrive as three messages.
@@ -699,7 +699,7 @@ where he left it."
                          ("send-keys" "-t" "%7" "Enter"))))
         (should (equal (cdar calls) "first line\nsecond line"))))))
 
-(ert-deftest parley-transcript-says-a-session-without-a-pane-is-read-only ()
+(ert-deftest parley-transcript-test-says-a-session-without-a-pane-is-read-only ()
   "Submitting in a buffer whose session has no pane says so and sends nothing.
 A session started outside tmux inherited no TMUX_PANE, so there
 is no terminal to type into and the buffer can only be read.  A
@@ -717,7 +717,7 @@ sent, which is the worst thing this could do."
         (should (string-match-p "read only" (cadr signalled))))
       (should-not (file-exists-p tmux-log)))))
 
-(ert-deftest parley-transcript-does-not-render-its-own-echo ()
+(ert-deftest parley-transcript-test-does-not-render-its-own-echo ()
   "A message sent from the prompt is not shown again when it comes back.
 comint has already put it in the buffer, and the session writes
 the same message to its transcript seconds later; without the
@@ -752,7 +752,7 @@ there: the second message is delivered and shown."
                                   (parley-transcript-test--shown buffer)))))
       (should (member "> and again" (parley-transcript-test--shown buffer))))))
 
-(ert-deftest parley-transcript-renders-what-was-typed-at-the-pane ()
+(ert-deftest parley-transcript-test-renders-what-was-typed-at-the-pane ()
   "A user message parley did not send is rendered, guard or no guard.
 The operator can type at the pane instead, and what he says there
 has to reach the buffer like everything else.
@@ -791,7 +791,7 @@ the second was typed at the pane and is shown."
       (goto-char (cdr entry))
       (buffer-substring-no-properties (point) (line-end-position)))))
 
-(ert-deftest parley-transcript-indexes-the-prompts ()
+(ert-deftest parley-transcript-test-indexes-the-prompts ()
   "The imenu index of the buffer is its prompts and nothing else.
 
 The nine fixture lines hold one prompt that renders, so the index
@@ -820,7 +820,7 @@ the block it stands in opens with."
       (imenu "what is here")
       (should (looking-at-p "> what is here")))))
 
-(ert-deftest parley-transcript-labels-an-entry-with-the-first-line ()
+(ert-deftest parley-transcript-test-labels-an-entry-with-the-first-line ()
   "An entry is labelled with the first line of its prompt, truncated.
 
 The first line, because that is what the operator will search the
@@ -859,7 +859,7 @@ was there before these two arrived still points at itself."
                            "> first line of it"
                            (concat "> " (make-string 100 ?x))))))))
 
-(ert-deftest parley-transcript-labels-a-prompt-that-opens-blank ()
+(ert-deftest parley-transcript-test-labels-a-prompt-that-opens-blank ()
   "A prompt that opens with a blank line is named and pointed at its first line.
 
 The label and the position have to be the same line.  So the
@@ -889,7 +889,7 @@ all."
       (should (equal (parley-transcript-test--at buffer entry)
                      "> find the bug")))))
 
-(ert-deftest parley-transcript-indexes-a-prompt-sent-from-the-prompt ()
+(ert-deftest parley-transcript-test-indexes-a-prompt-sent-from-the-prompt ()
   "A message submitted at the prompt is one entry, pointing at it.
 
 comint put that message in the buffer itself and the guard on the
@@ -919,7 +919,7 @@ a second message."
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "ask it something")))))
 
-(ert-deftest parley-transcript-indexes-a-prompt-typed-below-a-blank-line ()
+(ert-deftest parley-transcript-test-indexes-a-prompt-typed-below-a-blank-line ()
   "A message submitted at the prompt is entered at the first thing it says.
 
 comint puts what the operator submitted in the buffer exactly as
@@ -941,7 +941,7 @@ the buffer holds in place."
       (should (equal (parley-transcript-test--at buffer entry)
                      "ask it something")))))
 
-(ert-deftest parley-transcript-index-survives-a-truncated-buffer ()
+(ert-deftest parley-transcript-test-index-survives-a-truncated-buffer ()
   "The top of the buffer going takes its entries and moves the rest.
 
 `comint-truncate-buffer' is how a comint buffer is kept from
@@ -973,7 +973,7 @@ one it names.  It has to go instead."
       (should (equal (parley-transcript-test--at buffer (car index))
                      "> the last word")))))
 
-(ert-deftest parley-transcript-index-does-not-go-stale ()
+(ert-deftest parley-transcript-test-index-does-not-go-stale ()
   "imenu finds a prompt that arrived after it last looked.
 
 `imenu--make-index-alist' remembers the index it built for a
@@ -1002,7 +1002,7 @@ the 600 KB that guard turns on."
       (should (equal (mapcar #'car (imenu--make-index-alist))
                      '("what is here" "and one more thing"))))))
 
-(ert-deftest parley-transcript-indexes-a-prompt-after-a-run ()
+(ert-deftest parley-transcript-test-indexes-a-prompt-after-a-run ()
   "A prompt that arrives with a rewritten tool run line still points at itself.
 
 The prompt ends the run of two, so the chunk that carries it
