@@ -403,8 +403,7 @@ table and its `syntax-propertize-function'.
 That buffer is reused from message to message, which is the
 hazard worth a test: whatever state one message leaves it in, the
 next message has to come back fontified too.  And what comes back
-carries `font-lock-face' and neither `face' nor any of the
-properties markdown-mode keeps for its own use."
+carries `font-lock-face' and not `face'."
   (let ((bold (parley-transcript--fontify "**first**"))
         (code (parley-transcript--fontify "`second`")))
     (should (eq 'markdown-mode
@@ -418,8 +417,68 @@ properties markdown-mode keeps for its own use."
                   (ensure-list (get-text-property 2 'font-lock-face code))))
     (dolist (string (list bold code))
       (dolist (position '(0 2))
-        (should-not (plist-get (text-properties-at position string) 'face))
-        (should-not (plist-get (text-properties-at position string) 'invisible))))))
+        (should-not (plist-get (text-properties-at position string) 'face))))))
+
+(ert-deftest parley-transcript-marks-the-markup-hidden ()
+  "Markup comes back carrying the two properties markdown-mode hides it with.
+`invisible markdown-markup' is what the emphasis, code and fence
+markers carry, and `display' is what a heading's `#' carries --
+and a horizontal rule, a blockquote's `>' and a list bullet,
+which markup hiding turns into glyphs rather than removes.
+
+The superscript is the case a walk over the face runs cannot
+reach: `markdown-fontify-sub-superscripts' raises the 2 with a
+`display' property and gives it no face at all, so a copy that
+only looked where a face was would drop it."
+  (let ((bold (parley-transcript--fontify "**first**"))
+        (heading (parley-transcript--fontify "# Heading"))
+        (super (parley-transcript--fontify "x^2^")))
+    (should (eq 'markdown-markup (get-text-property 0 'invisible bold)))
+    (should-not (get-text-property 2 'invisible bold))
+    (should (get-text-property 0 'display heading))
+    (should-not (get-text-property 2 'display heading))
+    (should (get-text-property 2 'display super))
+    (should-not (get-text-property 2 'font-lock-face super))))
+
+(ert-deftest parley-transcript-copies-three-properties-and-no-others ()
+  "What comes back carries `font-lock-face', `invisible', `display' and nothing else.
+markdown-mode leaves `markdown-heading', `font-lock-multiline'
+and, on an HTML comment, a `syntax-table' property behind in the
+buffer it fontifies in.  The transcript buffer has business with
+none of them -- a `syntax-table' property in a comint buffer
+least of all -- so the copy is a selected set rather than the
+buffer string taken whole.
+
+The fontify buffer is checked for those properties afterwards, so
+that a fontification that stopped happening at all would fail
+this test rather than pass it with a string carrying nothing."
+  (let ((string (parley-transcript--fontify
+                 (concat "# Heading\n\n<!-- note -->\n\n"
+                         "```sh\nls\n```\n\n- item **bold** x^2^\n")))
+        (position 0))
+    (while (< position (length string))
+      (let ((properties (text-properties-at position string)))
+        (while properties
+          (should (memq (car properties)
+                        '(font-lock-face invisible display)))
+          (setq properties (cddr properties))))
+      (setq position (or (next-property-change position string)
+                         (length string))))
+    (with-current-buffer (parley-transcript--fontify-buffer)
+      (dolist (property '(face markdown-heading font-lock-multiline
+                               syntax-table))
+        (should (text-property-not-all (point-min) (point-max)
+                                       property nil))))))
+
+(ert-deftest parley-transcript-mode-hides-the-markdown-markup ()
+  "The mode names `markdown-markup' in the buffer's invisibility spec.
+The default spec is t, under which any non-nil `invisible' hides,
+so naming it changes nothing on its own -- and one
+`add-to-invisibility-spec' from anywhere else makes the default a
+list this value would not be in."
+  (with-temp-buffer
+    (parley-transcript-mode)
+    (should (memq 'markdown-markup (ensure-list buffer-invisibility-spec)))))
 
 (ert-deftest parley-transcript-faces-survive-font-lock ()
   "What was inserted still carries its faces after font lock has run.
@@ -455,6 +514,41 @@ answer for a `face' property that is not there."
                                                       'font-lock-face))))
         (should-not (plist-get (text-properties-at emphasis) 'face))
         (should-not (plist-get (text-properties-at control) 'face))))))
+
+(ert-deftest parley-transcript-hiding-survives-font-lock ()
+  "The markup hidden in what was inserted is still hidden after font lock has run.
+The whole feature rests on it: neither `invisible' nor `display'
+is in `font-lock-extra-managed-props', so the strip that takes
+`face' out of this buffer leaves both of them alone.
+
+The control is what makes that a claim about font lock and not
+about a pass that never happened -- it carries a `face' property,
+and font lock is the only thing here that can take one away."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--text-turn "# Heading with **bold**"))
+    (with-current-buffer buffer
+      (should (parley-transcript-test--wait
+               (lambda () (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "**bold**" nil t)))))
+      (let ((inhibit-read-only t)
+            (marker nil)
+            (asterisk nil)
+            (control nil))
+        (goto-char (point-min))
+        (should (search-forward "# Heading" nil t))
+        (setq marker (match-beginning 0))
+        (goto-char (point-min))
+        (should (search-forward "**bold**" nil t))
+        (setq asterisk (match-beginning 0))
+        (goto-char (point-max))
+        (setq control (point))
+        (insert (propertize "CONTROL" 'face 'markdown-bold-face))
+        (font-lock-ensure)
+        (should-not (plist-get (text-properties-at control) 'face))
+        (should (eq 'markdown-markup (get-text-property asterisk 'invisible)))
+        (should (get-text-property marker 'display))))))
 
 (ert-deftest parley-transcript-holds-back-a-split-line ()
   "A message too big for one chunk of output still renders once, and whole.
