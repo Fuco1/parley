@@ -167,9 +167,23 @@ it was is no help to the operator, so no counter goes in one. The prompt is
 trimmed before its first line is taken, so that the line the label names is the
 line the entry points at.
 
-This is where the index stops being enough: two prompts whose first line is the
-same give two entries under one name, and `imenu` resolves a choice back to an
-entry with `assoc`, so only the first of them can be reached.
+**Two prompts with one first line are told apart in the label, because imenu
+looks nowhere else.** A choice is carried back to an entry by its name — `assoc`
+on the string `completing-read` returned — so a second entry under a name the
+first already has cannot be reached: it is offered once and answers with the
+earlier prompt. It gets `<2>` on the end instead, the way Emacs tells two
+buffers of one name apart, and the number says which of the entries in front of
+the operator this is rather than how many messages came before the prompt.
+
+**A label no other prompt shares comes out of that untouched.** It is already
+the string the operator searches for, and suffixing every entry to make the
+collision case uniform would cost the common case for nothing.
+
+**`imenu-create-index-function` is the whole of the interface, and parley ships
+no jump command of its own.** `M-x imenu` is always there and `sallet-imenu` is
+another front end over the same index; a third would be parley's to keep working
+against both. That is also what forces the disambiguation into the label: imenu
+offers no seam at which a choice could be resolved any other way.
 
 ## One buffer per session, found by id
 
