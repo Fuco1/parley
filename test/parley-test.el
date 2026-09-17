@@ -16,7 +16,7 @@
 
 ;;; Fixtures
 
-;; Four entries as `claude agents --json' really prints them: a session
+;; Entries as `claude agents --json' really prints them: a session
 ;; in a tmux pane, one started outside tmux, a headless worker lane
 ;; reported as `interactive' all the same, one the command knows no
 ;; name or status for, and an entry whose pid it printed as null.
@@ -68,8 +68,9 @@
   }
 ]")
 
-;; Standard input per pid, as `readlink /proc/PID/fd/0' gave it: two
-;; terminals and the pipe of a lane running `claude -p'.
+;; Standard input per pid, as `readlink /proc/PID/fd/0' gave it: a
+;; terminal for every entry but the lane running `claude -p', whose
+;; standard input is a pipe.
 (defconst parley-test--stdin
   '((4079793 . "/dev/pts/44")
     (1334764 . "/dev/pts/23")
