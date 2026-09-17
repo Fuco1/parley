@@ -73,14 +73,20 @@ prompt the render pass never sees.
 The session writes the same message to its own transcript seconds later.
 Without a guard every prompt appears twice.
 
-**The guard is the last string sent from this buffer, and it is spent on the
-first user message that matches it.** A second message saying the very same
-thing was typed at the pane and is shown; so is everything else typed at the
-pane, which matches nothing sent from here.
+**The guard is every message sent from this buffer that has not come back, and
+one entry of it is spent on the first user message that matches.** A second
+message saying the very same thing was typed at the pane, or submitted here
+twice, and is shown; so is everything else typed at the pane, which matches
+nothing sent from here.
 
-**The window is a bound on how late the transcript's copy may be.** A session
-that was busy when the message arrived holds the input until the turn it was
-working on has finished and only then writes it, minutes later if the turn was
-long. Widening the window makes that case rarer at the cost of swallowing a
-message genuinely typed twice — which is why it is the operator's to set rather
-than a constant.
+**Every send is outstanding and not only the last.** A session that is working
+holds everything submitted at it until the turn it is on has finished, so the
+operator can have several messages in flight and the transcript delivers them
+together once that turn ends.
+
+**There is no bound on how late the transcript's copy may be**, because there
+is no bound on how late it comes — minutes, if the turn that was running was
+long — and the message has to appear exactly once whenever it lands. What that
+costs is a message that never reaches the transcript at all, which leaves its
+entry standing: the next message of the same text typed at the pane is then
+taken for it and dropped.
