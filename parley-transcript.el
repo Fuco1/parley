@@ -514,13 +514,7 @@ by aligning the table himself is what he should get from reading
 it.
 
 Alignment only ever adds padding, so a table it takes past WIDTH
-is wrapped and aligned again.  `parley-transcript--wrapped-table'
-breaks the cells of a row over as many lines as the grid needs to
-fit, and one aligner lays every line of the result out -- so a
-wrapped row stands in the columns the rest of the table stands
-in.  A wrap costs nothing to come back from either: what it is
-computed from is the text under the overlay, which no rendering
-touches.
+is wrapped and aligned again, which is `parley-transcript--wrapped'.
 
 A column no wrapping can narrow -- one holding a word longer than
 the width the rest of the grid leaves it -- keeps the table wider
@@ -529,7 +523,7 @@ two lines is not: a table past the edge of the window is one the
 operator can still read back.
 
 Nil when `parley-transcript--alignment' will not take TEXT, and
-nil when it will not take the wrapped form.
+nil when the wrapped form will not do either.
 
 The face is on the string and not on the text under it.  What a
 `display' property shows is the string's own properties, and the
@@ -538,8 +532,7 @@ reaches the screen through one."
   (let* ((aligned (parley-transcript--alignment text))
          (form (cond ((null aligned) nil)
                      ((<= (parley-transcript--columns aligned) width) aligned)
-                     (t (parley-transcript--alignment
-                         (parley-transcript--wrapped-table text width))))))
+                     (t (parley-transcript--wrapped text width)))))
     (when form
       (propertize form 'face 'markdown-table-face))))
 
@@ -625,6 +618,36 @@ two forms agree and never make them differ: what this is asked is
 whether the alignment dropped anything, and the answer may not be
 yes when it did not."
   (replace-regexp-in-string "[ \t|:-]" "" text))
+
+(defun parley-transcript--wrapped (text width)
+  "Return TEXT wrapped into WIDTH and aligned, nil if it says less than TEXT.
+
+The wrap is `parley-transcript--wrapped-table' and the alignment
+of it `parley-transcript--alignment', which holds the aligner to
+what it was given -- and what it is given here is the wrapped
+form, so a word the wrap itself dropped would come back through
+it unremarked.  What the wrapped form is held to is TEXT, which
+is the only thing the operator can check it against.
+
+`parley-transcript--table-said' and not
+`parley-transcript--table-content', because the lines a table is
+broken over are what a wrap moves and what everything else has to
+leave alone."
+  (let ((wrapped (parley-transcript--alignment
+                  (parley-transcript--wrapped-table text width))))
+    (when (and wrapped
+               (equal (parley-transcript--table-said wrapped)
+                      (parley-transcript--table-said text)))
+      wrapped)))
+
+(defun parley-transcript--table-said (text)
+  "Return what TEXT says, with the lines it is said over taken out as well.
+Two tables answer this the same way exactly when they hold the
+same cells in the same order, however either has wrapped them --
+so it is what a wrapped form is held to, where
+`parley-transcript--table-content' is what a form of the same
+lines is."
+  (string-replace "\n" "" (parley-transcript--table-content text)))
 
 (defun parley-transcript--wrapped-table (text width)
   "Return TEXT with the cells of every row wrapped to fit WIDTH.

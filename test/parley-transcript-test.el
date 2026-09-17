@@ -1673,6 +1673,26 @@ standing in."
     (cl-letf (((symbol-function 'markdown-table-align) #'ignore))
       (should (parley-transcript--aligned text 80)))))
 
+(ert-deftest parley-transcript-test-shows-a-table-a-wrap-would-cut-as-written ()
+  "A wrapped form that stopped saying what the table says is not shown at all.
+
+The alignment holds markdown-mode's aligner to the text it was
+handed, and what it is handed for a table that has to be wrapped
+is the wrapped form -- so a word the wrap itself dropped would
+come back through that check unremarked.  The wrapped form is
+held to the table instead, and a wrap that loses a word stands in
+here for one that would.
+
+A wrap that only moves the words is stood in the same way, so
+what refuses the first is the word it lost and not the standing
+in."
+  (cl-letf (((symbol-function 'parley-transcript--wrapped-table)
+             (lambda (text _width) (string-replace "prose " "" text))))
+    (should-not (parley-transcript--aligned parley-transcript-test--wide 40)))
+  (cl-letf (((symbol-function 'parley-transcript--wrapped-table)
+             (lambda (text _width) text)))
+    (should (parley-transcript--aligned parley-transcript-test--wide 40))))
+
 (ert-deftest parley-transcript-test-leaves-a-table-in-a-fence-as-written ()
   "A table inside a fenced code block is shown as the agent wrote it.
 
