@@ -670,7 +670,14 @@ the block it stands in opens with."
     (let ((index (parley-transcript-test--index buffer)))
       (should (equal (mapcar #'car index) '("what is here")))
       (should (equal (parley-transcript-test--at buffer (car index))
-                     "> what is here")))))
+                     "> what is here")))
+    ;; And an entry is something imenu can act on, not merely something
+    ;; shaped like one: the command itself is what has to land on the
+    ;; prompt.
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (imenu "what is here")
+      (should (looking-at-p "> what is here")))))
 
 (ert-deftest parley-transcript-labels-an-entry-with-the-first-line ()
   "An entry is labelled with the first line of its prompt, truncated.
@@ -740,6 +747,33 @@ a second message."
                      '("what is here" "ask it something")))
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "ask it something")))))
+
+(ert-deftest parley-transcript-index-survives-a-truncated-buffer ()
+  "An entry still points at its prompt after the top of the buffer goes.
+
+`comint-truncate-buffer' is how a comint buffer is kept from
+growing without end, and it deletes from the top -- as does an
+operator killing a stretch of conversation he is done with.
+Either moves every prompt below it, which is why an entry holds a
+marker rather than the number that marker had when the prompt
+arrived."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "the last word")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> the last word"
+                                (parley-transcript-test--shown buffer)))))
+    (with-current-buffer buffer
+      (let ((comint-buffer-maximum-size 4))
+        (comint-truncate-buffer))
+      (should-not (member "> what is here" (parley-transcript-test--shown buffer))))
+    (let ((entry (assoc "the last word"
+                        (parley-transcript-test--index buffer))))
+      (should entry)
+      (should (equal (parley-transcript-test--at buffer entry)
+                     "> the last word")))))
 
 (ert-deftest parley-transcript-index-does-not-go-stale ()
   "imenu finds a prompt that arrived after it last looked.
