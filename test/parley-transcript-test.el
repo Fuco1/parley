@@ -718,6 +718,36 @@ was there before these two arrived still points at itself."
                            "> first line of it"
                            (concat "> " (make-string 100 ?x))))))))
 
+(ert-deftest parley-transcript-labels-a-prompt-that-opens-blank ()
+  "A prompt that opens with a blank line is named and pointed at its first line.
+
+The label and the position have to be the same line.  So the
+prompt is trimmed before it is quoted: the block opens with the
+first thing the prompt says, the label is that line, and the
+entry points at it.
+
+The alternative was to take the prompt's literal first line --
+which for this prompt is the empty string, so the entry would be
+labelled with nothing and the operator could not search for it at
+all."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn
+                 "\\n  \\nfind the bug\\nand fix it")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> and fix it"
+                                (parley-transcript-test--shown buffer)))))
+    ;; The blank lines the prompt opened with are not quoted into the
+    ;; buffer, which is what leaves the label and the entry on one line.
+    (should-not (member "> " (parley-transcript-test--shown buffer)))
+    (let ((entry (assoc "find the bug"
+                        (parley-transcript-test--index buffer))))
+      (should entry)
+      (should (equal (parley-transcript-test--at buffer entry)
+                     "> find the bug")))))
+
 (ert-deftest parley-transcript-indexes-a-prompt-sent-from-the-prompt ()
   "A message submitted at the prompt is one entry, pointing at it.
 

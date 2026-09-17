@@ -210,14 +210,20 @@ line of the last block -- which is what
 An assistant turn is markdown and is fontified as markdown.  The
 operator's own turn is quoted and otherwise left alone: what he
 typed at a terminal is not markdown, and fontifying it as though
-it were would invent emphasis he never wrote."
+it were would invent emphasis he never wrote.
+
+It is trimmed at both ends, though, and not only on the right.
+The first character of the block is where the imenu index points
+and the first line of it is what the entry is labelled with, so a
+prompt that opened with a blank line would put a quoted blank
+line under both."
   (let ((text (string-trim-right (or (alist-get 'text record) ""))))
     (cond
      ((string= text "") "")
      ((equal (alist-get 'role record) "assistant")
       (parley-transcript--block (parley-transcript--fontify text)))
      (t (parley-transcript--block
-         (propertize (replace-regexp-in-string "^" "> " text)
+         (propertize (replace-regexp-in-string "^" "> " (string-trim text))
                      'font-lock-face 'parley-user))))))
 
 (defun parley-transcript--tool-run (count)
@@ -349,10 +355,13 @@ inserted and then rewritten in place."
   "Return the imenu label for the prompt TEXT, nil if it has nothing to say.
 
 The first line of the prompt, which is what the operator will
-look for; how many messages ago it was is no help to him.  Blank
-lines above it are skipped, so a prompt that opens with a newline
-is still named after what it says -- and a prompt that says
-nothing at all has no label, and so gets no entry.
+look for; how many messages ago it was is no help to him.  The
+prompt is trimmed first and its first line taken after that, so
+that the line this names is the line the entry points at --
+`parley-transcript--speech' trims it the same way before quoting
+it, and the two would otherwise disagree about where a prompt
+that opened with a blank line begins.  A prompt that says nothing
+at all has no label, and so gets no entry.
 
 Truncated to `imenu-max-item-length', imenu's own variable for
 this length and the reason there is not a second one here.  Doing
@@ -361,8 +370,8 @@ it here is what puts an ellipsis on the end, where
 that function nothing to do, which matters because it truncates
 the alist it is handed in place and the conses in that alist are
 this buffer's own."
-  (let ((line (car (split-string text "\n" t "[ \t\r]+"))))
-    (cond ((null line) nil)
+  (let ((line (car (split-string (string-trim text) "\n"))))
+    (cond ((string= line "") nil)
           ((numberp imenu-max-item-length)
            (truncate-string-to-width line imenu-max-item-length nil nil t))
           (t line))))
