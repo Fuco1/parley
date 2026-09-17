@@ -101,7 +101,7 @@
 
 ;;; The exclusion rule
 
-(ert-deftest parley-test-terminal-device-p ()
+(ert-deftest parley-test-a-terminal-passes-and-a-pipe-does-not ()
   "A terminal is a terminal; a pipe, a socket and /dev/null are not."
   (dolist (target '("/dev/pts/0" "/dev/pts/44" "/dev/pts/180" "/dev/tty"
                     "/dev/tty1" "/dev/ttyS0"))
@@ -137,7 +137,7 @@
 
 ;;; The pane id
 
-(ert-deftest parley-test-environ-tmux-pane ()
+(ert-deftest parley-test-reads-tmux-pane-whole-and-only-when-it-is-there ()
   "TMUX_PANE is read whole, and only when it is really there."
   (should (equal (parley--environ-tmux-pane "TMUX_PANE=%61\0TERM=dumb\0")
                  "%61"))
@@ -166,7 +166,7 @@
 
 ;;; The transcript
 
-(ert-deftest parley-test-transcript-file ()
+(ert-deftest parley-test-slugs-the-working-directory-into-the-transcript-path ()
   "The slug is the working directory with every non-alphanumeric dashed."
   (let ((parley-projects-directory "/home/matus/.claude/projects"))
     (should (equal (parley--transcript-file "/home/matus/dev/go/orc" "abc")
