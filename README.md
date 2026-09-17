@@ -27,6 +27,9 @@ parley is for reading what it said.
   the whole block goes as one message wherever point stands in it. A session
   outside tmux has no pane and is read only, and the switcher says so on its
   row.
+- `RET` on a turn you took earlier sends that turn again, all of it and without
+  the quote the view draws it with. On anything else — an agent's turn, the
+  line a run of tool calls collapsed to — it sends nothing and says so.
 - `M-x imenu` in a transcript buffer jumps between the prompts.
 
 ## How it works
