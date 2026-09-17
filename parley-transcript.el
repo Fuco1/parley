@@ -561,12 +561,20 @@ by such a leftover is not a name this session can have."
       (generate-new-buffer (parley-transcript-buffer-name session))))
 
 (defun parley-transcript--read-session ()
-  "Read one of the live sessions in the minibuffer."
+  "Read one of the live sessions in the minibuffer.
+
+The candidate carries `parley-session-tag', because neither the
+name `claude agents' gives a session nor the directory it runs in
+is its own: two sessions started in one repo come back under one
+name and one directory, so without the tag they are one
+candidate, and the `assoc' below would hand back whichever of
+them came first -- a buffer showing one conversation and typing
+into the other one's pane."
   (let ((table (mapcar (lambda (session)
-                         (cons (format "%s  %s"
-                                       (or (plist-get session :name)
-                                           (plist-get session :session-id))
-                                       (plist-get session :cwd))
+                         (cons (format "%s  %s  %s"
+                                       (or (plist-get session :name) "unnamed")
+                                       (plist-get session :cwd)
+                                       (parley-session-tag session))
                                session))
                        (parley-sessions))))
     (unless table
