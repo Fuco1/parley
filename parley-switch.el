@@ -23,9 +23,11 @@
 ;;; Commentary:
 
 ;; `parley-switch' picks one of the sessions `parley-sessions' found
-;; and shows its transcript buffer, creating that buffer the first
-;; time.  A dozen or two sessions is the whole list, so nothing here
-;; is asynchronous.
+;; and hands it to `parley-transcript', which is what owns the buffer
+;; a session is read in and the pipeline that fills it.  Nothing here
+;; makes a buffer of its own: this file is the picker and that one is
+;; the view.  A dozen or two sessions is the whole list, so nothing
+;; here is asynchronous.
 ;;
 ;; A session is listed by four columns: the name `claude agents' gives
 ;; it, its status, its working directory and the tmux pane it lives
@@ -37,8 +39,11 @@
 ;; `parley-switch--sessions': there is one way of building it.
 ;;
 ;; The names are not unique -- two sessions in sibling worktrees come
-;; back under the same one -- so the fourth column doubles as the tag
-;; that tells them apart, in either frontend and in the buffer name.
+;; back under the same one -- so the fourth column is
+;; `parley-session-tag', which is what tells them apart.  It lives in
+;; `parley' because the buffer name needs it too, and the requiring
+;; goes one way only: the picker knows the view, the view knows
+;; nothing of the picker.
 ;;
 ;; sallet is optional.  It is required with noerror and its functions
 ;; are declared, so nothing in the package headers names it.
@@ -46,6 +51,7 @@
 ;;; Code:
 
 (require 'parley)
+(require 'parley-transcript)
 (require 'seq)
 
 ;; A soft requirement, and the only one in the package: with sallet
@@ -86,22 +92,12 @@ a status stay in the order `parley-sessions' discovered them in."
         (lambda (a b) (< (parley-switch--status-rank a)
                          (parley-switch--status-rank b)))))
 
-(defun parley-switch--tag (session)
-  "Return what tells SESSION apart from another of the same name.
-That is the pane it lives in, and the head of its session id when
-it lives outside tmux and has no pane.  Something in the row has
-to be unique: two sessions in sibling worktrees come back under
-one name, and a switcher that cannot tell them apart lands in the
-wrong buffer."
-  (or (plist-get session :pane)
-      (let ((id (or (plist-get session :session-id) "")))
-        (substring id 0 (min 8 (length id))))))
-
 (defun parley-switch--fields (session)
   "Return the columns SESSION is listed and matched by.
 A vector of four strings: its name, its status, its working
-directory and its tag -- the pane it lives in, or the head of its
-session id when it has none, see `parley-switch--tag'.
+directory and its tag -- the pane it lives in and its session id,
+see `parley-session-tag'.  The tag is matched as one
+string, so a token beginning with % still finds the pane in it.
 
 Nothing in a session record is guaranteed to be there, so the
 placeholders for a name and a status `claude agents' did not
@@ -109,7 +105,7 @@ report are chosen once here rather than by each frontend."
   (vector (or (plist-get session :name) "unnamed")
           (or (plist-get session :status) "unknown")
           (abbreviate-file-name (plist-get session :cwd))
-          (parley-switch--tag session)))
+          (parley-session-tag session)))
 
 (defun parley-switch--row (fields)
   "Return FIELDS as one row of columns, the name first.
@@ -118,39 +114,6 @@ FIELDS is a vector from `parley-switch--fields'.  A row is what
 string and the annotation has to be inside it; the sallet
 renderer draws the same row from the same fields."
   (apply #'format "%-16s  %-7s  %-40s  %s" (append fields nil)))
-
-
-;;; The buffer
-
-(defvar-local parley-session nil
-  "The session record the buffer follows, nil in a buffer that follows none.
-It is the plist `parley-sessions' returned for that session.")
-
-(defun parley-switch--buffer-name (session)
-  "Return the name of the transcript buffer of SESSION.
-The name carries the same name and tag the switcher listed the
-session under -- the first and last of `parley-switch--fields' --
-because names repeat and one buffer per session is the point."
-  (let ((fields (parley-switch--fields session)))
-    (format "*parley %s %s*" (aref fields 0) (aref fields 3))))
-
-(defun parley-switch--buffer (session)
-  "Return the transcript buffer of SESSION, creating it if there is none.
-A buffer created here is empty: filling it is the transcript
-pipeline's business, and what is settled here is the buffer's
-identity -- its name, the record in `parley-session' and the
-session's own working directory.  Switching to a session again
-finds the same buffer and refreshes the record in it, because
-what `claude agents' says about a session goes stale."
-  (with-current-buffer (get-buffer-create (parley-switch--buffer-name session))
-    (setq parley-session session)
-    (setq default-directory
-          (file-name-as-directory (plist-get session :cwd)))
-    (current-buffer)))
-
-(defun parley-switch-to-session (session)
-  "Show the transcript buffer of SESSION, creating it if there is none."
-  (pop-to-buffer (parley-switch--buffer session)))
 
 
 ;;; Without sallet: one flat row per session
@@ -227,7 +190,7 @@ is the session named orc in that worktree."
 
 (defun parley-switch--action (_source candidate)
   "Show the transcript buffer of the session CANDIDATE was built for."
-  (parley-switch-to-session (cdr candidate)))
+  (parley-transcript (cdr candidate)))
 
 ;; `sallet-defsource' is a macro, so the source cannot be written as a
 ;; plain top-level form: with sallet absent from the load path there
@@ -247,7 +210,9 @@ is the session named orc in that worktree."
 (defun parley-switch ()
   "Switch to the transcript buffer of a live Claude Code session.
 The sessions are the ones `parley-sessions' finds, ordered by
-status, and the buffer is created if it does not exist yet.
+status, and the one picked is shown by `parley-transcript': the
+same buffer, with the same pipeline in it, that calling that
+command with the record would have reached.
 
 With sallet installed the pick is a sallet session over the
 source `sallet-source-parley', which matches and renders the
@@ -259,7 +224,7 @@ there when this file was loaded, so that -- and not the feature
   (interactive)
   (if (fboundp 'sallet-source-parley)
       (sallet (list 'sallet-source-parley))
-    (parley-switch-to-session (parley-switch--read-session))))
+    (parley-transcript (parley-switch--read-session))))
 
 (provide 'parley-switch)
 ;;; parley-switch.el ends here
