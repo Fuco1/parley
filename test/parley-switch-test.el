@@ -100,20 +100,43 @@ function cannot move with it.")
 ;;; The columns
 
 (ert-deftest parley-switch-test-fields ()
-  "A session is four separate fields: name, status, directory, pane."
+  "A session is five fields: name, status, mark, directory, pane."
   (should (equal (parley-switch--fields (parley-switch-test--session 2))
-                 (vector "orc-w1" "idle" "/srv/orc/trees/worker-1/orc"
+                 (vector "orc-w1" "idle" "" "/srv/orc/trees/worker-1/orc"
                          (parley-switch-test--tag 2))))
   ;; The working directory is shown the way the operator writes it.
   (should (equal (aref (parley-switch--fields
                         (parley-switch-test--session 1))
-                       2)
+                       3)
                  "~/dev/ydistri/Ydistri.Pairing"))
   ;; A name and a status `claude agents' did not report still leave
-  ;; four fields, and the pane column falls back to the session id.
+  ;; five fields, and the pane column falls back to the session id.
   (should (equal (parley-switch--fields (parley-switch-test--session 3))
-                 (vector "unnamed" "unknown" "/srv/matus"
+                 (vector "unnamed" "unknown" "read only" "/srv/matus"
                          (parley-switch-test--tag 3)))))
+
+(ert-deftest parley-switch-test-marks-a-session-with-no-pane-read-only ()
+  "A session with no pane is listed as one that cannot be typed into.
+The mark is in the row before anything has been submitted, which
+is the only point at which the operator can still pick another
+session.
+
+It is read from the pane and not from the kind: both fixture
+sessions without a pane are reported interactive, and a session
+started outside tmux is as unreachable as a background agent
+dispatched from the agent view."
+  (dolist (pid '(3 5))
+    (let ((fields (parley-switch--fields (parley-switch-test--session pid))))
+      (should (equal (plist-get (parley-switch-test--session pid) :kind)
+                     "interactive"))
+      (should (equal (aref fields 2) "read only"))
+      (should (string-match-p "read only" (parley-switch--row fields)))))
+  ;; And a session with a pane carries no mark, so the row says
+  ;; something about this session rather than about every session.
+  (dolist (pid '(1 2 4 6))
+    (let ((fields (parley-switch--fields (parley-switch-test--session pid))))
+      (should (equal (aref fields 2) ""))
+      (should-not (string-match-p "read only" (parley-switch--row fields))))))
 
 (ert-deftest parley-switch-test-tag-tells-one-name-apart ()
   "The four sessions named `orc-w1' have four different tags.
@@ -280,7 +303,7 @@ characters, which is all a head of it would carry."
   "A candidate is its fields and the record itself, in switcher order."
   (parley-switch-test--with-sessions
     (let ((candidates (parley-switch--candidates)))
-      (should (equal (mapcar (lambda (candidate) (aref (car candidate) 3))
+      (should (equal (mapcar (lambda (candidate) (aref (car candidate) 4))
                              candidates)
                      (mapcar #'parley-switch-test--tag '(2 4 6 1 5 3))))
       ;; The record travels with the candidate, so nothing has to look
@@ -323,7 +346,7 @@ candidate, so nothing has to find it again by a name it shares."
                    (lambda (index)
                      (aref (car (aref candidates
                                       (if (consp index) (car index) index)))
-                           3))
+                           4))
                    (parley-switch--matcher
                     candidates (list (cons 'prompt prompt))))))
         (should (equal (tags "")
