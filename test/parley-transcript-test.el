@@ -1205,6 +1205,137 @@ it."
       (should (equal (parley-transcript-test--shown buffer) before)))))
 
 
+(defun parley-transcript-test--marked-zone (buffer)
+  "Return the overlay marking the input zone of BUFFER, nil if it is unmarked.
+It is looked up by its face and not in the variable holding it,
+because an overlay the buffer has lost is one the operator cannot
+see either.  Marking the zone is standing over the whole of it:
+from the process mark, which is where `comint-send-input' reads
+what it sends from, to the end of the buffer."
+  (with-current-buffer buffer
+    (let ((overlay (seq-find (lambda (overlay)
+                               (eq (overlay-get overlay 'face) 'parley-input))
+                             (overlays-in (point-min) (point-max)))))
+      (and overlay
+           (= (overlay-start overlay)
+              (marker-position (process-mark (get-buffer-process buffer))))
+           (= (overlay-end overlay) (point-max))
+           overlay))))
+
+(ert-deftest parley-transcript-test-marks-the-input-zone-with-nothing-in-it ()
+  "The zone the operator types in is marked before he has typed anything.
+Nothing else in the buffer says where typing begins: the pipeline
+emits no prompt, so his text is the tail of a buffer whose tail
+is otherwise conversation -- and an empty zone is when he most
+needs to see where it is.  A text property cannot mark it, since
+there is no text under it to carry one; an overlay has a position
+either way, and this one is empty.
+
+What the overlay shows is shown and is not in the buffer, which
+is what the two strings assert: the mark stands before the zone
+and the space that carries the band across its last line stands
+after it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (let ((overlay (parley-transcript-test--marked-zone buffer)))
+      (should overlay)
+      (should (equal "" (parley-transcript-test--zone buffer)))
+      (should (= (overlay-start overlay) (overlay-end overlay)))
+      (should (equal (overlay-get overlay 'before-string)
+                     parley-transcript--input-marker))
+      (should (equal (overlay-get overlay 'after-string)
+                     parley-transcript--input-fill)))))
+
+(ert-deftest parley-transcript-test-marks-the-input-zone-before-anything-arrives ()
+  "A session that has said nothing yet still shows the operator where to type.
+Its transcript is there and holds nothing, so the pipeline writes
+nothing and no output filter runs at all.  The zone is marked
+when the process is started as well as after every output, or the
+first message of a session would be typed into an empty buffer
+with nothing in it to type at."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session nil
+    (with-current-buffer buffer
+      (should (= (point-min) (point-max))))
+    (should (parley-transcript-test--marked-zone buffer))))
+
+(ert-deftest parley-transcript-test-marks-the-input-zone-again-after-output ()
+  "Output arriving moves the process mark, and the zone is marked at the new one.
+The transcript is followed, so output arrives while the operator
+is typing: comint inserts it at the process mark and moves the
+mark past what it inserted, which pushes the zone down the buffer
+every time.  The overlay starts at that mark and has to be put
+back at it.
+
+What he had typed is still the zone and still all of it.  The
+output went in in front of it, so an overlay left where it was
+would hold the message the session sent as well as the message he
+is writing."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer
+      (goto-char (point-max))
+      (insert "half a thought"))
+    (let ((mark (marker-position (process-mark (get-buffer-process buffer)))))
+      (parley-transcript-test--write
+       file (list (parley-transcript-test--text-turn "a late answer")))
+      (should (parley-transcript-test--wait
+               (lambda () (member "a late answer"
+                                  (parley-transcript-test--shown buffer)))))
+      (should (> (marker-position (process-mark (get-buffer-process buffer)))
+                 mark))
+      (should (parley-transcript-test--marked-zone buffer))
+      (should (equal "half a thought" (parley-transcript-test--zone buffer))))))
+
+(ert-deftest parley-transcript-test-sends-the-zone-and-not-what-marks-it ()
+  "What is submitted from a marked zone is what was typed and nothing else.
+`comint-send-input' sends the buffer text from the process mark
+to the end of the field, so anything the mark or the band put
+into the buffer after that mark would be typed into the session.
+Neither puts anything there: one is an overlay's `before-string'
+and the other its face and its `after-string'.
+
+The block the send leaves behind moves the process mark again,
+and the zone is marked at that one -- empty, because what stood
+in it has gone to the pane."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (should (parley-transcript-test--marked-zone buffer))
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there")
+      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
+                     '(("send-keys" "-t" "%7" "-l" "--" "hello there")
+                       ("send-keys" "-t" "%7" "Enter"))))
+      (should (parley-transcript-test--marked-zone buffer))
+      (should (equal "" (parley-transcript-test--zone buffer))))))
+
+(ert-deftest parley-transcript-test-bands-the-input-zone-to-the-window-edge ()
+  "The band under the input zone runs to the window edge on every line of it.
+`:extend' is what carries a background past the last character of
+a line, and it is painted from the newline that ends the line.
+Every line of the zone ends in one except the last, which is the
+last line of the buffer: that one is carried by a space stretched
+to the right edge instead, and `cursor' on it is what keeps point
+drawn at the head of that space rather than at the far end of it.
+
+The mark at the head of the zone stands on the same band, because
+it inherits the face that carries it before it inherits anything
+else."
+  (should (stringp (face-attribute 'parley-input :background nil t)))
+  (should (eq t (face-attribute 'parley-input :extend nil t)))
+  (should (equal '(space :align-to right)
+                 (get-text-property 0 'display parley-transcript--input-fill)))
+  (should (eq 'parley-input
+              (get-text-property 0 'face parley-transcript--input-fill)))
+  (should (get-text-property 0 'cursor parley-transcript--input-fill))
+  (should (equal (face-attribute 'parley-input-marker :background nil t)
+                 (face-attribute 'parley-input :background nil t))))
+
+
 ;;; The imenu index
 
 (defun parley-transcript-test--index (buffer)
