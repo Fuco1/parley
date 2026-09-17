@@ -741,6 +741,35 @@ a second message."
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "ask it something")))))
 
+(ert-deftest parley-transcript-index-does-not-go-stale ()
+  "imenu finds a prompt that arrived after it last looked.
+
+`imenu--make-index-alist' remembers the index it built for a
+buffer and, left at its default, never builds it again.  A
+transcript grows for as long as
+its session runs, so the remembered index is the conversation as
+it stood when the operator first opened the index -- and this one
+costs a `reverse' to rebuild, since it was never parsed out of the
+buffer in the first place.
+
+The size at which imenu gives up rebuilding anyway is lifted in
+the mode as well, which this cannot show: no fixture here renders
+the 600 KB that guard turns on."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer
+      (should (equal (mapcar #'car (imenu--make-index-alist))
+                     '("what is here"))))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "and one more thing")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "> and one more thing"
+                                (parley-transcript-test--shown buffer)))))
+    (with-current-buffer buffer
+      (should (equal (mapcar #'car (imenu--make-index-alist))
+                     '("what is here" "and one more thing"))))))
+
 (ert-deftest parley-transcript-indexes-a-prompt-after-a-run ()
   "A prompt that arrives with a rewritten tool run line still points at itself.
 

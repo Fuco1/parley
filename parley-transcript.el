@@ -444,12 +444,15 @@ and never the objects."
   ;; session's tmux pane instead, which is the door that does reach it.
   (setq-local comint-input-sender #'parley-transcript--send-input)
   (setq-local imenu-create-index-function #'parley-transcript--imenu-index)
-  ;; imenu remembers the index it last built and, by default, only
-  ;; rebuilds it for a buffer small enough to be worth re-parsing.
-  ;; This one has nothing to parse -- the index is recorded as the
-  ;; conversation arrives and the function above only hands it over --
-  ;; and it grows for as long as the session runs, so the cache is
-  ;; exactly wrong here and the size the guard turns on is irrelevant.
+  ;; imenu remembers the index it built for a buffer and, left at its
+  ;; default, never builds it again; switched on, it gives up again
+  ;; above `imenu-auto-rescan-maxout'.  Both guards are there to keep
+  ;; imenu from re-parsing a large buffer, and there is nothing here to
+  ;; parse -- the index is recorded as the conversation arrives and the
+  ;; function above only hands it over.  A transcript grows for as long
+  ;; as its session runs, and the 26 MB one renders to 1.3 MB of buffer
+  ;; against a 600 KB default, so the operator would be reading a
+  ;; conversation whose index stopped at the message he opened it on.
   (setq-local imenu-auto-rescan t)
   (setq-local imenu-auto-rescan-maxout most-positive-fixnum)
   ;; After `comint-output-filter-functions' has been given its local
