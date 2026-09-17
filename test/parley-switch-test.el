@@ -88,7 +88,7 @@ opens one builds a session it can really follow."
 (ert-deftest parley-switch-test-fields ()
   "A session is four separate fields: name, status, directory, pane."
   (should (equal (parley-switch--fields (parley-switch-test--session 2))
-                 ["orc-w1" "idle" "/srv/orc/trees/worker-1/orc" "%61"]))
+                 ["orc-w1" "idle" "/srv/orc/trees/worker-1/orc" "%61 1111ffff"]))
   ;; The working directory is shown the way the operator writes it.
   (should (equal (aref (parley-switch--fields
                         (parley-switch-test--session 1))
@@ -101,14 +101,17 @@ opens one builds a session it can really follow."
 
 (ert-deftest parley-switch-test-tag-tells-one-name-apart ()
   "The four sessions named `orc-w1' have four different tags.
-Two of them share a working directory as well, so the pane is all
-that is left to tell those apart."
+Two of them share a working directory as well, and one lives
+outside tmux and has no pane to be told apart by, so what every
+tag ends in is the head of the session id -- the one thing two
+records cannot share."
   (let ((tags (parley-switch-test--tags
                (list (parley-switch-test--session 2)
                      (parley-switch-test--session 4)
                      (parley-switch-test--session 5)
                      (parley-switch-test--session 6)))))
-    (should (equal tags '("%61" "%62" "9a5a5635" "%63")))
+    (should (equal tags '("%61 1111ffff" "%62 2222ffff"
+                          "9a5a5635" "%63 3333ffff")))
     (should (equal (length (delete-dups (copy-sequence tags))) 4))))
 
 (ert-deftest parley-switch-test-row-begins-with-the-name ()
@@ -241,7 +244,8 @@ tested there, so the command is stubbed here."
     (let ((candidates (parley-switch--candidates)))
       (should (equal (mapcar (lambda (candidate) (aref (car candidate) 3))
                              candidates)
-                     '("%61" "%62" "%63" "%23" "9a5a5635" "7c1d0f9a")))
+                     '("%61 1111ffff" "%62 2222ffff" "%63 3333ffff"
+                       "%23 eb6ab7cd" "9a5a5635" "7c1d0f9a")))
       ;; The record travels with the candidate, so nothing has to look
       ;; a session up by a name four of them share.
       (should (eq (cdr (nth 1 candidates)) (parley-switch-test--session 4)))
@@ -286,14 +290,21 @@ candidate, so nothing has to find it again by a name it shares."
                    (parley-switch--matcher
                     candidates (list (cons 'prompt prompt))))))
         (should (equal (tags "")
-                       '("%61" "%62" "%63" "%23" "9a5a5635" "7c1d0f9a")))
-        (should (equal (tags "orc-w1") '("%61" "%62" "%63" "9a5a5635")))
-        (should (equal (tags "/worker-2") '("%62")))
-        (should (equal (tags "%61") '("%61")))
-        (should (equal (tags ":busy") '("%23" "9a5a5635")))
-        (should (equal (tags ":idle") '("%61" "%62" "%63")))
-        (should (equal (tags "orc-w1 /worker-1") '("%61" "%63")))
-        (should (equal (tags "/worker-1 %63") '("%63")))
+                       '("%61 1111ffff" "%62 2222ffff" "%63 3333ffff"
+                         "%23 eb6ab7cd" "9a5a5635" "7c1d0f9a")))
+        (should (equal (tags "orc-w1")
+                       '("%61 1111ffff" "%62 2222ffff" "%63 3333ffff"
+                         "9a5a5635")))
+        (should (equal (tags "/worker-2") '("%62 2222ffff")))
+        ;; The pane is still what a % token finds, though the tag it
+        ;; sits in carries the session id after it.
+        (should (equal (tags "%61") '("%61 1111ffff")))
+        (should (equal (tags ":busy") '("%23 eb6ab7cd" "9a5a5635")))
+        (should (equal (tags ":idle")
+                       '("%61 1111ffff" "%62 2222ffff" "%63 3333ffff")))
+        (should (equal (tags "orc-w1 /worker-1")
+                       '("%61 1111ffff" "%63 3333ffff")))
+        (should (equal (tags "/worker-1 %63") '("%63 3333ffff")))
         (should (equal (tags "orc-w1 %23") nil))
         (should (equal (tags "nothing") nil))))))
 

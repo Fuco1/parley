@@ -163,19 +163,26 @@ children -- a lane running `claude -p' -- and are left out."
   (delq nil (mapcar #'parley--session (parley--agents))))
 
 (defun parley-session-tag (session)
-  "Return what tells SESSION apart from another of the same name.
-That is the pane it lives in, and the head of its session id when
-it lives outside tmux and has no pane.  Something has to be
-unique: two sessions in sibling worktrees come back under one
-name, and a switcher row or a buffer name that cannot tell them
-apart lands in the wrong conversation.
+  "Return what tells SESSION apart from every other live session.
+Something has to: two sessions in sibling worktrees come back
+under one name, and a switcher row or a buffer name that cannot
+tell them apart lands in the wrong conversation.
+
+The head of its session id, which is the only thing a record
+carries that another record cannot also carry, and the pane it
+lives in before that when it has one.  The pane is what the
+operator recognises a session by and what he searches the
+switcher with, but it is not enough on its own: suspend the
+session running in a pane, start another there, and `claude
+agents' reports two live sessions in one pane.
 
 It is here rather than in either of the files that need it,
 because both do: the switcher lists it as a column and the
 transcript buffer is named with it."
-  (or (plist-get session :pane)
-      (let ((id (or (plist-get session :session-id) "")))
-        (substring id 0 (min 8 (length id))))))
+  (let* ((id (or (plist-get session :session-id) ""))
+         (head (substring id 0 (min 8 (length id))))
+         (pane (plist-get session :pane)))
+    (if pane (concat pane " " head) head)))
 
 (provide 'parley)
 ;;; parley.el ends here
