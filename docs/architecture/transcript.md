@@ -66,6 +66,21 @@ turn is quoted and otherwise left alone** — what he typed at a terminal is not
 markdown, and fontifying it as though it were would invent emphasis he never
 wrote.
 
+### A turn of the operator's is found by its background
+
+His own turn is what he looks for in a buffer that is markdown from top to
+bottom, and a weight is not something the eye lands on among prose. So a turn
+carries a background — and **a background is a band only if the face extends
+it**. `:extend` is unspecified on a face that sets `:background` alone, and the
+colour then stops at the last character of each line; what it is painted from
+past that character is the newline ending the line, so the newline that closes
+a turn's block carries the face as well as the text before it.
+
+**The `> ` at the head of each line takes a face of its own**, so a theme can
+dim the mark the renderer added without dimming the words the operator wrote.
+It inherits the turn's face before anything else, so the band under it is
+unbroken.
+
 ### Fontification happens in another buffer, twice over
 
 Markdown fontification is not a set of keywords that can be lifted out of

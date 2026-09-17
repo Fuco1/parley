@@ -128,14 +128,14 @@ with the `> ` the renderer put on each of its lines taken off, and all of it: a
 prompt of four lines goes back as four lines and not as the line point stood
 on.
 
-**A turn is the run of lines carrying `parley-user`.** One function quotes
-every turn of his whichever door it reached the buffer by, so that face is on a
-turn the transcript delivered and on one submitted here alike — where `field`,
-which `comint-get-old-input-default` branches on, is `output` on the first and
-absent on the second, and each branch gives its own wrong answer. Measured
-against Emacs 28.2 over the test fixture with point in the rendered turn `what
-is here`, the default returns `> what is here` on the delivered one and
-`"\n> what is here\n"` on the one submitted here.
+**A turn is the run of lines whose head carries `parley-user-marker`.** One
+function quotes every turn of his whichever door it reached the buffer by, so
+the marked `> ` heads a turn the transcript delivered and one submitted here
+alike — where `field`, which `comint-get-old-input-default` branches on, is
+`output` on the first and absent on the second, and each branch gives its own
+wrong answer. Measured against Emacs 28.2 over the test fixture with point in
+the rendered turn `what is here`, the default returns `> what is here` on the
+delivered one and `"\n> what is here\n"` on the one submitted here.
 
 **The face and not the `> ` itself is what says whose turn it is.** An
 assistant turn quoting something is markdown with `> ` at the front of a line
