@@ -22,9 +22,11 @@ parley is for reading what it said.
 - `M-x parley-transcript` opens the same buffer for a session you already have
   in hand. Either way the buffer delivers the transcript from its first byte and
   then follows the file.
-- Submitting at the prompt types the message into the session's tmux pane. A
-  session outside tmux has no pane and is read only, and the switcher says so on
-  its row.
+- Submitting at the prompt types the message into the session's tmux pane.
+  `S-<return>` opens another line at the prompt without submitting anything, and
+  the whole block goes as one message wherever point stands in it. A session
+  outside tmux has no pane and is read only, and the switcher says so on its
+  row.
 - `M-x imenu` in a transcript buffer jumps between the prompts.
 
 ## How it works

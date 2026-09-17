@@ -11,6 +11,25 @@ goes, and the pane is the only way into a session parley did not start.**
 comint also requires a live process — `comint-send-input` errors without one —
 which the pipeline satisfies whether or not anything is ever sent to it.
 
+## The prompt holds a block, and not a line
+
+**The input zone is a block the operator may edit before he sends it**: a line
+opened inside it with `S-<return>`, a word changed on the line above, point
+left wherever the editing ended.
+
+**What makes the whole of it the input is that comint is not line oriented on
+the way out.** `comint-eol-on-send` moves point to `field-end` before
+`comint-send-input` reads, and unsent input after the process mark carries no
+`field` property — so `field-end` is the end of the buffer however many
+newlines lie between it and point, and the input is everything from the process
+mark on. Measured against Emacs 28.2: three lines standing at the prompt,
+`comint-send-input` called with point on the second of them, and
+`comint-input-sender` handed all three as one string.
+
+A block therefore needs no mechanism of parley's own. It reaches the sender as
+one string with newlines in it, which is the paste shape below, and so reaches
+the session as one message.
+
 ## Two send shapes, and the newline is what chooses
 
 **A single line goes as one `send-keys -l`**, where `-l` is what stops tmux
