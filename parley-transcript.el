@@ -416,6 +416,24 @@ that function nothing left to do."
            (truncate-string-to-width line imenu-max-item-length nil nil t))
           (t line))))
 
+(defun parley-transcript--index-numbered (label n)
+  "Return LABEL with `<N>' on the end, short enough for imenu to keep whole.
+
+`imenu--truncate-items' cuts a label to `imenu-max-item-length'
+with `substring', and it does so after
+`imenu-create-index-function' has returned -- so a suffix hung
+off a label already that long would be cut straight back off, and
+the two entries it is there to tell apart would be under one name
+again.  The label gives up the characters the suffix needs
+instead."
+  (let* ((suffix (format "<%d>" n))
+         (room (and (numberp imenu-max-item-length)
+                    (- imenu-max-item-length (length suffix)))))
+    (concat (if (and room (< 0 room))
+                (truncate-string-to-width label room nil nil t)
+              label)
+            suffix)))
+
 (defun parley-transcript--index-prompt (text position)
   "Record the prompt TEXT, whose quote begins at POSITION, in the imenu index.
 
@@ -467,12 +485,29 @@ with it -- it survives at the boundary of the deletion, where it
 points at whatever text is there now -- so an entry is dropped
 once its two markers have met, which is to say once the line its
 label names has been deleted out from between them.  Dropping it
-from the list is also what lets those two markers go."
+from the list is also what lets those two markers go.
+
+Two prompts whose first line is the same have one label, and
+`imenu' resolves what the operator picked back to an entry with
+`assoc' -- so the second of them would be in the index, would be
+offered once, and would answer with the first.  A label an entry
+here already carries therefore gets `<2>' on the end and the one
+after that `<3>', the way Emacs tells two buffers of one name
+apart.  The number counts only the entries here that share the
+label, because those are what the operator is choosing between:
+how many messages came before a prompt is no more help in telling
+two of them apart than it was in naming one."
   (setq parley-transcript--index
         (seq-filter (lambda (entry) (< (nth 1 entry) (nth 2 entry)))
                     parley-transcript--index))
-  (mapcar (lambda (entry) (cons (car entry) (nth 1 entry)))
-          (reverse parley-transcript--index)))
+  (let ((index nil))
+    (dolist (entry (reverse parley-transcript--index) (nreverse index))
+      (let ((label (car entry))
+            (n 1))
+        (while (assoc label index)
+          (setq n (1+ n))
+          (setq label (parley-transcript--index-numbered (car entry) n)))
+        (push (cons label (nth 1 entry)) index)))))
 
 ;;; The buffer
 
