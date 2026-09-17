@@ -23,7 +23,8 @@ parley is for reading what it said.
   in hand. Either way the buffer delivers the transcript from its first byte and
   then follows the file.
 - Submitting at the prompt types the message into the session's tmux pane. A
-  session outside tmux has no pane and is read only.
+  session outside tmux has no pane and is read only, and the switcher says so on
+  its row.
 - `M-x imenu` in a transcript buffer jumps between the prompts.
 
 ## How it works

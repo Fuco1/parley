@@ -29,17 +29,23 @@
 ;; the view.  A dozen or two sessions is the whole list, so nothing
 ;; here is asynchronous.
 ;;
-;; A session is listed by four columns: the name `claude agents' gives
-;; it, its status, its working directory and the tmux pane it lives
-;; in.  With sallet those four are a vector the source matches and
-;; renders column by column, which is the reason to reach for it here.
-;; `completing-read' matches one flat string, so the fallback bakes
-;; the same four into one row with the name first.  Both frontends
-;; order the sessions by status and both build the list with
-;; `parley-switch--sessions': there is one way of building it.
+;; A session is listed by five columns: the name `claude agents' gives
+;; it, its status, the mark saying it cannot be typed into, its
+;; working directory and the tmux pane it lives in.  With sallet they
+;; are a vector the source matches and renders column by column, which
+;; is the reason to reach for it here.  `completing-read' matches one
+;; flat string, so the fallback bakes the same five into one row with
+;; the name first.  Both frontends order the sessions by status and
+;; both build the list with `parley-switch--sessions': there is one
+;; way of building it.
+;;
+;; A session with no pane cannot be typed into, and the mark is what
+;; says so while the operator is still choosing which one to open.
+;; Without it the first he hears of it is the error his first message
+;; raises, by which point he has written the message.
 ;;
 ;; The names are not unique -- two sessions in sibling worktrees come
-;; back under the same one -- so the fourth column is
+;; back under the same one -- so the last column is
 ;; `parley-session-tag', which is what tells them apart.  It lives in
 ;; `parley' because the buffer name needs it too, and the requiring
 ;; goes one way only: the picker knows the view, the view knows
@@ -94,16 +100,26 @@ a status stay in the order `parley-sessions' discovered them in."
 
 (defun parley-switch--fields (session)
   "Return the columns SESSION is listed and matched by.
-A vector of four strings: its name, its status, its working
-directory and its tag -- the pane it lives in and its session id,
-see `parley-session-tag'.  The tag is matched as one
-string, so a token beginning with % still finds the pane in it.
+A vector of five strings: its name, its status, the mark saying
+it cannot be typed into, its working directory and its tag -- the
+pane it lives in and its session id, see `parley-session-tag'.
+The tag is matched as one string, so a token beginning with %
+still finds the pane in it.
+
+The mark is read from the pane being nil, because the pane is the
+only way into a session and a record without one is a record
+nothing can be sent to.  A background agent has none, being
+dispatched from a terminal it does not own, and so does a session
+started outside tmux -- `:kind' names the first and says nothing
+at all about the second, so it is not what the mark can be read
+from.
 
 Nothing in a session record is guaranteed to be there, so the
 placeholders for a name and a status `claude agents' did not
 report are chosen once here rather than by each frontend."
   (vector (or (plist-get session :name) "unnamed")
           (or (plist-get session :status) "unknown")
+          (if (plist-get session :pane) "" "read only")
           (abbreviate-file-name (plist-get session :cwd))
           (parley-session-tag session)))
 
@@ -112,8 +128,13 @@ report are chosen once here rather than by each frontend."
 FIELDS is a vector from `parley-switch--fields'.  A row is what
 `completing-read' completes over, because it matches one flat
 string and the annotation has to be inside it; the sallet
-renderer draws the same row from the same fields."
-  (apply #'format "%-16s  %-7s  %-40s  %s" (append fields nil)))
+renderer draws the same row from the same fields.
+
+The read only mark is early in the row and not after the tag,
+which is the longest column and the first thing a narrow window
+drops: a mark the operator has to scroll to see is one he types
+past."
+  (apply #'format "%-16s  %-7s  %-9s  %-40s  %s" (append fields nil)))
 
 
 ;;; Without sallet: one flat row per session
@@ -176,8 +197,8 @@ do begin with those.  A token beginning with : matches the status
 without it.  Tokens are matched in sequence, so `orc /worker-2'
 is the session named orc in that worktree."
   (sallet-compose-filters-by-pattern
-   `(("\\`/.*" ,(parley-switch--field-filter 2))
-     ("\\`%.*" ,(parley-switch--field-filter 3))
+   `(("\\`/.*" ,(parley-switch--field-filter 3))
+     ("\\`%.*" ,(parley-switch--field-filter 4))
      ("\\`:\\(.*\\)" 1 ,(parley-switch--field-filter 1))
      (t ,(parley-switch--field-filter 0)))
    candidates

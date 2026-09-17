@@ -40,9 +40,20 @@ something nobody received.
 ## A session with no pane is read only
 
 A session started outside tmux has no pane, and so does a background agent
-([discovery](discovery.md)). Neither can be typed into at all, and **submitting
-is where the operator finds that out**: an error naming the session beats a
-silent no-op.
+([discovery](discovery.md)). Neither can be typed into at all.
+
+**The switcher marks such a session in the row it lists it by**, because the
+choice of which session to open is the last moment at which the operator has
+written nothing yet. Hiding them would cost him a conversation he can read, and
+the transcript of one is as readable as any other.
+
+**The mark is read from the pane being nil and not from the reported kind.** The
+pane is what a send needs; a session outside tmux has none either, and `kind`
+says nothing about that one.
+
+**Submitting to a session with no pane is an error naming it**, which is what a
+record reached any other way — `parley-transcript` with a record in hand — runs
+into, and beats a silent no-op wherever it comes from.
 
 ## What comint echoes is rewritten into the shape the renderer emits
 
