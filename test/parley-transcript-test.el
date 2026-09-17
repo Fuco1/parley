@@ -437,7 +437,7 @@ ends a line, so the newline the block closes with has to carry
 the face as well as the text before it -- a turn faced by its
 text alone has every line but its last running to the edge."
   (let ((block (parley-transcript--quote "first line\nsecond")))
-    (should (face-attribute 'parley-user :background nil t))
+    (should (stringp (face-attribute 'parley-user :background nil t)))
     (should (eq t (face-attribute 'parley-user :extend nil t)))
     (should (equal "\n> first line\n> second\n"
                    (substring-no-properties block)))
@@ -464,7 +464,7 @@ is unbroken across a mark the operator never typed."
                      ("first line\n" . parley-user)
                      ("> " . parley-user-marker)
                      ("second\n" . parley-user))))
-    (should (face-attribute 'parley-user :background nil t))
+    (should (stringp (face-attribute 'parley-user :background nil t)))
     (should (equal (face-attribute 'parley-user-marker :background nil t)
                    (face-attribute 'parley-user :background nil t)))))
 
