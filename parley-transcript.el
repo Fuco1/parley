@@ -649,6 +649,12 @@ and history and all."
 
 ;;; Typing into the pane
 
+;; `comint-accumulate' opens a line in the input zone and submits
+;; nothing, which is the whole of what a block needs.  comint binds it
+;; to `C-c SPC', which nobody guesses, and `S-<return>' is where every
+;; chat program puts it.
+(define-key parley-transcript-mode-map (kbd "S-<return>") #'comint-accumulate)
+
 (defvar-local parley-transcript--sent nil
   "What has been sent from this buffer and not yet come back, as a list of texts.
 Every send is outstanding until the transcript delivers it, and
