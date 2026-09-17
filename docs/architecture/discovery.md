@@ -66,7 +66,16 @@ frontends that each invent their own would disagree about a session neither of
 them can describe.
 
 **A name is not unique.** Two sessions in sibling worktrees come back under one,
-and a background agent is named after its prompt. Anything that has to tell two
-sessions apart uses the pane, or the head of the session id when there is no
-pane; anything that has to *find* a session's buffer again uses the session id
-and never the name.
+and a background agent is named after its prompt. So a switcher row and a buffer
+name both carry a tag instead, and the tag is the session id with the pane
+before it when there is one.
+
+**The pane alone is not enough**, though it is what the operator recognises a
+session by and what he searches the switcher with: suspend the session running
+in a pane, start another there, and `claude agents` reports two live sessions in
+one pane.
+
+**The id goes in whole and never as a prefix.** Two ids can share one, and two
+sessions sharing a name, a pane and a prefix would be two the tag could not tell
+apart at all — which is the one thing it exists to do. A long tag is the price,
+and it is the last column of a row and the tail of a buffer name.

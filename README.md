@@ -16,11 +16,12 @@ parley is for reading what it said.
 
 ## Using it
 
-- `M-x parley-transcript` picks a live session and opens its conversation. The
-  buffer delivers the transcript from its first byte and then follows the file.
-- `M-x parley-switch` picks a session with sallet, matching the columns one at a
-  time: `orc` for the name, `/worker-2` for the working directory, `%14` for the
-  pane, `:idle` for the status.
+- `M-x parley-switch` picks a live session and opens its conversation. With
+  sallet it matches the columns one at a time: `orc` for the name, `/worker-2`
+  for the working directory, `%14` for the pane, `:idle` for the status.
+- `M-x parley-transcript` opens the same buffer for a session you already have
+  in hand. Either way the buffer delivers the transcript from its first byte and
+  then follows the file.
 - Submitting at the prompt types the message into the session's tmux pane. A
   session outside tmux has no pane and is read only.
 - `M-x imenu` in a transcript buffer jumps between the prompts.

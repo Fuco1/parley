@@ -36,15 +36,18 @@ prevents the mistake.
 
 | file | holds |
 |---|---|
-| `parley.el` | discovery: `claude agents --json`, the stdin discriminator, the pane id, the transcript path. The base of the package |
+| `parley.el` | discovery: `claude agents --json`, the stdin discriminator, the pane id, the transcript path, and the tag that tells two sessions apart. The base of the package |
 | `parley-switch.el` | picking a session: the status order, the four columns a session is listed by, the sallet source and the `completing-read` fallback |
 | `parley-transcript.el` | the conversation view: the `tail`/`jq` pipeline, the render pass, the imenu index, and typing into the pane |
 | `test/` | one file per source file, named `<source>-test.el` |
 | `.orc/config.toml` | the check commands, and which role runs each |
 | `docs/architecture/` | why the package is shaped this way |
 
-`parley.el` requires nothing else in the package, and nothing in it knows that
-the other two files exist.
+**The requiring goes one way only.** `parley.el` requires nothing else in the
+package and nothing in it knows the other two files exist; the picker requires
+the view, and the view requires neither. Anything both the picker and the view
+need goes down into `parley.el`, because the other direction closes a cycle and
+`require` does not survive one.
 
 ### Where a new thing goes
 
