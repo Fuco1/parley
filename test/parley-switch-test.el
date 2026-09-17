@@ -63,19 +63,24 @@
 
 (defmacro parley-switch-test--with-sessions (&rest body)
   "Run BODY with `parley-sessions' returning the fixture records.
-The list is copied on every call because the switcher sorts it,
-and every transcript buffer BODY opened is killed afterwards."
+The list is copied on every call because the switcher sorts it.
+The records name working directories and transcripts that are not
+there, so BODY must not open a buffer over one: the test that
+opens one builds a session it can really follow."
   (declare (indent 0))
   `(cl-letf (((symbol-function 'parley-sessions)
               (lambda () (copy-sequence parley-switch-test--sessions))))
-     (unwind-protect (progn ,@body)
-       (dolist (buffer (buffer-list))
-         (when (string-prefix-p "*parley " (buffer-name buffer))
-           (kill-buffer buffer))))))
+     ,@body))
+
+(defun parley-switch-test--opened ()
+  "Return every buffer following a session."
+  (seq-filter (lambda (buffer)
+                (buffer-local-value 'parley-transcript-session buffer))
+              (buffer-list)))
 
 (defun parley-switch-test--tags (sessions)
   "Return the tag of each of SESSIONS, which no two of them share."
-  (mapcar #'parley-switch--tag sessions))
+  (mapcar #'parley-session-tag sessions))
 
 
 ;;; The columns
@@ -136,62 +141,80 @@ in, which is not the order they come out in here."
                    '(2 4 6 1 5 3)))))
 
 
-;;; The buffer
+;;; The buffer, which belongs to the transcript
 
-(ert-deftest parley-switch-test-buffer-names-are-unique ()
-  "Each session gets its own buffer name, carrying its name and tag."
-  (parley-switch-test--with-sessions
-    (let ((names (mapcar #'parley-switch--buffer-name
-                         (parley-switch--sessions))))
-      (should (equal names '("*parley orc-w1 %61*"
-                             "*parley orc-w1 %62*"
-                             "*parley orc-w1 %63*"
-                             "*parley app-8e %23*"
-                             "*parley orc-w1 9a5a5635*"
-                             "*parley unnamed 7c1d0f9a*")))
-      (should (equal (length (delete-dups (copy-sequence names))) 6)))))
+(ert-deftest parley-switch-test-shows-the-buffer-the-pipeline-runs-in ()
+  "The session picked is shown in the buffer its transcript is running in.
+Not an empty buffer of the switcher's own: the buffer is in
+`parley-transcript-mode', it has the pipeline in it and it
+records the session that was picked.
 
-(ert-deftest parley-switch-test-buffer-is-created-then-reused ()
-  "The buffer is created the first time and the same one comes back after."
-  (parley-switch-test--with-sessions
-    (let ((session (parley-switch-test--session 4)))
-      (should-not (get-buffer "*parley orc-w1 %62*"))
-      (let ((buffer (parley-switch--buffer session)))
-        (should (equal (buffer-name buffer) "*parley orc-w1 %62*"))
-        (with-current-buffer buffer
-          (should (eq parley-session session))
-          (should (equal default-directory "/srv/orc/trees/worker-2/orc/")))
-        (should (eq (parley-switch--buffer session) buffer))
-        (should (equal (length (seq-filter
-                                (lambda (b) (string-prefix-p
-                                             "*parley " (buffer-name b)))
-                                (buffer-list)))
-                       1))))))
+And it is the one buffer there is for that session.  Calling
+`parley-transcript' with the same record afterwards lands in it
+-- the same buffer object and the same process, so the history
+already in it is still there and no second pipeline was started."
+  (skip-unless (executable-find "jq"))
+  (let* ((file (make-temp-file "parley-switch-test-" nil ".jsonl"))
+         (session (list :pid 7 :name "orc-w1" :kind "interactive"
+                        :status "idle" :cwd temporary-file-directory
+                        :session-id "4444ffff-0000-4000-8000-000000000004"
+                        :pane "%64" :transcript file))
+         (buffer nil))
+    (unwind-protect
+        ;; The fallback frontend, picking this one session: the sallet
+        ;; source is taken away and `completing-read' answers with the
+        ;; row the session is listed under.
+        (cl-letf (((symbol-function 'parley-sessions) (lambda () (list session)))
+                  ((symbol-function 'sallet-source-parley) nil)
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _)
+                     (parley-switch--row (parley-switch--fields session)))))
+          ;; The assertions are inside, because leaving a
+          ;; `save-window-excursion' puts the old buffer back.
+          (save-window-excursion
+            (parley-switch)
+            (setq buffer (current-buffer))
+            (should (eq major-mode 'parley-transcript-mode))
+            (should (eq parley-transcript-session session))
+            (should (process-live-p (get-buffer-process buffer)))
+            (let ((process (get-buffer-process buffer))
+                  ;; The same session as `claude agents' reports it a
+                  ;; moment later: a record of its own, and the one the
+                  ;; buffer should be following afterwards.
+                  (again (plist-put (copy-sequence session) :status "busy")))
+              (parley-transcript again)
+              (should (eq (current-buffer) buffer))
+              (should (eq (get-buffer-process buffer) process))
+              (should (eq parley-transcript-session again)))
+            (should (equal (parley-switch-test--opened) (list buffer)))))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (delete-file file))))
 
 
 ;;; Without sallet
 
 (ert-deftest parley-switch-test-falls-back-to-completing-read ()
   "With no sallet source the command reads the session in the minibuffer.
-The one picked is the second of the three sessions named
-`orc-w1', so a switcher that told them apart by name alone would
-land in the wrong buffer here."
+The one picked is the second of the four sessions named `orc-w1',
+and it is that record `parley-transcript' is handed: a switcher
+that told them apart by name alone would hand over the wrong one.
+Where that record is shown is the transcript's business and is
+tested there, so the command is stubbed here."
   (parley-switch-test--with-sessions
     (let ((session (parley-switch-test--session 4))
           (asked nil)
+          (shown nil)
           (collection nil))
       (cl-letf (((symbol-function 'sallet-source-parley) nil)
+                ((symbol-function 'parley-transcript)
+                 (lambda (picked) (setq shown picked)))
                 ((symbol-function 'completing-read)
                  (lambda (_prompt table &rest _)
                    (setq asked t collection table)
                    (parley-switch--row (parley-switch--fields session)))))
-        ;; The assertions are inside, because leaving a
-        ;; `save-window-excursion' puts the old buffer back.
-        (save-window-excursion
-          (parley-switch)
-          (should asked)
-          (should (equal (buffer-name) "*parley orc-w1 %62*"))
-          (should (eq parley-session session)))
+        (parley-switch)
+        (should asked)
+        (should (eq shown session))
         ;; The rows are offered in the switcher order, and the
         ;; completion metadata is what stops the minibuffer from
         ;; sorting them alphabetically and losing it.
@@ -237,13 +260,17 @@ land in the wrong buffer here."
         (should (string-match-p (regexp-quote field) rendered))))))
 
 (ert-deftest parley-switch-test-action-opens-the-candidate-session ()
-  "Acting on a candidate opens the buffer of the record it carries."
+  "Acting on a candidate shows the record it carries and no other.
+The candidate acted on is one of the four named `orc-w1', which
+is what makes this worth asserting: the record travels with the
+candidate, so nothing has to find it again by a name it shares."
   (parley-switch-test--with-sessions
-    (let ((candidate (nth 4 (parley-switch--candidates))))
-      (save-window-excursion
+    (let ((candidate (nth 4 (parley-switch--candidates)))
+          (shown nil))
+      (cl-letf (((symbol-function 'parley-transcript)
+                 (lambda (picked) (setq shown picked))))
         (parley-switch--action nil candidate)
-        (should (equal (buffer-name) "*parley orc-w1 9a5a5635*"))
-        (should (eq parley-session (parley-switch-test--session 5)))))))
+        (should (eq shown (parley-switch-test--session 5)))))))
 
 (ert-deftest parley-switch-test-matcher-matches-columns ()
   "Each column is matched on its own, and the prompt is matched in order."

@@ -160,7 +160,8 @@ built here can share -- and which is what the buffers are told
 apart by."
   (let ((file (make-temp-file "parley-transcript-test-" nil ".jsonl")))
     (parley-transcript-test--write file lines)
-    (list :name name :session-id file :transcript file)))
+    (list :name name :cwd temporary-file-directory
+          :session-id file :transcript file)))
 
 (defun parley-transcript-test--buffers ()
   "Return every buffer following a session."
@@ -201,7 +202,11 @@ point of the last test -- is the pipeline."
       (should (derived-mode-p 'comint-mode))
       (should (eq major-mode 'parley-transcript-mode))
       (should (process-live-p (get-buffer-process buffer)))
-      (should (equal (plist-get parley-transcript-session :transcript) file)))))
+      (should (equal (plist-get parley-transcript-session :transcript) file))
+      ;; In the session's own directory, so that what the operator does
+      ;; here happens where the session he is reading is working.
+      (should (equal default-directory
+                     (file-name-as-directory temporary-file-directory))))))
 
 (ert-deftest parley-transcript-renders-the-conversation ()
   "The whole history reaches the buffer as a conversation and nothing else.
@@ -271,6 +276,31 @@ group would have left that check with it."
       (should (parley-transcript-test--wait
                (lambda () (null (parley-transcript-test--group pgid)))))
       (should-not (parley-transcript-test--naming file)))))
+
+(ert-deftest parley-transcript-names-two-sessions-of-one-name-apart ()
+  "Two live sessions reported under one name get two buffer names.
+`claude agents' names a session after the directory it was
+started in, so sessions in sibling worktrees come back under the
+same name and the name alone cannot say which buffer is whose.
+The tag can: the pane the session lives in, or the head of its
+session id when it lives outside tmux and has none.
+
+This needs no session to be running, which is why it is the one
+test here that does not start a pipeline."
+  (let ((one (list :name "orc-w1" :pane "%61"
+                   :session-id "1111ffff-0000-4000-8000-000000000001"))
+        (two (list :name "orc-w1" :pane "%62"
+                   :session-id "2222ffff-0000-4000-8000-000000000002"))
+        (outside (list :name "orc-w1" :pane nil
+                       :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
+        (unnamed (list :name nil :pane nil
+                       :session-id "7c1d0f9a-0000-4000-8000-000000000003")))
+    (should (equal (mapcar #'parley-transcript-buffer-name
+                           (list one two outside unnamed))
+                   '("*parley: orc-w1 %61*"
+                     "*parley: orc-w1 %62*"
+                     "*parley: orc-w1 9a5a5635*"
+                     "*parley: unnamed 7c1d0f9a*")))))
 
 (ert-deftest parley-transcript-one-buffer-per-session ()
   "A session gets one buffer however often the command is called.
