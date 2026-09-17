@@ -1346,7 +1346,7 @@ else."
           "| a | short |\n"
           "| bbbbbb | a much longer cell |")
   "A table as an agent writes one, whose columns do not line up.
-Its aligned form is 31 columns wide and the text itself is 30, so
+Its aligned form is 31 columns wide and so is the text itself, so
 a window of 20 has room for neither -- and wrapped it comes to
 exactly 20, because no cell of it holds a word longer than the
 column it is then given.")
@@ -1398,7 +1398,12 @@ That is what a column narrowed no further than it had to be looks
 like: every line of it is as full as the widest of them says the
 column is.  A column squeezed under its longest word answers this
 with nil -- the words come down one to a line, and any two of
-them would fit on one."
+them would fit on one.
+
+A line with nothing on it is not one of LINES: it is a column
+that ran out before the row did, and the column this is asked
+about is one that did not."
+  (setq lines (seq-remove #'string-empty-p lines))
   (let ((width (apply #'max (mapcar #'string-width lines))))
     (seq-every-p (lambda (pair)
                    (> (+ (string-width (car pair))
@@ -1541,9 +1546,9 @@ it, and the row after the wrapped one still a row of two cells.
 What a wrap may not do is lose a word or invent one, so the lines
 of the prose are read back out of their column and joined -- that
 is the cell the agent wrote.  The same table aligned for a width
-it fits in is asserted to be wider than this one, so a wrap that
-did nothing at all fails here rather than passing for having had
-nothing to do."
+it fits in is asserted to be wider than the width this one is
+wrapped into, so a wrap that did nothing at all fails here rather
+than passing for having had nothing to do."
   (let* ((width 40)
          (form (parley-transcript--aligned parley-transcript-test--wide width))
          (rows (mapcar #'parley-transcript-test--cells (split-string form "\n")))
@@ -1570,16 +1575,13 @@ the window, and the table that runs past it is still one he can
 read, so the column that word stands in is a floor under the
 whole table.
 
-Everything beside it gives what it can all the same, which is
-what the table being narrower than its unwrapped form says: the
-prose wrapped, and what is left over the width is the word.
-
-How much it gives is the whole of what it has: the table comes to
-the width of the longest word of every column and the grid around
-them, which is the narrowest this table can be rendered at all.
-A wrap that stopped as soon as the columns added up to the width
-would leave it wider than that, having asked for a width no
-wrapping can deliver and taken the answer for one.
+Everything beside it gives the whole of what it has all the same,
+which is what the width says: the table comes to the longest word
+of every column and the grid around them, and that is the
+narrowest this table can be rendered at all.  A wrap that stopped
+as soon as the columns added up to the width it was asked for
+would leave it wider than that, having taken a width no wrapping
+can deliver for one it had reached.
 
 The prose it gives is packed as full as the column it is left
 with allows, so the row is no taller than that narrowing makes
