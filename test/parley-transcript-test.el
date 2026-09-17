@@ -1392,6 +1392,21 @@ line."
               (nreverse columns)))
           (split-string text "\n")))
 
+(defun parley-transcript-test--packed-p (lines)
+  "Non-nil if no line of LINES could take the first word of the line after it.
+That is what a column narrowed no further than it had to be looks
+like: every line of it is as full as the widest of them says the
+column is.  A column squeezed under its longest word answers this
+with nil -- the words come down one to a line, and any two of
+them would fit on one."
+  (let ((width (apply #'max (mapcar #'string-width lines))))
+    (seq-every-p (lambda (pair)
+                   (> (+ (string-width (car pair))
+                         1
+                         (string-width (car (split-string (cdr pair)))))
+                      width))
+                 (seq-mapn #'cons lines (cdr lines)))))
+
 (defun parley-transcript-test--cells (line)
   "Return the cells of the aligned table LINE, each without its padding.
 The bars are read off the line itself rather than with
@@ -1543,6 +1558,7 @@ nothing to do."
     (should (< 1 (length row)))
     (should (equal parley-transcript-test--prose
                    (string-join (mapcar #'cadr row) " ")))
+    (should (parley-transcript-test--packed-p (mapcar #'cadr row)))
     (should (equal '("8" "short") (car (last rows))))))
 
 (ert-deftest parley-transcript-test-leaves-a-table-nothing-narrows-too-wide ()
@@ -1556,17 +1572,37 @@ whole table.
 
 Everything beside it gives what it can all the same, which is
 what the table being narrower than its unwrapped form says: the
-prose wrapped, and what is left over the width is the word."
+prose wrapped, and what is left over the width is the word.
+
+How much it gives is the whole of what it has: the table comes to
+the width of the longest word of every column and the grid around
+them, which is the narrowest this table can be rendered at all.
+A wrap that stopped as soon as the columns added up to the width
+would leave it wider than that, having asked for a width no
+wrapping can deliver and taken the answer for one.
+
+The prose it gives is packed as full as the column it is left
+with allows, so the row is no taller than that narrowing makes
+it."
   (let* ((url "https://example.invalid/a/very/long/path/that/will/not/break")
          (text (concat "| link | what it does |\n|---|---|\n| " url " | "
                        parley-transcript-test--prose " |"))
-         (form (parley-transcript--aligned text 40)))
+         (form (parley-transcript--aligned text 40))
+         (rows (mapcar #'parley-transcript-test--cells (split-string form "\n")))
+         (start (seq-position (mapcar #'car rows) url))
+         (prose (seq-remove #'string-empty-p
+                            (mapcar #'cadr (nthcdr (or start 0) rows)))))
     (should form)
     (should (< 40 (parley-transcript--columns form)))
-    (should (seq-find (lambda (line) (string-search url line))
-                      (split-string form "\n")))
-    (should (< (parley-transcript--columns form)
-               (parley-transcript--columns (parley-transcript--aligned text 200))))
+    (should start)
+    (should (= (parley-transcript--columns form)
+               (+ 7 (string-width url)
+                  (apply #'max (mapcar #'string-width
+                                       (split-string
+                                        parley-transcript-test--prose))))))
+    (should (< 1 (length prose)))
+    (should (equal parley-transcript-test--prose (string-join prose " ")))
+    (should (parley-transcript-test--packed-p prose))
     (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))))
 
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
