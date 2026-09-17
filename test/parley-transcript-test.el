@@ -286,9 +286,13 @@ same name and the name alone cannot say which buffer is whose.
 Nor can the pane on its own: two live sessions share one when the
 session running in it is suspended and another is started there,
 which is `same' and `sharing' below.  What ends every name is
-therefore the head of the session id, the one thing two records
-cannot both carry -- and a session outside tmux, which has no
-pane at all, is named by that alone.
+therefore the session id, the one thing two records cannot both
+carry -- and a session outside tmux, which has no pane at all, is
+named by that alone.
+
+Whole, and not a head of it: `same' and `sharing' agree on their
+name, their pane and the first eight characters of their id, so a
+name built from a prefix is one name for two live sessions.
 
 This needs no session to be running, which is why it is the one
 test here that does not start a pipeline."
@@ -297,9 +301,9 @@ test here that does not start a pipeline."
          (two (list :name "orc-w1" :pane "%62"
                     :session-id "2222ffff-0000-4000-8000-000000000002"))
          (same (list :name "shared" :pane "%1"
-                     :session-id "4444ffff-0000-4000-8000-000000000004"))
+                     :session-id "44444444-0000-4000-8000-000000000004"))
          (sharing (list :name "shared" :pane "%1"
-                        :session-id "5555ffff-0000-4000-8000-000000000005"))
+                        :session-id "44444444-ffff-4000-8000-000000000005"))
          (outside (list :name "orc-w1" :pane nil
                         :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
          (unnamed (list :name nil :pane nil
@@ -307,12 +311,12 @@ test here that does not start a pipeline."
          (names (mapcar #'parley-transcript-buffer-name
                         (list one two same sharing outside unnamed))))
     (should (equal names
-                   '("*parley: orc-w1 %61 1111ffff*"
-                     "*parley: orc-w1 %62 2222ffff*"
-                     "*parley: shared %1 4444ffff*"
-                     "*parley: shared %1 5555ffff*"
-                     "*parley: orc-w1 9a5a5635*"
-                     "*parley: unnamed 7c1d0f9a*")))
+                   '("*parley: orc-w1 %61 1111ffff-0000-4000-8000-000000000001*"
+                     "*parley: orc-w1 %62 2222ffff-0000-4000-8000-000000000002*"
+                     "*parley: shared %1 44444444-0000-4000-8000-000000000004*"
+                     "*parley: shared %1 44444444-ffff-4000-8000-000000000005*"
+                     "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
+                     "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
     (should (equal (length (delete-dups (copy-sequence names))) 6))))
 
 (ert-deftest parley-transcript-one-buffer-per-session ()

@@ -95,8 +95,8 @@ a status stay in the order `parley-sessions' discovered them in."
 (defun parley-switch--fields (session)
   "Return the columns SESSION is listed and matched by.
 A vector of four strings: its name, its status, its working
-directory and its tag -- the pane it lives in and the head of its
-session id, see `parley-session-tag'.  The tag is matched as one
+directory and its tag -- the pane it lives in and its session id,
+see `parley-session-tag'.  The tag is matched as one
 string, so a token beginning with % still finds the pane in it.
 
 Nothing in a session record is guaranteed to be there, so the

@@ -168,21 +168,26 @@ Something has to: two sessions in sibling worktrees come back
 under one name, and a switcher row or a buffer name that cannot
 tell them apart lands in the wrong conversation.
 
-The head of its session id, which is the only thing a record
-carries that another record cannot also carry, and the pane it
-lives in before that when it has one.  The pane is what the
-operator recognises a session by and what he searches the
-switcher with, but it is not enough on its own: suspend the
-session running in a pane, start another there, and `claude
-agents' reports two live sessions in one pane.
+Its session id, which is the only thing a record carries that
+another record cannot also carry, and the pane it lives in before
+that when it has one.  The pane is what the operator recognises a
+session by and what he searches the switcher with, but it is not
+enough on its own: suspend the session running in a pane, start
+another there, and `claude agents' reports two live sessions in
+one pane.
+
+The id whole, and not a head of it: a head is a prefix, two ids
+can share one, and two sessions that share a name, a pane and a
+prefix are then two the tag cannot tell apart at all -- which is
+the one thing it exists to do.  A long tag is the price, and it
+is the last column of a row and the tail of a buffer name.
 
 It is here rather than in either of the files that need it,
 because both do: the switcher lists it as a column and the
 transcript buffer is named with it."
-  (let* ((id (or (plist-get session :session-id) ""))
-         (head (substring id 0 (min 8 (length id))))
-         (pane (plist-get session :pane)))
-    (if pane (concat pane " " head) head)))
+  (let ((id (or (plist-get session :session-id) ""))
+        (pane (plist-get session :pane)))
+    (if pane (concat pane " " id) id)))
 
 (provide 'parley)
 ;;; parley.el ends here
