@@ -229,26 +229,38 @@ line of the last block -- which is what
   (let ((trimmed (string-trim-right string)))
     (if (string= trimmed "") "" (concat "\n" trimmed "\n"))))
 
+(defun parley-transcript--quote (text)
+  "Return the block of buffer text the operator's turn TEXT renders to.
+It is quoted and otherwise left alone: what he typed at a
+terminal is not markdown, and fontifying it as though it were
+would invent emphasis he never wrote.
+
+It is trimmed at both ends, and not only on the right.  The first
+character of the block is where the imenu index points and the
+first line of it is what the entry is labelled with, so a prompt
+that opened with a blank line would put a quoted blank line under
+both.
+
+Every turn of his comes through here, the one the transcript
+delivered and the one he submitted at the prompt alike, so that
+the two cannot come out looking different."
+  (let ((trimmed (string-trim text)))
+    (if (string= trimmed "")
+        ""
+      (parley-transcript--block
+       (propertize (replace-regexp-in-string "^" "> " trimmed)
+                   'font-lock-face 'parley-user)))))
+
 (defun parley-transcript--speech (record)
   "Return the block of buffer text RECORD said, nothing if it said nothing.
-An assistant turn is markdown and is fontified as markdown.  The
-operator's own turn is quoted and otherwise left alone: what he
-typed at a terminal is not markdown, and fontifying it as though
-it were would invent emphasis he never wrote.
-
-It is trimmed at both ends, though, and not only on the right.
-The first character of the block is where the imenu index points
-and the first line of it is what the entry is labelled with, so a
-prompt that opened with a blank line would put a quoted blank
-line under both."
+An assistant turn is markdown and is fontified as markdown, and
+the operator's own is quoted by `parley-transcript--quote'."
   (let ((text (string-trim-right (or (alist-get 'text record) ""))))
     (cond
      ((string= text "") "")
      ((equal (alist-get 'role record) "assistant")
       (parley-transcript--block (parley-transcript--fontify text)))
-     (t (parley-transcript--block
-         (propertize (replace-regexp-in-string "^" "> " (string-trim text))
-                     'font-lock-face 'parley-user))))))
+     (t (parley-transcript--quote text)))))
 
 (defun parley-transcript--tool-run (count)
   "Return the block of buffer text a run of COUNT tool calls collapses to.
@@ -405,14 +417,13 @@ that function nothing left to do."
           (t line))))
 
 (defun parley-transcript--index-prompt (text position)
-  "Record the prompt TEXT, inserted at POSITION, in the imenu index.
+  "Record the prompt TEXT, whose quote begins at POSITION, in the imenu index.
 
-The entry is put where the prompt's first non-blank line begins,
-which is the line its label names.  Usually that is POSITION
-itself -- the render pass trims a prompt before it quotes it --
-but what comint inserts at the prompt is what the operator typed,
-blank first line and all, and an entry on that blank line would
-point at nothing and read as deleted the moment it was recorded.
+POSITION is the first character of the quote and not the blank
+line the block around it opens with, because the line POSITION is
+on is the line the label names.  `parley-transcript--quote' trims
+the prompt before quoting it, so those are the same line whatever
+the prompt opened with.
 
 Positions are kept as markers and not as the numbers they are
 now, because this buffer is deleted from as well as appended to
@@ -424,7 +435,6 @@ that its prompt is gone."
     (when label
       (save-excursion
         (goto-char position)
-        (skip-chars-forward " \t\n")
         (push (list label (point-marker) (copy-marker (line-end-position)))
               parley-transcript--index)))))
 
@@ -440,23 +450,6 @@ was, and comint has just inserted that string at
     (parley-transcript--index-prompt
      (car prompt) (+ comint-last-output-start (cdr prompt))))
   (setq parley-transcript--pending nil))
-
-(defun parley-transcript--index-input (input)
-  "Record INPUT, just submitted at the prompt, in the imenu index.
-
-comint puts what the operator submits into the buffer itself and
-`parley-transcript--echoed-p' then drops the transcript's own
-copy of it, so the prompts the render pass never sees are exactly
-the ones he sent from here -- which are the ones he is most
-likely to be looking for again.
-
-On `comint-input-filter-functions', where the input is already in
-the buffer and the process mark is still at the start of it:
-`comint-send-input' moves that mark past the input, and sets
-`comint-last-input-start' to where it was, only once this hook has
-run."
-  (parley-transcript--index-prompt
-   input (process-mark (get-buffer-process (current-buffer)))))
 
 (defun parley-transcript--imenu-index ()
   "Return this buffer's prompts as an imenu index, in buffer order.
@@ -536,9 +529,7 @@ and never the objects."
   ;; `ansi-color-process-output' is, which this mode has just taken
   ;; pains to drop.
   (add-hook 'comint-output-filter-functions
-            #'parley-transcript--index-output nil t)
-  (add-hook 'comint-input-filter-functions
-            #'parley-transcript--index-input nil t))
+            #'parley-transcript--index-output nil t))
 
 (defun parley-transcript-buffer-name (session)
   "Return the name of the buffer that follows SESSION.
@@ -650,46 +641,90 @@ and history and all."
 
 ;;; Typing into the pane
 
-(defcustom parley-transcript-echo-window 30
-  "Seconds a message sent from the prompt is given to come back.
-A user message the transcript delivers within this many seconds
-of the same message having been sent from this buffer is comint's
-echo of it arriving a second time, and is not shown again.
-Later than that it is taken for a message of its own.
-
-Which is what a session that was busy when the message arrived
-produces: it holds the input until the turn it was working on has
-finished and only then writes it to the transcript, minutes later
-if the turn was long.  Raising this makes that case rarer at the
-cost of swallowing a message genuinely typed twice."
-  :type 'number
-  :group 'parley)
-
 (defvar-local parley-transcript--sent nil
-  "What was last sent from this buffer, as a cons of the text and the time.
-Nil when there is nothing outstanding, which is both before
-anything has been sent and after the transcript has delivered the
-last thing that was.")
+  "What has been sent from this buffer and not yet come back, as a list of texts.
+Every send is outstanding until the transcript delivers it, and
+not only the last one: a session that is working holds everything
+submitted at it until the turn it is on has finished, so the
+operator can have several messages in flight at once.
+
+What order the list is in does not matter, since what is looked
+up in it is the text.  Two entries saying the same thing stand
+for two messages, and the one that arrives may be taken for
+either.")
 
 (defun parley-transcript--echoed-p (record)
   "Non-nil if RECORD is the transcript delivering what was sent from here.
 
-comint puts what the operator submitted into the buffer itself,
-and the session writes the same message to its transcript seconds
-later, so without this every prompt appears twice.
+`parley-transcript--render-input' has already put what the
+operator submitted in the buffer, and the session writes the same
+message to its transcript seconds later, so without this every
+prompt appears twice.
 
-The guard is the last string sent from this buffer, and it is
-spent on the first user message that matches it: a second message
-saying the very same thing was typed at the pane, and is shown.
-So is everything else the operator typed at the pane, which
-matches nothing that was sent from here."
-  (and parley-transcript--sent
-       (equal (alist-get 'role record) "user")
-       (equal (string-trim (or (alist-get 'text record) ""))
-              (car parley-transcript--sent))
-       (< (- (float-time) (cdr parley-transcript--sent))
-          parley-transcript-echo-window)
-       (progn (setq parley-transcript--sent nil) t)))
+One entry is spent on the first user message that matches it, and
+not every entry of that text: a second message saying the very
+same thing was typed at the pane, or submitted here twice, and is
+shown.  So is everything else the operator typed at the pane,
+which matches nothing that was sent from here.
+
+There is no bound on how late the transcript's copy may be,
+because there is no bound on how late it comes: a session that
+was busy when the message arrived holds the input until the turn
+it was working on has finished, and writes it minutes later if
+that turn was long -- and the message has to appear once whenever
+it lands.  What that costs is a message that never reaches the
+transcript at all, which leaves its entry standing: the next
+message of the same text typed at the pane is then taken for it
+and dropped."
+  (and (equal (alist-get 'role record) "user")
+       (let ((rest (member (string-trim (or (alist-get 'text record) ""))
+                           parley-transcript--sent)))
+         (when rest
+           (setq parley-transcript--sent
+                 (nconc (butlast parley-transcript--sent (length rest))
+                        (cdr rest)))
+           t))))
+
+(defun parley-transcript--render-input (string)
+  "Rewrite STRING, which comint has just inserted at the prompt, as a block.
+
+`comint-send-input' puts what the operator submitted into the
+buffer itself before the sender runs, and that insertion goes
+nowhere near the render pass: it lands with no blank line before
+it, no quote, and comint's `comint-highlight-input' where every
+other turn of his carries `parley-user'.  What comint inserted is
+replaced here by what `parley-transcript--quote' makes of the
+same text, so his turn has one shape however it reached the
+buffer.
+
+Here, in the sender, and not on `comint-input-filter-functions':
+`comint-send-input' puts its own properties on the input after
+that hook has run and before this, so a block written there would
+be highlighted as input anyway.  By this point the text carries
+them, and deleting it takes them with it.
+
+The markers `comint-send-input' just set over the input are moved
+onto the block.  The process mark in particular, because it is
+where the next output is inserted and the block is what the
+buffer ends with now.
+
+The prompt is indexed here for the reason the render pass indexes
+its own: this is where its position is known.  It is also the
+only place, since the transcript's copy of this message is
+dropped by `parley-transcript--echoed-p' when it arrives."
+  (let ((start (marker-position comint-last-input-start))
+        (process (get-buffer-process (current-buffer))))
+    (delete-region start comint-last-input-end)
+    (goto-char start)
+    (insert (parley-transcript--quote string))
+    (set-marker comint-last-input-end (point))
+    (set-marker (process-mark process) (point))
+    ;; One character into the block, past the blank line it opens
+    ;; with, which is where the render pass indexes a prompt too.  A
+    ;; prompt that says nothing renders to no block at all, and has no
+    ;; label either, so nothing is looked up at a position past the
+    ;; end of the buffer.
+    (parley-transcript--index-prompt string (1+ start))))
 
 (defun parley-transcript--tmux (input &rest arguments)
   "Run tmux with ARGUMENTS, INPUT on its standard input if it is a string.
@@ -755,7 +790,11 @@ into at all, and this is where the operator finds that out."
        ;; against tmux 3.2a: `foo;' arrives as `foo'.
        (replace-regexp-in-string ";\\'" "\\\\;" string)))
     (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
-    (setq parley-transcript--sent (cons (string-trim string) (float-time)))))
+    (push (string-trim string) parley-transcript--sent)
+    ;; Last, so that a send that raised leaves the operator his text
+    ;; where he typed it rather than quoted into the conversation as
+    ;; though it had gone.
+    (parley-transcript--render-input string)))
 
 (provide 'parley-transcript)
 ;;; parley-transcript.el ends here
