@@ -522,10 +522,25 @@ of the two.
 
 Nil, too, if TEXT is no longer a table: the operator can edit in
 this buffer, and what is under the overlay is what the aligned
-form is computed from.  A data line is what
-`markdown-table-align' cannot do without -- it is what carries
-the cells -- and a table of nothing but delimiter rows raises
-rather than returns.
+form is computed from.
+
+Nil as well for a table of nothing but delimiter rows, which has
+nothing in it to line up: `markdown-table-align' formats from the
+cells, a delimiter row carries none, and with no row of data left
+it raises `Empty table' rather than saying so.  Whether a row is
+one is asked with markdown-mode's own
+`markdown--is-delimiter-row', because that is the predicate the
+caller which raises sorts the rows with -- `| --- | --- |' is a
+delimiter row, and anything reading the character after the bar
+takes it for a row of data.
+
+Nil, last, when the aligned form does not say what TEXT says.  A
+row with no bar at the end of it loses its last cell to
+`markdown--table-line-to-columns' -- measured against the
+repository's markdown-mode, the three lines of `| a', `|---' and
+`| 1' align to three bare bars -- and a `display' property showing
+that is a cell of the agent's the operator cannot read at all.
+The text as he wrote it is shown instead.
 
 The face is on the string and not on the text under it.  What a
 `display' property shows is the string's own properties, and the
@@ -536,14 +551,31 @@ reaches the screen through one."
     (insert text)
     (goto-char (point-min))
     (when (and (markdown-table-at-point-p)
-               (save-excursion
-                 (re-search-forward markdown-table-dline-regexp nil t)))
+               (not (seq-every-p #'markdown--is-delimiter-row
+                                 (split-string text "\n"))))
       (markdown-table-align)
       (let ((aligned (string-trim-right
                       (buffer-substring-no-properties (point-min) (point-max))
                       "\n")))
-        (when (<= (parley-transcript--columns aligned) width)
+        (when (and (equal (parley-transcript--table-content aligned)
+                          (parley-transcript--table-content text))
+                   (<= (parley-transcript--columns aligned) width))
           (propertize aligned 'face 'markdown-table-face))))))
+
+(defun parley-transcript--table-content (text)
+  "Return what TEXT says, with everything the alignment may move taken out.
+
+The spaces a cell is padded with, the bars between two of them
+and the dashes and colons a delimiter row is written from -- so
+two forms of one table answer this the same way exactly when they
+hold the same cells, whatever either does with the width of a
+column.
+
+A cell's own dashes and colons go with them, which can only make
+two forms agree and never make them differ: what this is asked is
+whether the alignment dropped anything, and the answer may not be
+yes when it did not."
+  (replace-regexp-in-string "[ \t|:-]" "" text))
 
 (defun parley-transcript--columns (text)
   "Return how many columns the widest line of TEXT takes up on screen.
