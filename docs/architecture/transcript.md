@@ -86,12 +86,29 @@ costs about as much as fontifying a paragraph does. Measured over 300 messages
 of a paragraph each: 0.84 s with a temporary buffer per message against 0.44 s
 with one buffer reused.
 
-**The faces are copied onto a clean string as `font-lock-face`, and a `face`
-property must not survive.** comint sets `font-lock-defaults` to `(nil t)`,
-which is not nil, so global font lock turns font lock on in the transcript
-buffer with no keywords at all — where the only thing it can do is strip, and
-`face` is exactly what it removes. `font-lock-face` survives it, and is what
-comint itself puts on its prompt and its input. Both were measured.
+**The markdown is rendered with its markup hidden.** The operator wants to read
+the answer and not the asterisks around a bold word or the markers around a
+fence, so markdown-mode's markup hiding is on in the fontify buffer. Two
+properties carry it: `invisible markdown-markup`, which the emphasis, code,
+fence and link markers get, and `display`, which hides a heading's `#` and turns
+a blockquote's `>`, a list bullet and a horizontal rule into a glyph. Hiding is
+the reading buffer's decision and not the property's, so the transcript buffer
+names `markdown-markup` in its invisibility spec.
+
+**Three properties are copied onto a clean string and nothing else is:
+`font-lock-face`, `invisible` and `display`.** A selected set rather than the
+buffer string taken whole, because markdown-mode leaves `markdown-heading`,
+`font-lock-multiline` and a `syntax-table` property behind in the buffer it
+fontifies in, and the transcript buffer has business with none of them — a
+`syntax-table` property in a comint buffer least of all.
+
+**A `face` property must not survive.** comint sets `font-lock-defaults` to
+`(nil t)`, which is not nil, so global font lock turns font lock on in the
+transcript buffer with no keywords at all — where the only thing it can do is
+strip, and `face` is exactly what it removes. `font-lock-face` survives it, and
+is what comint itself puts on its prompt and its input. So do `invisible` and
+`display`, neither of which is in `font-lock-extra-managed-props` — which is
+what the hiding rests on, and is asserted in a live transcript buffer.
 
 `ansi-color-process-output` is taken out of the buffer's output filters for the
 same reason `-M` is on jq: measured over the 26 MB transcript not one escape

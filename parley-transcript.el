@@ -178,8 +178,8 @@ refontify the whole conversation on every append.
 
 `parley-transcript--fontified-properties' is copied onto a clean
 string rather than the buffer string being taken whole, because
-markdown-mode also leaves `markdown-heading', `fontified',
-`font-lock-multiline' and a `syntax-table' property behind and
+markdown-mode also leaves `markdown-heading', `font-lock-multiline'
+and, over an HTML comment, a `syntax-table' property behind, and
 the transcript buffer has business with none of them -- a
 `syntax-table' property in a comint buffer least of all.  `face'
 in particular has to go: comint sets `font-lock-defaults' to
