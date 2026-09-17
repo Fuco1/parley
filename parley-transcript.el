@@ -425,13 +425,23 @@ with `substring', and it does so after
 off a label already that long would be cut straight back off, and
 the two entries it is there to tell apart would be under one name
 again.  The label gives up the characters the suffix needs
-instead."
+instead.
+
+All of them, when the suffix needs the whole of the limit: a
+label that kept so much as its first character there would lose
+the suffix in exchange, which is the one part of the name that
+tells the two entries apart.  The number alone is what is left,
+and it is still a name no other entry has.  Below that -- a limit
+too short for even the number, which is a limit too short to
+name anything by -- the suffix is returned whole and imenu cuts
+it, because a shorter one would be a number that is not the
+entry's."
   (let* ((suffix (format "<%d>" n))
          (room (and (numberp imenu-max-item-length)
                     (- imenu-max-item-length (length suffix)))))
-    (concat (if (and room (< 0 room))
-                (truncate-string-to-width label room nil nil t)
-              label)
+    (concat (cond ((null room) label)
+                  ((<= room 0) "")
+                  (t (truncate-string-to-width label room nil nil t)))
             suffix)))
 
 (defun parley-transcript--index-prompt (text position)
