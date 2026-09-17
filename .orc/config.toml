@@ -20,7 +20,7 @@ target = "master"
 
 [checks.compile]
 commands = [
-  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(let ((byte-compile-error-on-warn t)) (mapc (quote byte-compile-file) (file-expand-wildcards "*.el" t)))' ''',
+  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(let ((byte-compile-error-on-warn t)) (mapc (quote byte-compile-file) (directory-files-recursively default-directory "[.]el$")))' ''',
 ]
 
 [checks.test]

@@ -14,24 +14,21 @@ The conversation, and nothing else. A run of tool calls collapses to one line
 saying how many there were. If you want to watch an agent work, read its pane;
 parley is for reading what it said.
 
+## Using it
+
+- `M-x parley-transcript` picks a live session and opens its conversation. The
+  buffer delivers the transcript from its first byte and then follows the file.
+- `M-x parley-switch` picks a session with sallet, matching the columns one at a
+  time: `orc` for the name, `/worker-2` for the working directory, `%14` for the
+  pane, `:idle` for the status.
+- Submitting at the prompt types the message into the session's tmux pane. A
+  session outside tmux has no pane and is read only.
+- `M-x imenu` in a transcript buffer jumps between the prompts.
+
 ## How it works
 
-- `claude agents --json` lists live sessions. Headless `claude -p` children are
-  filtered out by checking whether `/proc/<pid>/fd/0` is a tty.
-- `TMUX_PANE` from `/proc/<pid>/environ` is the pane id, which is exactly what
-  `tmux send-keys -t` takes. No naming convention, no cooperation from whatever
-  launched the session.
-- The buffer is a comint buffer whose process is
-  `tail -c +1 -F <transcript> | jq -c --unbuffered '…'`. Starting at byte zero
-  means the same process delivers history and then follows, with no gap. jq
-  drops the tool payloads before they ever reach Emacs.
-- Assistant text is fontified by markdown-mode in a side buffer and inserted
-  with `font-lock-face`. A plain `face` property does not survive comint's
-  font-lock pass.
-
-## Status
-
-Early. Nothing works yet.
+`docs/architecture/` — one page per subject, starting at
+[the page table](docs/architecture/README.md).
 
 ## Requirements
 
