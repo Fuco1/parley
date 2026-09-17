@@ -349,7 +349,12 @@ inserted and then rewritten in place."
 ;; structure that was in hand a moment earlier.
 
 (defvar-local parley-transcript--index nil
-  "The prompts in this buffer as imenu entries, newest first.")
+  "The prompts in this buffer as (LABEL START END), newest first.
+START is where the prompt begins, and is what the imenu entry
+made of this points at.  END is the end of the line START is on,
+which is the line LABEL names: it is there to say whether that
+line is still in the buffer, because deleting it is what brings
+the two markers together and nothing else does.")
 
 (defun parley-transcript--index-label (text)
   "Return the imenu label for the prompt TEXT, nil if it has nothing to say.
@@ -367,9 +372,7 @@ Truncated to `imenu-max-item-length', imenu's own variable for
 this length and the reason there is not a second one here.  Doing
 it here is what puts an ellipsis on the end, where
 `imenu--truncate-items' cuts with `substring' -- and it leaves
-that function nothing to do, which matters because it truncates
-the alist it is handed in place and the conses in that alist are
-this buffer's own."
+that function nothing left to do."
   (let ((line (car (split-string (string-trim text) "\n"))))
     (cond ((string= line "") nil)
           ((numberp imenu-max-item-length)
@@ -377,15 +380,28 @@ this buffer's own."
           (t line))))
 
 (defun parley-transcript--index-prompt (text position)
-  "Record the prompt TEXT, which starts at POSITION, in the imenu index.
-POSITION is kept as a marker and not as the number it is now,
-because this buffer is deleted from as well as appended to -- the
-tool run line at the end is taken back out whenever its run grows
--- and the operator can edit in it himself.  An entry has to go on
-pointing at its prompt through all of that."
+  "Record the prompt TEXT, inserted at POSITION, in the imenu index.
+
+The entry is put where the prompt's first non-blank line begins,
+which is the line its label names.  Usually that is POSITION
+itself -- the render pass trims a prompt before it quotes it --
+but what comint inserts at the prompt is what the operator typed,
+blank first line and all, and an entry on that blank line would
+point at nothing and read as deleted the moment it was recorded.
+
+Positions are kept as markers and not as the numbers they are
+now, because this buffer is deleted from as well as appended to
+-- the tool run line at the end is taken back out whenever its
+run grows -- and the operator can edit in it himself.  An entry
+has to go on pointing at its prompt through all of that, or say
+that its prompt is gone."
   (let ((label (parley-transcript--index-label text)))
     (when label
-      (push (cons label (copy-marker position)) parley-transcript--index))))
+      (save-excursion
+        (goto-char position)
+        (skip-chars-forward " \t\n")
+        (push (list label (point-marker) (copy-marker (line-end-position)))
+              parley-transcript--index)))))
 
 (defun parley-transcript--index-output (_string)
   "Place the prompts the last render pass produced in the imenu index.
@@ -419,10 +435,26 @@ run."
 
 (defun parley-transcript--imenu-index ()
   "Return this buffer's prompts as an imenu index, in buffer order.
-The buffer's `imenu-create-index-function', and it builds
+
+The buffer's `imenu-create-index-function', and it parses
 nothing: every entry was recorded as its prompt was inserted, so
-all this does is hand over what is already there."
-  (reverse parley-transcript--index))
+all this does is hand over what is already there.
+
+All but the prompts that have since been deleted, which is the
+one thing the recording cannot know.  `comint-truncate-buffer' is
+how a comint buffer is kept from growing without end and it
+deletes from the top, as does an operator killing a stretch of
+conversation he is done with.  A marker in what went does not die
+with it -- it survives at the boundary of the deletion, where it
+points at whatever text is there now -- so an entry is dropped
+once its two markers have met, which is to say once the line its
+label names has been deleted out from between them.  Dropping it
+from the list is also what lets those two markers go."
+  (setq parley-transcript--index
+        (seq-filter (lambda (entry) (< (nth 1 entry) (nth 2 entry)))
+                    parley-transcript--index))
+  (mapcar (lambda (entry) (cons (car entry) (nth 1 entry)))
+          (reverse parley-transcript--index)))
 
 ;;; The buffer
 

@@ -778,15 +778,43 @@ a second message."
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "ask it something")))))
 
+(ert-deftest parley-transcript-indexes-a-prompt-typed-below-a-blank-line ()
+  "A message submitted at the prompt is entered at the first thing it says.
+
+comint puts what the operator submitted in the buffer exactly as
+he wrote it, blank opening line and all, where the render pass
+would have trimmed it first.  The entry is labelled with the
+first line that says something either way, so that is the line it
+has to point at -- an entry on the blank line above would be
+pointing at a line the operator cannot see and which nothing in
+the buffer holds in place."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "\n  \nask it something"))
+    (let ((entry (assoc "ask it something"
+                        (parley-transcript-test--index buffer))))
+      (should entry)
+      (should (equal (parley-transcript-test--at buffer entry)
+                     "ask it something")))))
+
 (ert-deftest parley-transcript-index-survives-a-truncated-buffer ()
-  "An entry still points at its prompt after the top of the buffer goes.
+  "The top of the buffer going takes its entries and moves the rest.
 
 `comint-truncate-buffer' is how a comint buffer is kept from
 growing without end, and it deletes from the top -- as does an
 operator killing a stretch of conversation he is done with.
+
 Either moves every prompt below it, which is why an entry holds a
 marker rather than the number that marker had when the prompt
-arrived."
+arrived; and either deletes the prompts above it, which a marker
+does not notice.  A marker in deleted text survives at the
+boundary of the deletion, so the entry for a prompt that is no
+longer in the buffer would keep its label and point at whatever
+text is at that boundary now -- here, at the message after the
+one it names.  It has to go instead."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -799,10 +827,9 @@ arrived."
       (let ((comint-buffer-maximum-size 4))
         (comint-truncate-buffer))
       (should-not (member "> what is here" (parley-transcript-test--shown buffer))))
-    (let ((entry (assoc "the last word"
-                        (parley-transcript-test--index buffer))))
-      (should entry)
-      (should (equal (parley-transcript-test--at buffer entry)
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) '("the last word")))
+      (should (equal (parley-transcript-test--at buffer (car index))
                      "> the last word")))))
 
 (ert-deftest parley-transcript-index-does-not-go-stale ()
