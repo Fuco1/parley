@@ -36,24 +36,17 @@ filter that deleted the payloads would have to know every place one can hide.
 which is what becomes of a `tool_result` turn and of an assistant turn that was
 only thinking.
 
-Three flags are not decoration:
-
-- **`--unbuffered`.** jq block buffers a pipe, so without it nothing arrives
-  until the buffer fills and a live session looks frozen.
-- **`-c`**, so one object stays one line. A newline inside a JSON string stays
-  escaped, so one message stays one line too.
-- **`-M`.** jq would not colourise a pipe anyway, and the buffer does no escape
-  stripping; `-M` is what keeps that safe if the pipeline ever ran on a terminal
-  again. Measured over the 26 MB transcript it leaves no escape byte in the
-  stream at all — a control character inside a JSON string is written as the six
-  characters ``.
+**jq block buffers a pipe**, and a live session whose output waits for a buffer
+to fill looks frozen. Which flags hold that off, and what each of them costs,
+is the business of the call that builds the pipeline; the docstring of
+`parley-transcript--command` carries them.
 
 **The pipeline runs on a pipe and not a pty**, bound at the call rather than
 inherited, for two measured reasons. To a terminal jq line buffers on its own,
-so on a pty `--unbuffered` is dead and its absence could not be noticed until
-something else changed. And a pipe is much the faster of the two: the 26 MB
-transcript settles in 4.5 s against 10.1 s, which is the cost of a terminal line
-discipline between jq and Emacs.
+so on a pty the flag that stops it block buffering is dead and its absence could
+not be noticed until something else changed. And a pipe is much the faster of
+the two: the 26 MB transcript settles in 4.5 s against 10.1 s, which is the cost
+of a terminal line discipline between jq and Emacs.
 
 Killing the buffer stops the pipeline either way. Emacs puts the process in a
 group of its own whichever it allocates and signals the group, so `sh`, `tail`
@@ -111,9 +104,9 @@ is what comint itself puts on its prompt and its input. So do `invisible` and
 what the hiding rests on, and is asserted in a live transcript buffer.
 
 `ansi-color-process-output` is taken out of the buffer's output filters for the
-same reason `-M` is on jq: measured over the 26 MB transcript not one escape
-byte reaches the buffer, and scanning the 1.3 MB for them costs 2.4 s of the
-6.9 s that history takes to settle.
+same reason the pipeline refuses colour at the source: measured over the 26 MB
+transcript not one escape byte reaches the buffer, and scanning the 1.3 MB for
+them costs 2.4 s of the 6.9 s that history takes to settle.
 
 ## A run of tool calls is one line
 
@@ -123,9 +116,9 @@ for anyone who wants to watch the work.
 
 **The count cannot be held back until the run ends.** A line that waited for the
 final count would appear only once the agent had stopped working, which is
-exactly the frozen session `--unbuffered` exists to prevent. So the line is
-written as soon as the run starts and rewritten as the run grows: the old one is
-taken back out and a new one put in.
+exactly the frozen session the pipeline's buffering flags exist to prevent. So
+the line is written as soon as the run starts and rewritten as the run grows:
+the old one is taken back out and a new one put in.
 
 **Only if it is still there to take.** The operator can type into this buffer,
 and comint moves the process mark past what he typed, so what sits at the end
@@ -169,9 +162,8 @@ entry with `assoc`, so only the first of them can be reached.
 name.** `claude agents` gives two sessions in sibling worktrees one name, and a
 lookup by name would hand the second session the first one's buffer.
 
-A buffer's name still has to be unique to a session, so it carries what tells
-two sessions of one name apart — the pane, or the head of the session id when
-there is none.
+A buffer's name still has to be unique to a session, so it carries the tag
+[discovery](discovery.md) describes.
 
 **Switching to a session again shows the buffer as it stands**, process and
 history and all, and refreshes the record in it: what `claude agents` says about
