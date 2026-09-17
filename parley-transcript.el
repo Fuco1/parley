@@ -566,7 +566,12 @@ and never the objects."
   ;; `ansi-color-process-output' is, which this mode has just taken
   ;; pains to drop.
   (add-hook 'comint-output-filter-functions
-            #'parley-transcript--index-output nil t))
+            #'parley-transcript--index-output nil t)
+  ;; The zone the operator types in starts at the process mark, and
+  ;; comint has just moved that mark past what it inserted, so the
+  ;; overlay that marks the zone is put back after every output.
+  (add-hook 'comint-output-filter-functions
+            #'parley-transcript--mark-input-zone nil t))
 
 (defun parley-transcript-buffer-name (session)
   "Return the name of the buffer that follows SESSION.
@@ -655,7 +660,12 @@ and history and all."
            (parley-transcript--command (plist-get session :transcript))))
         ;; The pipeline has no state to lose, so there is nothing to
         ;; stop and ask the operator about.
-        (set-process-query-on-exit-flag (get-buffer-process buffer) nil)))
+        (set-process-query-on-exit-flag (get-buffer-process buffer) nil)
+        ;; Before anything has arrived, because a session whose
+        ;; transcript is still empty renders nothing at all: no output
+        ;; means no output filter, and the operator would be typing
+        ;; into a buffer with nothing in it to type at.
+        (parley-transcript--mark-input-zone)))
     ;; After the mode, which is what `kill-all-local-variables' would
     ;; otherwise clear this out of -- and outside the guard above,
     ;; because a buffer already following this session is following the
@@ -672,6 +682,105 @@ and history and all."
 ;; to `C-c SPC', which nobody guesses, and `S-<return>' is where every
 ;; chat program puts it.
 (define-key parley-transcript-mode-map (kbd "S-<return>") #'comint-accumulate)
+
+;; Everything past the process mark is what the operator has typed and
+;; not yet sent, and nothing in the buffer says so: the pipeline emits
+;; no prompt, so his text is the tail of a buffer whose tail is
+;; otherwise conversation.  What says it is an overlay from the mark to
+;; the end of the buffer -- an overlay, because the zone holds no text
+;; until something is typed and an empty zone is when he most needs to
+;; see where it is.
+;;
+;; Nothing it shows may be buffer text.  `comint-send-input' sends
+;; (buffer-substring (process-mark proc) (field-end)), so anything
+;; written into the buffer to mark the zone is typed into the session
+;; along with the message.
+
+(defface parley-input
+  '((((background light)) :background "#e3ebf6" :extend t)
+    (((background dark)) :background "#232b38" :extend t)
+    (t :extend t))
+  "Face for the zone at the end of the buffer holding what is not yet sent.
+It is worn by an overlay and not by the text, which is what lets
+an empty zone carry it.  `:extend' is what carries the background
+past the last character of a line to the window edge."
+  :group 'parley)
+
+(defface parley-input-marker '((t :inherit (parley-input shadow)))
+  "Face for the mark at the head of the input zone.
+It inherits `parley-input' first, so the mark stands on the same
+band as the zone it marks, and takes only what that face leaves
+unspecified -- the foreground -- from `shadow'."
+  :group 'parley)
+
+(defconst parley-transcript--input-marker
+  (propertize "> " 'face 'parley-input-marker)
+  "What stands at the head of the input zone.
+The zone's overlay shows it as its `before-string', which is
+displayed and is not in the buffer -- and what
+`comint-send-input' sends is buffer text from the process mark
+on.  It is the `> ' every turn of the operator's is quoted with,
+because what he is typing is the turn it is about to be.")
+
+(defconst parley-transcript--input-fill
+  (propertize " " 'display '(space :align-to right)
+              'face 'parley-input 'cursor t)
+  "What carries the band across the last line of the input zone.
+The zone's overlay shows it as its `after-string'.  `:extend'
+paints from the newline that ends a line, and the last line of
+the zone is the last line of the buffer and ends in none, so that
+one line is painted by a space stretched to the right edge
+instead -- measured on Emacs 28.2 in a 191 column terminal, the
+background under a face with `:extend t' stops at the last
+character of a line with no newline after it and runs to the edge
+of the window on every line that has one.
+
+`cursor' is what keeps point drawn at the head of that stretched
+space rather than at the far end of it, where the operator would
+be watching a cursor at the window edge as he typed: measured the
+same way, point at the end of the buffer is drawn in column 190,
+the last column of the window, without it.")
+
+(defvar-local parley-transcript--input-overlay nil
+  "The overlay marking the input zone, nil in a buffer that has none.")
+
+(defun parley-transcript--mark-input-zone (&optional _string)
+  "Put the overlay that marks the input zone over the end of the buffer.
+
+The zone runs from the process mark, which is where
+`comint-send-input' reads what it sends from, to the end of the
+buffer.  The overlay takes text in at its end and not at its
+start, so that what the operator types joins the zone and what
+the render pass inserts at the mark does not.
+
+It is put back and not merely made, because the mark it starts at
+moves: comint inserts output at that mark and moves the mark past
+what it inserted, so the zone is pushed down the buffer every
+time the session says anything.  That is what
+`comint-output-filter-functions' runs after, and
+`comint-send-input' runs the same hook with an empty string once
+the sender has returned, so a send is covered by it too -- the
+block `parley-transcript--render-input' leaves behind has moved
+the mark by then.
+
+Nothing here writes to the buffer, so the two lines before the
+mark that `parley-transcript--take-back-run' compares against the
+block it last wrote read as they read before.
+
+STRING is what that hook is called with and is not looked at: the
+zone is wherever the mark is now."
+  (let* ((process (get-buffer-process (current-buffer)))
+         (start (and process (marker-position (process-mark process)))))
+    (when start
+      (if (overlayp parley-transcript--input-overlay)
+          (move-overlay parley-transcript--input-overlay start (point-max))
+        (setq parley-transcript--input-overlay
+              (make-overlay start (point-max) nil nil t))
+        (overlay-put parley-transcript--input-overlay 'face 'parley-input)
+        (overlay-put parley-transcript--input-overlay 'before-string
+                     parley-transcript--input-marker)
+        (overlay-put parley-transcript--input-overlay 'after-string
+                     parley-transcript--input-fill)))))
 
 (defvar-local parley-transcript--sent nil
   "What has been sent from this buffer and not yet come back, as a list of texts.
