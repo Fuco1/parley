@@ -44,11 +44,34 @@ A session started outside tmux has no pane, and so does a background agent
 is where the operator finds that out**: an error naming the session beats a
 silent no-op.
 
+## What comint echoes is rewritten into the shape the renderer emits
+
+`comint-send-input` puts what the operator submitted into the buffer itself,
+before the sender runs and without passing the render pass — so it lands with
+no blank line before it, no quote, and comint's `comint-highlight-input` where
+every other turn of his carries `parley-user`. **The sender replaces that text
+with the block a `user` record renders to**, and one function writes both, so
+his turn has one shape however it reached the buffer and the two cannot drift
+apart.
+
+**It is rewritten rather than deleted and left to the transcript to render.**
+The session writes the message to its transcript seconds later, and minutes
+later if it was busy when it arrived; a buffer that showed nothing until then
+would leave the operator unable to tell a message he had sent from one that
+went nowhere.
+
+**The rewrite belongs in the sender and not on `comint-input-filter-functions`.**
+comint puts its own properties on the input after that hook has run, so a block
+written there would be highlighted as input anyway. By the time the sender runs
+the text carries them, and deleting it takes them with it.
+
+It is also where such a prompt enters the imenu index, because it is the one
+prompt the render pass never sees.
+
 ## The echo has to be deduplicated
 
-comint puts what the operator submitted into the buffer itself, and the session
-writes the same message to its transcript seconds later. Without a guard every
-prompt appears twice.
+The session writes the same message to its own transcript seconds later.
+Without a guard every prompt appears twice.
 
 **The guard is the last string sent from this buffer, and it is spent on the
 first user message that matches it.** A second message saying the very same
@@ -61,9 +84,3 @@ working on has finished and only then writes it, minutes later if the turn was
 long. Widening the window makes that case rarer at the cost of swallowing a
 message genuinely typed twice — which is why it is the operator's to set rather
 than a constant.
-
-**What comint inserted is not what the render pass would have inserted.** It
-carries comint's own input face, no blank line and no quote, so the operator's
-line reads as neither of the two things the renderer emits — and because the
-transcript's properly rendered copy is the one being dropped, that is the only
-form his line ever takes.
