@@ -654,7 +654,7 @@ ending without a bar loses its last cell."
          (widths (parley-transcript--column-widths (remq nil rows) width))
          (spec (seq-find #'markdown--is-delimiter-row lines))
          (form (string-join
-                (seq-mapn (lambda (line row)
+                (seq-mapn (lambda (_line row)
                             (if row
                                 (parley-transcript--wrapped-row row widths)
                               (parley-transcript--delimiter-row spec widths)))
@@ -709,7 +709,8 @@ cell."
                   (dotimes (column columns)
                     (when (and (> (aref widths column) (aref floors column))
                                (or (null widest)
-                                   (> (aref widths column) (aref widths widest))))
+                                   (> (aref widths column)
+                                      (aref widths widest))))
                       (setq widest column)))
                   (when widest
                     (aset widths widest (1- (aref widths widest)))

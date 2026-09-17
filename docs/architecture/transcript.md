@@ -140,12 +140,32 @@ the reason for it:
 - what it is computed from is the text under the overlay, so recomputing it
   needs no record of anything.
 
-**Alignment only ever makes a table wider.** A table whose aligned form is wider
-than the window is one the padding has pushed further past the edge, and the
-columns it lined up are broken by the wrap anyway — so it is shown as the agent
-wrote it, which is the narrower of the two, and the alignment comes back when
-the window has room for it. That is what makes the width of the window the thing
-the rendering is recomputed on.
+**Alignment only ever makes a table wider**, so a table it takes past the edge
+of the window is wrapped into it: each cell over as many lines as it needs, and
+the row as tall as its tallest cell. The width to wrap to is the width the
+rendering is already computed for, which is what makes the width of the window
+the thing the rendering is recomputed on. It costs nothing to undo — the columns
+are recomputed from the text under the overlay every time, so a wrap is never
+something a later render has to unpick.
+
+**The wrapped grid is written from the cells, not handed back to the aligner.**
+A cell can hold a bar that is not a column boundary — the one inside a wiki
+link, which markdown-mode's own cell reader passes over — and a wrapped line of
+such a cell is a markdown construct left open. Written back out as a table and
+parsed again, that bar is read as a boundary and the row gains a column; the
+table that was wrapped to fit then comes back wider than the window and with the
+wrong number of columns. So the cells are read once, from the table as the agent
+wrote it, where every construct in them is whole, and what is written out of
+them is the layout the aligner would have written.
+
+**A cell nothing can narrow sets a floor under its column.** Wrapping packs
+words, and a word is never broken across two lines — a table past the edge of
+the window is one the operator can still read back, where a broken word costs
+him the word. So a column holding a word longer than the room the grid leaves it
+gives nothing, and the table settles wider than the window. That is the honest
+outcome. The floor is not what keeps the word whole, which the packing does at
+any width; it is what stops the columns beside an incompressible one being
+packed tighter than the table they share will ever be.
 
 **The aligned form closes a row the agent left open.** The outer bar at the end
 of a row is optional, and a table written by hand leaves it off; the aligned
@@ -183,13 +203,16 @@ markup inside a cell stands in the aligned form as the agent wrote it.
 
 **What a realignment costs.** Measured on Emacs 28.2 in batch, byte-compiled,
 counted in CPU time and taken as the best of twenty runs of two hundred
-alignments, over a table of seven rows and four columns whose aligned form is 76
-columns wide: 6.4 ms to align one, of which markdown-mode's own aligner is
-2.9 ms. A conversation holding forty tables therefore costs 0.26 s of blocked
-redisplay on a resize. The hook this runs on is called for a window added,
-deleted or given another buffer as well, and the width the tables were last
-aligned to is what tells a resize from the rest — 3.3 µs when it has not
-changed, which is what keeps every other window change free.
+alignments, over a table of seven rows and four columns whose aligned form is 73
+columns wide: 3.6 ms for one that fits, of which markdown-mode's own aligner is
+3.5 ms, and 8.7 ms for one wrapped into 40 columns — the aligner is run first
+either way, because whether the aligned form fits is what says a wrap is needed
+at all. A conversation holding forty tables therefore costs 0.14 s of blocked
+redisplay on a resize, and 0.35 s if every one of them has to be wrapped. The
+hook this runs on is called for a window added, deleted or given another buffer
+as well, and the width the tables were last aligned to is what tells a resize
+from the rest — 3.3 µs when it has not changed, which is what keeps every other
+window change free.
 
 An overlay is the buffer's and not a window's, so a buffer shown in two windows
 of different widths is aligned to whichever of them changed last.
