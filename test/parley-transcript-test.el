@@ -425,6 +425,49 @@ its own line further up."
     (should (equal (parley-transcript-test--runs buffer)
                    '("2 tool calls" "15 tool calls")))))
 
+(ert-deftest parley-transcript-test-backs-a-turn-to-the-window-edge ()
+  "The background on a turn of the operator's runs to the window edge.
+A face that sets only `:background' leaves `:extend' unspecified
+and the colour stops at the last character of a line, which makes
+a turn of short lines a ragged patch rather than the band the eye
+finds it by.
+
+What the colour to the edge is painted from is the newline that
+ends a line, so the newline the block closes with has to carry
+the face as well as the text before it -- a turn faced by its
+text alone has every line but its last running to the edge."
+  (let ((block (parley-transcript--quote "first line\nsecond")))
+    (should (face-attribute 'parley-user :background nil t))
+    (should (eq t (face-attribute 'parley-user :extend nil t)))
+    (should (equal "\n> first line\n> second\n"
+                   (substring-no-properties block)))
+    (should (eq ?\n (aref block (1- (length block)))))
+    (should (eq 'parley-user
+                (get-text-property (1- (length block)) 'font-lock-face
+                                   block)))))
+
+(ert-deftest parley-transcript-test-marks-a-turn-in-a-face-of-its-own ()
+  "The `> ' at the head of a quoted line is faced apart from the turn's text.
+The mark is the renderer's and the words after it are the
+operator's, so `parley-user-marker' is what the first two
+characters of every line of a turn carry and `parley-user' -- the
+face that carries the background -- is what the rest of the line
+carries, its newline included.
+
+The two faces stand on one band: the marker inherits
+`parley-user' before it inherits anything else, so the background
+is unbroken across a mark the operator never typed."
+  (let ((block (parley-transcript--quote "first line\nsecond")))
+    (should (equal (parley-transcript-test--shape block)
+                   '(("\n" . nil)
+                     ("> " . parley-user-marker)
+                     ("first line\n" . parley-user)
+                     ("> " . parley-user-marker)
+                     ("second\n" . parley-user))))
+    (should (face-attribute 'parley-user :background nil t))
+    (should (equal (face-attribute 'parley-user-marker :background nil t)
+                   (face-attribute 'parley-user :background nil t)))))
+
 (ert-deftest parley-transcript-test-fontifies-in-another-buffer ()
   "Assistant text is fontified by markdown-mode, and not here.
 The fontification happens in a buffer of its own because markdown
@@ -877,8 +920,8 @@ that comparison from being satisfied by two identical wrongs."
       (parley-transcript-test--submit buffer "hello there"))
     (should (equal (parley-transcript-test--shape
                     (parley-transcript-test--tail buffer 15))
-                   '(("\n" . nil) ("> hello there" . parley-user)
-                     ("\n" . nil))))
+                   '(("\n" . nil) ("> " . parley-user-marker)
+                     ("hello there\n" . parley-user))))
     (with-current-buffer buffer
       (should-not (text-property-any (point-min) (point-max) 'font-lock-face
                                      'comint-highlight-input)))
@@ -889,9 +932,10 @@ that comparison from being satisfied by two identical wrongs."
                                         (parley-transcript-test--shown buffer))))))
     (should (equal (parley-transcript-test--shape
                     (parley-transcript-test--tail buffer 30))
-                   '(("\n" . nil) ("> hello there" . parley-user)
-                     ("\n\n" . nil) ("> hello there" . parley-user)
-                     ("\n" . nil))))))
+                   '(("\n" . nil) ("> " . parley-user-marker)
+                     ("hello there\n" . parley-user)
+                     ("\n" . nil) ("> " . parley-user-marker)
+                     ("hello there\n" . parley-user))))))
 
 (ert-deftest parley-transcript-test-quotes-every-line-of-what-was-submitted ()
   "A submission of several lines is quoted on every one of them.
@@ -915,10 +959,12 @@ render pass writes for the same message coming back."
                     (parley-transcript-test--tail
                      buffer (* 2 (length "\n> first line\n> second line\n"))))
                    '(("\n" . nil)
-                     ("> first line\n> second line" . parley-user)
-                     ("\n\n" . nil)
-                     ("> first line\n> second line" . parley-user)
-                     ("\n" . nil))))))
+                     ("> " . parley-user-marker) ("first line\n" . parley-user)
+                     ("> " . parley-user-marker) ("second line\n" . parley-user)
+                     ("\n" . nil)
+                     ("> " . parley-user-marker) ("first line\n" . parley-user)
+                     ("> " . parley-user-marker)
+                     ("second line\n" . parley-user))))))
 
 (ert-deftest parley-transcript-test-does-not-render-its-own-echo ()
   "A message sent from the prompt is not shown again when it comes back.

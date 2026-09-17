@@ -115,8 +115,25 @@ the six characters \\u001b."
 
 ;;; Rendering
 
-(defface parley-user '((t :inherit bold))
-  "Face for a turn the operator took."
+(defface parley-user
+  '((((background light)) :inherit bold :background "#e6e6e6" :extend t)
+    (((background dark)) :inherit bold :background "#2e2e2e" :extend t)
+    (t :inherit bold :extend t))
+  "Face for a turn the operator took.
+`:extend' is what carries the background past the last character
+of a line to the window edge, and a face that sets only
+`:background' leaves it unspecified -- measured on Emacs 28.2,
+`(face-attribute f :extend nil t)' is `unspecified' for such a
+face and `t' only when the face says so."
+  :group 'parley)
+
+(defface parley-user-marker '((t :inherit (parley-user shadow)))
+  "Face for the `> ' at the head of each line of a turn the operator took.
+It inherits `parley-user' first, so the marker stands on the same
+background as the turn it marks, and takes only what that face
+leaves unspecified -- the foreground -- from `shadow'.  The
+marker is the renderer's and the words after it are the
+operator's, and the two are worth telling apart."
   :group 'parley)
 
 (defface parley-tool-run '((t :inherit shadow))
@@ -233,7 +250,10 @@ line of the last block -- which is what
   "Return the block of buffer text the operator's turn TEXT renders to.
 It is quoted and otherwise left alone: what he typed at a
 terminal is not markdown, and fontifying it as though it were
-would invent emphasis he never wrote.
+would invent emphasis he never wrote.  The `> ' the quoting adds
+carries `parley-user-marker' and the words it stands in front of
+carry `parley-user', so the renderer's mark and the operator's
+text can be coloured apart.
 
 It is trimmed at both ends, and not only on the right.  The first
 character of the block is where the imenu index points and the
@@ -247,9 +267,23 @@ the two cannot come out looking different."
   (let ((trimmed (string-trim text)))
     (if (string= trimmed "")
         ""
-      (parley-transcript--block
-       (propertize (replace-regexp-in-string "^" "> " trimmed)
-                   'font-lock-face 'parley-user)))))
+      (let ((block (parley-transcript--block
+                    (propertize (replace-regexp-in-string "^" "> " trimmed)
+                                'font-lock-face 'parley-user)))
+            (position 0))
+        ;; The newline ending a line is what its background is painted
+        ;; from, so the one the block closes with carries the face
+        ;; too: without it the last line of a turn stops at its last
+        ;; character while every line above it runs to the edge.  The
+        ;; newline the block opens with is left bare, because that
+        ;; blank line is between two turns and belongs to neither.
+        (put-text-property (1- (length block)) (length block)
+                           'font-lock-face 'parley-user block)
+        (while (string-match "^> " block position)
+          (put-text-property (match-beginning 0) (match-end 0)
+                             'font-lock-face 'parley-user-marker block)
+          (setq position (match-end 0)))
+        block))))
 
 (defun parley-transcript--speech (record)
   "Return the block of buffer text RECORD said, nothing if it said nothing.
@@ -796,11 +830,12 @@ into at all, and this is where the operator finds that out."
 
 (defun parley-transcript--turn-line-p ()
   "Non-nil if the line point is on is one line of a turn of the operator's.
-Read at the beginning of the line, so that point at the end of
-one -- past the last character the block carries a face on -- is
-still on it."
+Read at the beginning of the line, which is where
+`parley-transcript--quote' puts the `> ' it marks every line of a
+turn with -- and reading there rather than under point is what
+leaves point at the end of a line still on it."
   (eq (get-text-property (line-beginning-position) 'font-lock-face)
-      'parley-user))
+      'parley-user-marker))
 
 (defun parley-transcript--old-input ()
   "Return the turn point stands in, with the quote the renderer put on it taken off.
@@ -820,10 +855,10 @@ nothing, so the default returns the whole unfielded run around
 it: \"\\n> what is here\\n\" over the same buffer.  Both are one
 line where the turn may be four.
 
-A turn is the run of lines carrying `parley-user', which is the
-face `parley-transcript--quote' puts on every turn of the
-operator's whichever door it came in by, and `> ' is what it put
-in front of each of that run's lines.  The face rather than the
+A turn is the run of lines whose head carries
+`parley-user-marker', the face `parley-transcript--quote' puts on
+the `> ' it writes in front of every line of every turn of the
+operator's whichever door it came in by.  The face rather than the
 `> ' itself, because an assistant turn quoting something is
 markdown with `> ' at the front of a line too, and that quote is
 markdown-mode's to hide rather than this one's to strip.
