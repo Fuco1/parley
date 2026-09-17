@@ -140,12 +140,25 @@ the reason for it:
 - what it is computed from is the text under the overlay, so recomputing it
   needs no record of anything.
 
-**Alignment only ever makes a table wider.** A table whose aligned form is wider
-than the window is one the padding has pushed further past the edge, and the
-columns it lined up are broken by the wrap anyway — so it is shown as the agent
-wrote it, which is the narrower of the two, and the alignment comes back when
-the window has room for it. That is what makes the width of the window the thing
-the rendering is recomputed on.
+**Alignment only ever makes a table wider, so a table it takes past the window is
+wrapped into it.** The cells of a row are broken over as many lines as the grid
+needs to fit and the row grows to match, and every line of a wrapped row goes
+through the aligner with the rest of the table — so all of them stand in the same
+columns. The width a table is wrapped to is the width the rendering is already
+computed for, which is what makes the width of the window the thing the
+rendering is recomputed on. Undoing a wrap costs nothing, because what it is
+computed from is the text under the overlay and that width and nothing else, so
+a wrap is never something a later rendering has to unpick.
+
+**The widest column gives first**, a column at a time until the grid fits, so
+the cell of prose that made the table wide is the cell that is wrapped and the
+columns of one short word each are left standing.
+
+**A word is never broken to make a table fit.** A column is narrowed no further
+than the longest word in it, so a cell nothing can narrow — a long token, a URL —
+sets a floor under its column and leaves the table wider than the window. That
+is the honest outcome: a table past the edge of the window is one the operator
+can still read back, and a token broken across two lines is not.
 
 **The aligned form closes a row the agent left open.** The outer bar at the end
 of a row is optional, and a table written by hand leaves it off; the aligned
@@ -183,13 +196,16 @@ markup inside a cell stands in the aligned form as the agent wrote it.
 
 **What a realignment costs.** Measured on Emacs 28.2 in batch, byte-compiled,
 counted in CPU time and taken as the best of twenty runs of two hundred
-alignments, over a table of seven rows and four columns whose aligned form is 76
-columns wide: 6.4 ms to align one, of which markdown-mode's own aligner is
-2.9 ms. A conversation holding forty tables therefore costs 0.26 s of blocked
-redisplay on a resize. The hook this runs on is called for a window added,
-deleted or given another buffer as well, and the width the tables were last
-aligned to is what tells a resize from the rest — 3.3 µs when it has not
-changed, which is what keeps every other window change free.
+alignments, over a table of seven rows and four columns whose aligned form is 75
+columns wide: 3.3 ms to align one, of which markdown-mode's own aligner is
+1.5 ms. Wrapping that table into 40 columns costs 13.4 ms, because the wrapped
+form is 25 lines where the table was 7 and goes through the aligner itself. A
+conversation holding forty tables therefore costs 0.13 s of blocked redisplay on
+a resize, and 0.54 s of it in a window narrow enough to wrap every one of them.
+The hook this runs on is called for a window added, deleted or given another
+buffer as well, and the width the tables were last aligned to is what tells a
+resize from the rest — 3.3 µs when it has not changed, which is what keeps every
+other window change free.
 
 An overlay is the buffer's and not a window's, so a buffer shown in two windows
 of different widths is aligned to whichever of them changed last.
