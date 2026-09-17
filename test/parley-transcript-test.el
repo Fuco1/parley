@@ -16,6 +16,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'ert)
 (require 'parley-transcript)
 
@@ -1165,6 +1166,25 @@ off it."
                      '("what is here" "after the run")))
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "> after the run")))))
+
+(ert-deftest parley-transcript-test-reads-two-sessions-of-one-name-apart ()
+  "Two sessions of one name in one directory are two candidates.
+That is two started in the same repo, which `claude agents'
+reports under one name; `assoc' resolves what was picked, so one
+candidate for both would open one conversation and type into the
+other session's pane."
+  (let ((one (list :name "orc" :cwd "/srv/orc" :pane "%1"
+                   :session-id "1111ffff-0000-4000-8000-000000000001"))
+        (two (list :name "orc" :cwd "/srv/orc" :pane "%2"
+                   :session-id "2222ffff-0000-4000-8000-000000000002"))
+        (offered nil))
+    (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt table &rest _)
+                 (setq offered (mapcar #'car table))
+                 (cadr offered))))
+      (should (eq (parley-transcript--read-session) two))
+      (should (= 2 (length (delete-dups (copy-sequence offered))))))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
