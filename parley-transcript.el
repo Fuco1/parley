@@ -354,13 +354,13 @@ lines above it are skipped, so a prompt that opens with a newline
 is still named after what it says -- and a prompt that says
 nothing at all has no label, and so gets no entry.
 
-Truncated to `imenu-max-item-length', which is imenu's own
-variable for exactly this length and the reason there is not a
-second one here.  Truncating it here rather than leaving it to
-imenu is what puts an ellipsis on the end -- `imenu--truncate-items'
-cuts with `substring' -- and what makes the length hold for
-`sallet-imenu', which reads `imenu-create-index-function' itself
-and never goes through that."
+Truncated to `imenu-max-item-length', imenu's own variable for
+this length and the reason there is not a second one here.  Doing
+it here is what puts an ellipsis on the end, where
+`imenu--truncate-items' cuts with `substring' -- and it leaves
+that function nothing to do, which matters because it truncates
+the alist it is handed in place and the conses in that alist are
+this buffer's own."
   (let ((line (car (split-string text "\n" t "[ \t\r]+"))))
     (cond ((null line) nil)
           ((numberp imenu-max-item-length)
@@ -369,10 +369,11 @@ and never goes through that."
 
 (defun parley-transcript--index-prompt (text position)
   "Record the prompt TEXT, which starts at POSITION, in the imenu index.
-POSITION is kept as a marker so that the entry goes on pointing
-at the prompt: the tool run line at the end of the buffer is
-taken back out and rewritten as its run grows, and the operator
-can edit in here himself."
+POSITION is kept as a marker and not as the number it is now,
+because this buffer is deleted from as well as appended to -- the
+tool run line at the end is taken back out whenever its run grows
+-- and the operator can edit in it himself.  An entry has to go on
+pointing at its prompt through all of that."
   (let ((label (parley-transcript--index-label text)))
     (when label
       (push (cons label (copy-marker position)) parley-transcript--index))))
