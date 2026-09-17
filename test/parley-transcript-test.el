@@ -1573,6 +1573,35 @@ for them because imenu's own truncation is the thing under test."
       (parley-transcript-test--index-prompts "continue with it" 11)
       (should (= 11 (length (imenu--make-index-alist)))))))
 
+(ert-deftest parley-transcript-test-numbers-a-label-imenu-counts-longer ()
+  "The number survives on a label whose characters outrun its columns.
+
+The two lengths are not the same length.  `imenu--truncate-items'
+cuts with `substring', which counts characters, and a label is
+made to fit with `truncate-string-to-width', which counts the
+columns it displays in -- so a label of five characters in two
+columns is inside a limit of five by one count and not by the
+other, and the `<2>' hung off it is what imenu takes back.
+
+The prompt here is `a' wearing three combining acute accents and
+then `b': five characters and two columns, which no room
+reserved in columns alone can keep the number on.  Both prompts
+are the same prompt, so the second is the one that has to be
+numbered, and it is the one the collision would swallow."
+  (with-temp-buffer
+    (parley-transcript-mode)
+    (let ((imenu-max-item-length 5)
+          (text (concat "a" (make-string 3 ?́) "b")))
+      (parley-transcript-test--index-prompts text 2)
+      (let* ((index (imenu--make-index-alist))
+             (found (mapcar (lambda (entry) (cdr (assoc (car entry) index)))
+                            index)))
+        (should (= 2 (length index)))
+        (should (= 2 (length (delete-dups found))))
+        (should (string-suffix-p "<2>" (car (nth 1 index))))
+        (should (seq-every-p (lambda (entry) (<= (length (car entry)) 5))
+                             index))))))
+
 (ert-deftest parley-transcript-test-labels-a-prompt-that-opens-blank ()
   "A prompt that opens with a blank line is named and pointed at its first line.
 
