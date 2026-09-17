@@ -1347,7 +1347,22 @@ else."
           "| bbbbbb | a much longer cell |")
   "A table as an agent writes one, whose columns do not line up.
 Its aligned form is 31 columns wide and the text itself is 30, so
-a window of 20 has room for neither.")
+a window of 20 has room for neither -- and wrapped it comes to
+exactly 20, because no cell of it holds a word longer than the
+column it is then given.")
+
+(defconst parley-transcript-test--prose
+  "a cell of prose long enough that aligning the table runs it past the window"
+  "A cell that takes the table it stands in past any ordinary window.
+Every word of it is short, so it is a cell wrapping can narrow as
+far as it is asked to.")
+
+(defconst parley-transcript-test--wide
+  (concat "| id | what it does |\n"
+          "|---|---|\n"
+          "| 7 | " parley-transcript-test--prose " |\n"
+          "| 8 | short |")
+  "A table one cell of prose takes to 84 columns aligned.")
 
 (defun parley-transcript-test--tables (buffer)
   "Return the overlays over a table in BUFFER, in buffer order."
@@ -1376,6 +1391,13 @@ line."
                 (setq position (1+ position)))
               (nreverse columns)))
           (split-string text "\n")))
+
+(defun parley-transcript-test--cells (line)
+  "Return the cells of the aligned table LINE, each without its padding.
+The bars are read off the line itself rather than with
+markdown-mode's parser, which is the parser the wrapping is
+computed with: what this answers is what the operator sees."
+  (mapcar #'string-trim (butlast (cdr (split-string line "|")))))
 
 (ert-deftest parley-transcript-test-aligns-a-table-over-the-text-as-written ()
   "A table is shown with its columns aligned, over the text the transcript delivered.
@@ -1441,12 +1463,14 @@ the rest of the table does not hold."
 (ert-deftest parley-transcript-test-aligns-again-when-the-window-changes-width ()
   "What is shown over a table follows the width of the window, and the text does not.
 
-Alignment only ever adds padding, so a table whose aligned form
-is wider than the window is one the padding pushed past the edge:
-the text the agent wrote is shown instead, and the alignment
-comes back when there is room for it again.  That the rendering
-can answer a resize at all is why it is an overlay and not text
-written once on the way in.
+A window with no room for the aligned form gets the table wrapped
+into it instead -- more lines than the agent wrote and the same
+columns throughout -- and the unwrapped form comes back when the
+window has room for it again.  That the rendering can answer a
+resize at all is why it is an overlay and not text written once
+on the way in, and a wrap costs nothing to come back from because
+what both forms are computed from is the text under the overlay,
+which is the table the agent wrote through all of it.
 
 Batch Emacs never redisplays and this hook runs during redisplay,
 so it is run here by hand.  What is under test is what the hook
@@ -1472,7 +1496,13 @@ value is what makes it the hook Emacs will call."
               (set-frame-width (selected-frame) 20)
               (with-current-buffer buffer
                 (run-hooks 'window-configuration-change-hook))
-              (should-not (overlay-get overlay 'display))
+              (let ((wrapped (overlay-get overlay 'display)))
+                (should (stringp wrapped))
+                (should (>= 20 (parley-transcript--columns wrapped)))
+                (should (< (length (split-string aligned "\n"))
+                           (length (split-string wrapped "\n"))))
+                (should (= 1 (length (seq-uniq
+                                      (parley-transcript-test--bars wrapped))))))
               (set-frame-width (selected-frame) 100)
               (with-current-buffer buffer
                 (run-hooks 'window-configuration-change-hook))
@@ -1480,6 +1510,64 @@ value is what makes it the hook Emacs will call."
             (should (equal parley-transcript-test--table
                            (parley-transcript-test--under overlay)))))
       (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-wraps-a-cell-of-prose-into-the-width ()
+  "A table a cell of prose takes past its width is wrapped until it fits.
+
+Aligning a wide table only makes it wider, so the cell is broken
+over as many lines as it takes and the row grows to match, which
+is the only thing that makes a table of prose fit at all.
+
+Every line of the wrapped row stands in the columns the rest of
+the table stands in, and the cells beside the prose stand in
+theirs: the id on the first line of the row with nothing under
+it, and the row after the wrapped one still a row of two cells.
+
+What a wrap may not do is lose a word or invent one, so the lines
+of the prose are read back out of their column and joined -- that
+is the cell the agent wrote.  The same table aligned for a width
+it fits in is asserted to be wider than this one, so a wrap that
+did nothing at all fails here rather than passing for having had
+nothing to do."
+  (let* ((width 40)
+         (form (parley-transcript--aligned parley-transcript-test--wide width))
+         (rows (mapcar #'parley-transcript-test--cells (split-string form "\n")))
+         (start (seq-position (mapcar #'car rows) "7"))
+         (row (cons (nth start rows)
+                    (seq-take-while (lambda (cells) (equal "" (car cells)))
+                                    (nthcdr (1+ start) rows)))))
+    (should (< width (parley-transcript--columns
+                      (parley-transcript--aligned parley-transcript-test--wide 200))))
+    (should (>= width (parley-transcript--columns form)))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+    (should (< 1 (length row)))
+    (should (equal parley-transcript-test--prose
+                   (string-join (mapcar #'cadr row) " ")))
+    (should (equal '("8" "short") (car (last rows))))))
+
+(ert-deftest parley-transcript-test-leaves-a-table-nothing-narrows-too-wide ()
+  "A cell no wrapping can narrow leaves the table wider than the width.
+
+A word is never broken to make a table fit.  A URL the operator
+cannot read back is worse than a table that runs past the edge of
+the window, and the table that runs past it is still one he can
+read, so the column that word stands in is a floor under the
+whole table.
+
+Everything beside it gives what it can all the same, which is
+what the table being narrower than its unwrapped form says: the
+prose wrapped, and what is left over the width is the word."
+  (let* ((url "https://example.invalid/a/very/long/path/that/will/not/break")
+         (text (concat "| link | what it does |\n|---|---|\n| " url " | "
+                       parley-transcript-test--prose " |"))
+         (form (parley-transcript--aligned text 40)))
+    (should form)
+    (should (< 40 (parley-transcript--columns form)))
+    (should (seq-find (lambda (line) (string-search url line))
+                      (split-string form "\n")))
+    (should (< (parley-transcript--columns form)
+               (parley-transcript--columns (parley-transcript--aligned text 200))))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))))
 
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
   "A table of nothing but delimiter rows is shown as the agent wrote it.
