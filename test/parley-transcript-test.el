@@ -649,6 +649,30 @@ BODY sees `tmux-log', the file every call appends a record to;
                   "{\"role\":\"user\",\"content\":\"%s\"}}")
           text))
 
+(defun parley-transcript-test--tail (buffer characters)
+  "Return the last CHARACTERS characters of BUFFER, properties and all."
+  (with-current-buffer buffer
+    (buffer-substring (max (point-min) (- (point-max) characters))
+                      (point-max))))
+
+(defun parley-transcript-test--shape (string)
+  "Return STRING as the runs of `font-lock-face' over it, as (TEXT . FACE).
+The shape of a turn is its text and the face on it, so every
+other property is dropped: comint marks what it inserts at the
+prompt as a field and the render pass marks nothing, and a
+comparison of the two has no business failing over that."
+  (let ((runs nil)
+        (position 0))
+    (while (< position (length string))
+      (let ((next (or (next-single-property-change position 'font-lock-face
+                                                   string)
+                      (length string))))
+        (push (cons (substring-no-properties string position next)
+                    (get-text-property position 'font-lock-face string))
+              runs)
+        (setq position next)))
+    (nreverse runs)))
+
 (ert-deftest parley-transcript-test-sends-a-line-to-the-pane ()
   "A submitted line is typed into the session's pane and submitted there.
 It leaves by `comint-input-sender' and not down the process,
@@ -717,15 +741,80 @@ sent, which is the worst thing this could do."
         (should (string-match-p "read only" (cadr signalled))))
       (should-not (file-exists-p tmux-log)))))
 
+(ert-deftest parley-transcript-test-quotes-what-was-submitted-at-the-prompt ()
+  "A line submitted at the prompt stands in the buffer as a rendered turn does.
+`comint-send-input' inserts what the operator submitted itself,
+before the sender runs and without passing the render pass, so
+what lands is raw text under `comint-highlight-input'.  The
+sender rewrites it into the block a `user' record renders to: the
+blank line it opens with, the quote, and `parley-user'.
+
+The transcript then delivers that message twice.  The first is
+the echo and is dropped; the second was typed at the pane and is
+rendered -- so the buffer ends with the two renderings side by
+side and the comparison is one assertion.  Which is what keeps
+them from drifting apart, and the literal shape is what keeps
+that comparison from being satisfied by two identical wrongs."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there"))
+    (should (equal (parley-transcript-test--shape
+                    (parley-transcript-test--tail buffer 15))
+                   '(("\n" . nil) ("> hello there" . parley-user)
+                     ("\n" . nil))))
+    (with-current-buffer buffer
+      (should-not (text-property-any (point-min) (point-max) 'font-lock-face
+                                     'comint-highlight-input)))
+    (parley-transcript-test--write
+     file (make-list 2 (parley-transcript-test--user-turn "hello there")))
+    (should (parley-transcript-test--wait
+             (lambda () (= 2 (seq-count (lambda (line) (equal line "> hello there"))
+                                        (parley-transcript-test--shown buffer))))))
+    (should (equal (parley-transcript-test--shape
+                    (parley-transcript-test--tail buffer 30))
+                   '(("\n" . nil) ("> hello there" . parley-user)
+                     ("\n\n" . nil) ("> hello there" . parley-user)
+                     ("\n" . nil))))))
+
+(ert-deftest parley-transcript-test-quotes-every-line-of-what-was-submitted ()
+  "A submission of several lines is quoted on every one of them.
+A `user' record of several lines is, and the two are the same
+turn seen from two sides: the block the sender writes for what
+the operator submitted here is compared against the block the
+render pass writes for the same message coming back."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "first line\nsecond line"))
+    (parley-transcript-test--write
+     file (make-list 2 (parley-transcript-test--user-turn
+                        "first line\\nsecond line")))
+    (should (parley-transcript-test--wait
+             (lambda () (= 2 (seq-count (lambda (line) (equal line "> second line"))
+                                        (parley-transcript-test--shown buffer))))))
+    (should (equal (parley-transcript-test--shape
+                    (parley-transcript-test--tail
+                     buffer (* 2 (length "\n> first line\n> second line\n"))))
+                   '(("\n" . nil)
+                     ("> first line\n> second line" . parley-user)
+                     ("\n\n" . nil)
+                     ("> first line\n> second line" . parley-user)
+                     ("\n" . nil))))))
+
 (ert-deftest parley-transcript-test-does-not-render-its-own-echo ()
   "A message sent from the prompt is not shown again when it comes back.
-comint has already put it in the buffer, and the session writes
-the same message to its transcript seconds later; without the
-guard every prompt appears twice.
+The sender has already put it in the buffer, and the session
+writes the same message to its transcript seconds later; without
+the guard every prompt appears twice.
 
-The window is what makes it a guard rather than a permanent
-blindness to one string, and shutting it is what proves it is
-there: the second message is delivered and shown."
+The turn that follows it is what says the transcript's copy went
+by: it is behind the message in the file, so a buffer holding it
+is a buffer that has seen the message too."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -738,19 +827,8 @@ there: the second message is delivered and shown."
     (should (parley-transcript-test--wait
              (lambda () (member "of course"
                                 (parley-transcript-test--shown buffer)))))
-    (let ((shown (parley-transcript-test--shown buffer)))
-      (should (member "hello there" shown))
-      (should-not (member "> hello there" shown)))
-    (let ((parley-transcript-echo-window 0))
-      (parley-transcript-test--with-tmux
-        (parley-transcript-test--submit buffer "and again"))
-      (parley-transcript-test--write
-       file (list (parley-transcript-test--user-turn "and again")
-                  (parley-transcript-test--text-turn "quite")))
-      (should (parley-transcript-test--wait
-               (lambda () (member "quite"
-                                  (parley-transcript-test--shown buffer)))))
-      (should (member "> and again" (parley-transcript-test--shown buffer))))))
+    (should (= 1 (seq-count (lambda (line) (equal line "> hello there"))
+                            (parley-transcript-test--shown buffer))))))
 
 (ert-deftest parley-transcript-test-renders-what-was-typed-at-the-pane ()
   "A user message parley did not send is rendered, guard or no guard.
@@ -760,7 +838,9 @@ has to reach the buffer like everything else.
 The guard is spent on the first message that matches it, which is
 what makes that true even of a message identical to the one just
 sent: the first `hello there' here is the echo and is dropped,
-the second was typed at the pane and is shown."
+the second was typed at the pane and is shown -- beside the one
+the sender wrote when it was submitted, which is why there are
+two of them and not one."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -774,7 +854,7 @@ the second was typed at the pane and is shown."
     (should (parley-transcript-test--wait
              (lambda () (member "> typed at the pane"
                                 (parley-transcript-test--shown buffer)))))
-    (should (= 1 (seq-count (lambda (line) (equal line "> hello there"))
+    (should (= 2 (seq-count (lambda (line) (equal line "> hello there"))
                             (parley-transcript-test--shown buffer))))))
 
 
@@ -892,12 +972,11 @@ all."
 (ert-deftest parley-transcript-test-indexes-a-prompt-sent-from-the-prompt ()
   "A message submitted at the prompt is one entry, pointing at it.
 
-comint put that message in the buffer itself and the guard on the
-echo drops the transcript's copy of it when it comes back, so the
-render pass never sees the prompts the operator sent from here.
-They are also the prompts he is most likely to go looking for, so
-they are recorded where they are inserted: as comint takes the
-input.
+The guard on the echo drops the transcript's copy of it when it
+comes back, so the render pass never sees the prompts the
+operator sent from here.  They are also the prompts he is most
+likely to go looking for, so the sender records them as it
+rewrites them into the buffer.
 
 One entry and not two, which is what makes this the echo and not
 a second message."
@@ -917,29 +996,30 @@ a second message."
       (should (equal (mapcar #'car index)
                      '("what is here" "ask it something")))
       (should (equal (parley-transcript-test--at buffer (cadr index))
-                     "ask it something")))))
+                     "> ask it something")))))
 
 (ert-deftest parley-transcript-test-indexes-a-prompt-typed-below-a-blank-line ()
   "A message submitted at the prompt is entered at the first thing it says.
 
-comint puts what the operator submitted in the buffer exactly as
-he wrote it, blank opening line and all, where the render pass
-would have trimmed it first.  The entry is labelled with the
-first line that says something either way, so that is the line it
-has to point at -- an entry on the blank line above would be
-pointing at a line the operator cannot see and which nothing in
-the buffer holds in place."
+The entry is labelled with the first line the prompt says
+something on, so that is the line it has to point at -- an entry
+on the blank line above would be pointing at a line the operator
+cannot see and which nothing in the buffer holds in place.  The
+sender trims the prompt before it quotes it, which is what leaves
+those the same line here as for a prompt the transcript
+delivered."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
     (parley-transcript-test--pane buffer "%7")
     (parley-transcript-test--with-tmux
       (parley-transcript-test--submit buffer "\n  \nask it something"))
+    (should-not (member "> " (parley-transcript-test--shown buffer)))
     (let ((entry (assoc "ask it something"
                         (parley-transcript-test--index buffer))))
       (should entry)
       (should (equal (parley-transcript-test--at buffer entry)
-                     "ask it something")))))
+                     "> ask it something")))))
 
 (ert-deftest parley-transcript-test-index-survives-a-truncated-buffer ()
   "The top of the buffer going takes its entries and moves the rest.
