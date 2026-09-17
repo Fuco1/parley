@@ -724,6 +724,88 @@ where he left it."
                          ("send-keys" "-t" "%7" "Enter"))))
         (should (equal (cdar calls) "first line\nsecond line"))))))
 
+(defun parley-transcript-test--open-line (buffer)
+  "Press S-<return> in BUFFER, as the operator does to open a line.
+The binding is looked up rather than the command called directly,
+because the binding is half of what is under test."
+  (with-current-buffer buffer
+    (let ((command (key-binding (kbd "S-<return>"))))
+      (should command)
+      (call-interactively command))))
+
+(defun parley-transcript-test--zone (buffer)
+  "Return the input standing unsent in BUFFER.
+That is everything past the process mark, which is where
+`comint-send-input' reads the input from."
+  (with-current-buffer buffer
+    (buffer-substring-no-properties
+     (process-mark (get-buffer-process buffer))
+     (point-max))))
+
+(defun parley-transcript-test--three-lines (buffer)
+  "Stand three lines unsent in BUFFER, opening each with S-<return>."
+  (with-current-buffer buffer
+    (goto-char (point-max))
+    (insert "first line"))
+  (parley-transcript-test--open-line buffer)
+  (with-current-buffer buffer (insert "second line"))
+  (parley-transcript-test--open-line buffer)
+  (with-current-buffer buffer (insert "third line")))
+
+(ert-deftest parley-transcript-test-opens-a-line-without-submitting ()
+  "S-<return> opens a line in the input zone and submits nothing.
+The zone is a block the operator may edit before he sends it, and
+the only other way to open a line in it is `comint-accumulate'
+under `C-c SPC', which nobody guesses.
+
+Nothing having been sent is asserted by the fake tmux never
+having been run at all: its log is written by the program itself,
+so the file not existing is the strongest form of that claim."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--three-lines buffer)
+      (should (equal (parley-transcript-test--zone buffer)
+                     "first line\nsecond line\nthird line"))
+      (should-not (file-exists-p tmux-log)))))
+
+(ert-deftest parley-transcript-test-sends-the-whole-zone-from-inside-it ()
+  "The whole input zone goes as one message however point stands in it.
+comint is not line oriented on the way out: unsent input carries
+no `field' property, so `comint-eol-on-send' moves point to the
+end of the buffer and `comint-send-input' hands
+`comint-input-sender' everything from the process mark as one
+string.  Measured against Emacs 28.2, which is why the send is
+driven with point on the second of three lines and two lines of
+text standing after it.
+
+One paste and not three sends is what says the three lines
+arrived as one string, since a string with a newline in it is
+what chooses the paste shape and the text tmux was given on
+standard input is that string."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--three-lines buffer)
+      (with-current-buffer buffer
+        (goto-char (point-max))
+        (search-backward "second line")
+        (forward-char 3)
+        (should (equal (buffer-substring-no-properties (point) (point-max))
+                       "ond line\nthird line"))
+        (comint-send-input))
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       '(("load-buffer" "-b" "parley" "-")
+                         ("paste-buffer" "-d" "-p" "-b" "parley" "-t" "%7")
+                         ("send-keys" "-t" "%7" "Enter"))))
+        (should (equal (cdar calls)
+                       "first line\nsecond line\nthird line"))))))
+
 (ert-deftest parley-transcript-test-says-a-session-without-a-pane-is-read-only ()
   "Submitting in a buffer whose session has no pane says so and sends nothing.
 A session started outside tmux inherited no TMUX_PANE, so there
