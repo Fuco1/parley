@@ -1523,10 +1523,15 @@ short.
 
 The prose is read back out of the column it was wrapped in and
 joined, because a wrap that dropped a word or put one in the
-wrong column would leave the grid as square as ever."
+wrong column would leave the grid as square as ever.
+
+The table is written with its first column marked left and its
+second right, because the marks are the agent's and the wrapped
+form has to carry them: a column he marked is one he meant to be
+read that way."
   (let* ((prose "a cell of prose long enough to run past the edge of the window")
          (text (concat "| step | what it does |\n"
-                       "|---|---|\n"
+                       "|:---|---:|\n"
                        "| one | " prose " |\n"
                        "| two | short |"))
          (width 40)
@@ -1539,6 +1544,10 @@ wrong column would leave the grid as square as ever."
     (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
     (should (member '("step" "what it does") rows))
     (should (member '("two" "short") rows))
+    (let ((delimiter (seq-find #'markdown--is-delimiter-row
+                               (split-string form "\n"))))
+      (should (string-prefix-p "|:" delimiter))
+      (should (string-suffix-p ":|" delimiter)))
     (let ((wrapped (seq-take-while
                     (lambda (row) (member (car row) '("one" "")))
                     (seq-drop-while (lambda (row) (not (equal (car row) "one")))
@@ -1566,7 +1575,12 @@ would stand past its column's edge anyway, and the bars of the
 line it stands on would land nowhere near the bars of the rest.
 Both assertions fail then, which is the case the floor is for:
 the word stands whole at any width and asserting that alone would
-pass however the columns were computed."
+pass however the columns were computed.
+
+The packing is then asked directly for a cell at a width the
+floor would never hand it, because the floor is exactly what
+keeps it from being asked: a packing that broke a word is
+unreachable through the table and is pinned here instead."
   (let* ((word "supercalifragilisticexpialidocious")
          (text (concat "| step | note |\n"
                        "|---|---|\n"
@@ -1577,7 +1591,45 @@ pass however the columns were computed."
     (should form)
     (should (member (list "one" word) rows))
     (should (= 45 (parley-transcript--columns form)))
-    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+    (should (equal (list word "and")
+                   (parley-transcript--wrapped-cell (concat word " and") 5)))))
+
+(ert-deftest parley-transcript-test-wraps-a-cell-of-cjk-by-the-columns-it-takes ()
+  "A table of CJK text is wrapped by the columns it displays in, not its characters.
+
+A CJK character is one character and two columns, so a grid
+padded to the character is a grid that lines up in none: every
+line would carry the same number of characters and each a
+different number of columns.  What that costs is the grid
+itself, which is the whole of what a table is for.
+
+The lines are measured in columns for that reason, and against
+each other rather than against the width alone -- padding by the
+character leaves a line short of the width rather than past it,
+so a table that merely fits says nothing about it.
+
+Two widths, because the column is measured twice over and each
+measurement binds at one of them.  At 30 it is the packing that
+decides, which fills a column it is given; at 14 there is no
+width left to give and it is the floor under the column, which is
+the widest word standing in it.  A floor counted in characters
+sits under a CJK column at half the height it needs, the word it
+was meant to keep room for stands past the edge of its column,
+and the grid the other width asserts goes with it."
+  (let* ((text (concat "| id | note |\n"
+                       "|---|---|\n"
+                       "| 1 | 日本語 の テキスト が ここ に あります |\n"
+                       "| 22 | short |"))
+         (wide (parley-transcript--aligned text 30))
+         (narrow (parley-transcript--aligned text 14)))
+    (should (> (parley-transcript--columns (parley-transcript--alignment text))
+               30))
+    (should (<= (parley-transcript--columns wide) 30))
+    (dolist (form (list wide narrow))
+      (should form)
+      (should (= 1 (length (seq-uniq (mapcar #'string-width
+                                             (split-string form "\n")))))))))
 
 (ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
   "A bar standing inside a cell is not a column boundary, and a wrap leaves it none.
