@@ -707,11 +707,18 @@ cell."
 (defun parley-transcript--wrapped-cell (text width)
   "Return the words of TEXT packed into lines of at most WIDTH columns.
 
-A word wider than WIDTH stands on a line of its own and over the
-end of it, because breaking one is the thing wrapping a table may
-not do: what a broken word costs the operator is the word, where
-a table over the edge of the window costs him the grid he can
-still read back.
+Whole words only: one that will not fit starts the next line
+rather than being broken across two, and one wider than WIDTH
+stands alone and over the end of it.  Breaking one is the thing
+wrapping a table may not do -- what a broken word costs the
+operator is the word, where a table over the edge of the window
+costs him only the grid, which he can still read back.
+
+`parley-transcript--column-widths' is what keeps a table from
+asking for that overflow at all, by never narrowing a column past
+the longest word standing in it.  The two together are why a
+table holding a word longer than the window comes out wider than
+the window and not with a word broken in half.
 
 A cell with nothing in it is one empty line, because a row is as
 tall as its tallest cell and every cell of it has to reach the
