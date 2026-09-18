@@ -521,8 +521,9 @@ longer than the room the rest of the grid leaves it -- keeps the
 table wider than WIDTH, which is the honest outcome: a word
 broken across two lines is one the operator cannot read back.
 
-Nil when `parley-transcript--alignment' will not take TEXT, and
-nil when the wrapped form says less than TEXT does.
+Nil when `parley-transcript--alignment' will not take TEXT, which
+is the only thing either form is refused for: what the operator
+sees is then the table as the agent wrote it.
 
 The face is on the string and not on the text under it.  What a
 `display' property shows is the string's own properties, and the
@@ -634,14 +635,13 @@ them is whole; what is written out of them is the layout
 `markdown-table-align' writes, so the wrapped form is the same
 grid the aligned form would be.
 
-Nil if the form says less than TEXT does, which is what
-`parley-transcript--alignment' refuses an aligned form for:
-`markdown--table-line-to-columns' is markdown-mode's and the
-cells come out of it here too.
-
-`parley-transcript--table-said' and not
-`parley-transcript--table-content', because the lines a table is
-broken over are exactly what a wrap moves.
+Nothing here is held to TEXT the way the aligned form is, because
+there is nothing between the cells and the form to lose one:
+what reads the cells is `markdown--table-line-to-columns', which
+is what `markdown-table-align' reads them with, and
+`parley-transcript--alignment' has already held the aligner's
+output to TEXT -- so a reader that dropped a cell has refused
+this table before a wrap is ever reached.
 
 The rows are read off the copy `parley-transcript--table-closed'
 returns, for the reason the alignment is computed from one: a row
@@ -652,26 +652,13 @@ ending without a bar loses its last cell."
                            (markdown--table-line-to-columns line)))
                        lines))
          (widths (parley-transcript--column-widths (remq nil rows) width))
-         (spec (seq-find #'markdown--is-delimiter-row lines))
-         (form (string-join
-                (seq-mapn (lambda (_line row)
-                            (if row
-                                (parley-transcript--wrapped-row row widths)
-                              (parley-transcript--delimiter-row spec widths)))
-                          lines rows)
-                "\n")))
-    (when (equal (parley-transcript--table-said form)
-                 (parley-transcript--table-said text))
-      form)))
-
-(defun parley-transcript--table-said (text)
-  "Return what TEXT says, with the lines it is said over taken out as well.
-Two tables answer this the same way exactly when they hold the
-same cells in the same order, however either has wrapped them --
-so it is what a wrapped form is held to, where
-`parley-transcript--table-content' is what a form broken over the
-same lines is."
-  (string-replace "\n" "" (parley-transcript--table-content text)))
+         (spec (seq-find #'markdown--is-delimiter-row lines)))
+    (string-join (seq-mapn (lambda (_line row)
+                             (if row
+                                 (parley-transcript--wrapped-row row widths)
+                               (parley-transcript--delimiter-row spec widths)))
+                           lines rows)
+                 "\n")))
 
 (defun parley-transcript--column-widths (rows width)
   "Return the width each column of ROWS is wrapped to, to fit WIDTH in all.
