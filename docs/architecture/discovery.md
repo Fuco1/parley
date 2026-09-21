@@ -47,6 +47,25 @@ of it directly.
 agent. The record carries nil there rather than pretending, and what that costs
 the operator belongs to [typing](typing.md).
 
+## The pane id is for typing, and where the pane is for showing
+
+**A pane id resolves to nothing the operator can act on.** `%15` says nothing
+about where that pane is, and its `%` reads as a stray format directive wherever
+it is displayed. What locates a session is its tmux session, window and pane
+index — `orc-orc-b3743fe3:3.1` — so that is what the displayed forms of a
+session carry, and `tmux list-panes` is what maps a pane id to it. **The pane id
+stays on the record** for `send-keys -t`, which is the only thing that takes it.
+
+**One `list-panes -a` resolves the whole list.** It prints every pane on the
+server, so the alternative — a `display-message -t <pane>` per session — would
+cost a dozen subprocesses to discover a dozen sessions instead of one. The map
+is asked for when the first tag needs it and dropped whenever the session list
+is discovered again, so what is shown beside a list is no older than the list.
+
+**A pane tmux does not report has no location**, which a session can outlive its
+window by, and a session with no pane never had one. Neither is an error: what
+is lost is where to show the session, not the transcript it is read from.
+
 ## The transcript path is derived, not searched for
 
 Claude Code names the project directory after the session's working directory
@@ -67,15 +86,16 @@ them can describe.
 
 **A name is not unique.** Two sessions in sibling worktrees come back under one,
 and a background agent is named after its prompt. So a switcher row and a buffer
-name both carry a tag instead, and the tag is the session id with the pane
-before it when there is one.
+name both carry a tag instead, and the tag is the session id with its pane's
+location before it when there is one. A session with no location is tagged by
+its id alone.
 
-**The pane alone is not enough**, though it is what the operator recognises a
-session by and what he searches the switcher with: suspend the session running
+**The location alone is not enough**, though it is what the operator recognises
+a session by and what he searches the switcher with: suspend the session running
 in a pane, start another there, and `claude agents` reports two live sessions in
-one pane.
+one location.
 
 **The id goes in whole and never as a prefix.** Two ids can share one, and two
-sessions sharing a name, a pane and a prefix would be two the tag could not tell
-apart at all — which is the one thing it exists to do. A long tag is the price,
-and it is the last column of a row and the tail of a buffer name.
+sessions sharing a name, a location and a prefix would be two the tag could not
+tell apart at all — which is the one thing it exists to do. A long tag is the
+price, and it is the last column of a row and the tail of a buffer name.
