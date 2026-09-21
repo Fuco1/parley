@@ -131,6 +131,14 @@ tag is a session name's and never a pane id.")
   "Return the tag the fixture session whose pid is PID is listed under."
   (cdr (assq pid parley-switch-test--expected-tags)))
 
+(defun parley-switch-test--display-column (row string)
+  "Return the display column ROW draws STRING at.
+Measured the way the row is drawn and not by counting
+characters: a glyph two columns wide is one character, so an
+index into the string says nothing about where the operator sees
+it."
+  (string-width (substring row 0 (string-match-p (regexp-quote string) row))))
+
 
 ;;; The columns
 
@@ -237,8 +245,17 @@ The faces are on the row `parley-session-row' returns and not put
 there by whatever draws it, so the `completing-read' fallback
 shows what the sallet source shows.
 
-The gap between two columns carries none: a column face a theme
-gives a background to paints its value and stops there."
+A face runs the width of its column and not the length of the
+value in it -- the padding after a short name is the name
+column -- so a face a theme gives a background to colours a
+column and not a ragged stripe down the list.  The two spaces
+between one column and the next are no column's and carry
+nothing.
+
+The whole of each run is asserted and not its first character: a
+face on the value alone passes an assertion made at the offset
+the value starts at, which is the one place the two cannot
+differ."
   (parley-switch-test--with-locations
     (let ((row (parley-session-row
                 (parley-session-fields (parley-switch-test--session 1)))))
@@ -246,7 +263,18 @@ gives a background to paints its value and stops there."
       (should (equal (get-text-property 52 'face row) 'parley-row-status-busy))
       (should (equal (get-text-property 66 'face row) 'parley-row-directory))
       (should (equal (get-text-property 108 'face row) 'parley-row-tag))
-      (dolist (gap '(48 50 64 106))
+      ;; Where each run ends: the name at 50, the status at 64 and
+      ;; the working directory at 106, which is each column's own
+      ;; width and none of the gap after it.  The tag is last and
+      ;; runs to the end of the row.
+      (should (equal (next-single-property-change 0 'face row) 50))
+      (should (equal (next-single-property-change 50 'face row) 52))
+      (should (equal (next-single-property-change 52 'face row) 64))
+      (should (equal (next-single-property-change 64 'face row) 66))
+      (should (equal (next-single-property-change 66 'face row) 106))
+      (should (equal (next-single-property-change 106 'face row) 108))
+      (should-not (next-single-property-change 108 'face row))
+      (dolist (gap '(50 51 64 65 106 107))
         (should-not (get-text-property gap 'face row))))))
 
 (ert-deftest parley-switch-test-a-status-is-faced-by-its-value ()
@@ -272,6 +300,11 @@ name is a fourth colour rather than one of theirs."
 Fifty is what the name is padded to, so the columns after it line
 up down the list whatever the sessions are called.
 
+Fifty columns as they are drawn, and not fifty characters: the
+name of a session working in a Japanese or Chinese tree is drawn
+two columns to the glyph, and a column counted in characters
+would put that row's status two columns past every other row's.
+
 A name longer than fifty is drawn whole and pushes the rest of
 its own row along: a background agent is named after its prompt,
 and cutting the name cuts the one handle the operator has on the
@@ -280,13 +313,44 @@ session."
                 (vector "orc-w1" "idle" "" "/srv/orc" "tag")))
         (fifty (parley-session-row
                 (vector (make-string 50 ?n) "idle" "" "/srv/orc" "tag")))
+        (wide (parley-session-row
+               (vector "追跡" "idle" "" "/srv/orc" "tag")))
         (long (parley-session-row
                (vector (make-string 62 ?n) "idle" "" "/srv/orc" "tag"))))
-    (should (equal (substring short 52 56) "idle"))
-    (should (equal (substring fifty 52 56) "idle"))
-    (should (equal (get-text-property 52 'face short) 'parley-row-status-idle))
+    (dolist (row (list short fifty wide))
+      (should (= (parley-switch-test--display-column row "idle") 52))
+      (should (equal (get-text-property (string-match-p "idle" row) 'face row)
+                     'parley-row-status-idle)))
+    ;; Four display columns of name and four characters of it, so
+    ;; the row a character count lines up is the row it lines up
+    ;; wrong: its status would start two columns late.
+    (should (= (string-width "追跡") 4))
     (should (string-prefix-p (make-string 62 ?n) long))
-    (should (equal (substring long 64 68) "idle"))))
+    (should (= (parley-switch-test--display-column long "idle") 64))))
+
+(ert-deftest parley-switch-test-a-long-status-is-cut-to-its-column ()
+  "A status parley does not name is cut to the status column.
+`idle', `busy' and `waiting' fit it with the read only mark
+beside them, and the column is theirs; a status of any length at
+all is what `claude agents' may report tomorrow, and the one
+thing it may not do is carry every column after it out of line
+on that row.  The status is the only column cut, because it is
+the only one holding a value from a short list -- a name and a
+working directory are what the operator picks a session by, and
+both are drawn whole."
+  (let ((row (parley-session-row
+              (vector "orc-w1" "awaiting-approval" "[RO]" "/srv/orc" "tag"))))
+    (should (= (parley-switch-test--display-column row "/srv/orc") 66))
+    (should (equal (get-text-property 52 'face row) 'parley-row-status-other))
+    (should (equal (next-single-property-change 52 'face row) 64))
+    ;; And a working directory past its own column is not cut: the
+    ;; tail of a path is what tells two worktrees apart.
+    (let ((deep (parley-session-row
+                 (vector "orc-w1" "idle" ""
+                         "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here"
+                         "tag"))))
+      (should (string-match-p
+               "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here" deep)))))
 
 (ert-deftest parley-switch-test-the-read-only-mark-shares-the-status-column ()
   "The mark is drawn after the status, in the status column.
@@ -300,6 +364,10 @@ working directory begins at the same offset marked or not."
                 (vector "orc-w1" "waiting" "" "/srv/orc" "tag"))))
     (should (equal (substring marked 52 64) "waiting [RO]"))
     (should (equal (get-text-property 60 'face marked) 'parley-row-read-only))
+    ;; The space between the two is the status column's own, so
+    ;; nothing inside the column is left in the default face.
+    (should (equal (next-single-property-change 52 'face marked) 60))
+    (should (equal (next-single-property-change 60 'face marked) 64))
     (should (equal (substring marked 66 74) "/srv/orc"))
     (should (equal (substring plain 66 74) "/srv/orc"))
     (should-not (string-match-p "\\[RO\\]" plain))))

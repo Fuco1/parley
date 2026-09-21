@@ -359,15 +359,27 @@ agents' reports none for -- is drawn in
         ((equal status "waiting") 'parley-row-status-waiting)
         (t 'parley-row-status-other)))
 
-(defun parley--column (string width)
-  "Return STRING padded with unfaced spaces to WIDTH characters.
-The padding carries no face of its own, so a column face a theme
-gives a background to paints the value and not the gap after it.
+(defun parley--column (string width face &optional cut)
+  "Return STRING as a column WIDTH wide, padded with spaces in FACE.
+The padding carries FACE and not the default, so a column is
+coloured across the whole of it and a theme giving one of these
+faces a background gets a column and not a ragged stripe.
+STRING brings its own faces, which is how the read only mark
+keeps its colour inside the status column.
 
-A string longer than WIDTH is returned whole and pushes the rest
-of its own row along: cutting the name is cutting the handle the
-operator has on the session."
-  (concat string (make-string (max 0 (- width (length string))) ?\s)))
+WIDTH is a display width and not a count of characters: a name
+written in a script drawn two columns to the glyph lines up with
+the rest of the list only if it is measured the way it is drawn.
+
+STRING is drawn whole unless CUT, and drawing it whole is what
+pushes the columns after it along that one row.  CUT is for a
+column holding one of a handful of values -- a status -- where
+what is lost is nothing the operator picks a session by.  A name
+and a working directory are exactly that, so neither is ever
+cut."
+  (let* ((drawn (if cut (truncate-string-to-width string width) string))
+         (padding (max 0 (- width (string-width drawn)))))
+    (concat drawn (propertize (make-string padding ?\s) 'face face))))
 
 (defun parley-session-row (fields)
   "Return FIELDS as one row of faced columns, the name first.
@@ -381,22 +393,30 @@ The read only mark is drawn inside the status column, after the
 status, and has none of its own: a column of its own is blank on
 every session that has a pane, which is nearly all of them, and
 what it holds reads as something about the status anyway.  Twelve
-characters is what the two come to together at their longest,
-\"waiting [RO]\"."
-  (let ((name (aref fields 0))
-        (status (aref fields 1))
-        (mark (aref fields 2))
-        (directory (aref fields 3))
-        (tag (aref fields 4)))
+columns is what the two come to together at their longest,
+\"waiting [RO]\", and a status parley does not name is cut to
+that: it is the one column here holding a value from a short
+list, and a row whose status runs long would carry every column
+after it out of line."
+  (let* ((name (aref fields 0))
+         (status (aref fields 1))
+         (mark (aref fields 2))
+         (directory (aref fields 3))
+         (tag (aref fields 4))
+         (status-face (parley--status-face status)))
     (concat
-     (parley--column (propertize name 'face 'parley-row-name) 50) "  "
-     (parley--column
-      (concat (propertize status 'face (parley--status-face status))
-              (unless (equal mark "")
-                (concat " " (propertize mark 'face 'parley-row-read-only))))
-      12)
+     (parley--column (propertize name 'face 'parley-row-name)
+                     50 'parley-row-name)
      "  "
-     (parley--column (propertize directory 'face 'parley-row-directory) 40)
+     (parley--column
+      (if (equal mark "")
+          (propertize status 'face status-face)
+        (concat (propertize (concat status " ") 'face status-face)
+                (propertize mark 'face 'parley-row-read-only)))
+      12 status-face t)
+     "  "
+     (parley--column (propertize directory 'face 'parley-row-directory)
+                     40 'parley-row-directory)
      "  "
      (propertize tag 'face 'parley-row-tag))))
 
