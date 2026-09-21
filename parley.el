@@ -142,9 +142,11 @@ machine nothing has a pane on anyway.
 
 The location is everything after the first space of a line and
 not the second field of it: a tmux session name may contain
-spaces and `list-panes' prints it as it is -- measured against
-tmux 3.2a, a session named `parley test' prints its first pane as
-`%0 parley test:0.0'."
+spaces and `list-panes' prints it as it is.  It may contain a `%'
+as well, which the location then carries and which is no pane id
+-- measured against tmux 3.2a, which sanitises `:' and `.' in a
+session name and nothing else, a session named `parley %test'
+prints its first pane as `%0 parley %test:0.0'."
   (with-temp-buffer
     (when (eq 0 (ignore-error file-error
                   (call-process
@@ -232,7 +234,9 @@ suspend the session running in a pane, start another there, and
 
 The pane id is in neither the tag nor anything built from it.  It
 is what `tmux send-keys -t' takes, typing is the only thing that
-needs it, and `:pane' is where it stays.
+needs it, and `:pane' is where it stays.  A `%' in a tag is
+therefore the tmux session name's own and never a pane id, tmux
+allowing one there -- see `parley--tmux-pane-locations'.
 
 A session outside tmux has no pane and so no location, and
 neither has one whose pane tmux no longer reports: the tag of

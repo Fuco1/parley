@@ -95,9 +95,9 @@ status.  The / is part of the pattern, because a path really does
 begin with one; the @ and the : are sigils the operator types to
 name a column and are stripped before matching -- a tag begins
 with the tmux session its pane is in, and a status is `idle' or
-`busy'.  Tokens are matched in sequence, so
-`orc /worker-2' is the session named orc in that worktree, and
-`orc @orc-b3:3' the one of that name in that window."
+`busy'.  Tokens are matched in sequence, so `orc /worker-2' is
+the session named orc in that worktree, and `orc @orc-b3:3' the
+one of that name in that window."
   (sallet-compose-filters-by-pattern
    `(("\\`/.*" ,(parley-switch--field-filter 3))
      ("\\`@\\(.*\\)" 1 ,(parley-switch--field-filter 4))
