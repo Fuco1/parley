@@ -729,8 +729,8 @@ read from.  The caveat a local command prepends is shown nowhere
 at all, a constant line saying an injection happened carrying no
 information.  And a turn of the operator's holding the
 `<command-name>' a slash command writes is not marked, so it is
-quoted as any turn of his is -- the mark is the whole of the
-test, and no pattern in the text is consulted.
+quoted and indexed as any turn of his is -- the mark is the whole
+of the test, and no pattern in the text is consulted.
 
 The instructions a load carries are the point of collapsing it:
 a skill body is a thousand lines of them, and none belongs in a
@@ -2001,12 +2001,12 @@ the block it stands in opens with."
   "A turn the transcript marked as injected takes no imenu entry.
 
 The site that records an entry is reached only for a record the
-transcript did not mark, so an injection is indexed by nothing
-whether or not it reaches the buffer: the skill load here does
-reach it, as
-the line naming the skill, and the index still holds only the
-prompt under it.  An injection is not a prompt, and the operator
-jumping through the index is looking for what he typed."
+transcript did not mark, so nothing indexes an injection whether
+or not it reaches the buffer -- the skill load here does reach
+it, as the line naming the skill, and the index still holds only
+the prompt under it.  An injection is not a prompt, and the
+operator jumping through the index is looking for what he
+typed."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session
       (list (parley-transcript-test--meta-turn
