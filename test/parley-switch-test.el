@@ -118,13 +118,14 @@ opens one builds a session it can really follow."
 A whole session id, and where the session's pane is before it
 when tmux reports one -- never the pane id itself, which is what
 `tmux send-keys -t' takes and nothing the operator can act on.
-One location carries a `%\' because a tmux session name may:
-tmux 3.2a sanitises `:\' and `.\' in one and nothing else, so a
-`%\' here is a session name's and never a pane id.
 These are written out rather than computed with
 `parley-session-tag', so that a test comparing a tag against one
 of them is comparing it against something a change to that
-function cannot move with it.")
+function cannot move with it.
+
+One location carries a `%' because a tmux session name may: tmux
+3.2a sanitises `:' and `.' in one and nothing else, so a `%' in a
+tag is a session name's and never a pane id.")
 
 (defun parley-switch-test--tag (pid)
   "Return the tag the fixture session whose pid is PID is listed under."

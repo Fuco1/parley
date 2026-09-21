@@ -273,7 +273,7 @@ neither read nor written.  Started with `-f /dev/null' because a
 `base-index' or a `pane-base-index' in a configuration file moves
 every index this asserts.
 
-The session is named `parley %test\', which tmux allows and
+The session is named `parley %test', which tmux allows and
 `list-panes' prints as it is.  The space says a location is
 everything after the first space of a line and not the second
 field of it.  The `%' says a location may legally carry one --
