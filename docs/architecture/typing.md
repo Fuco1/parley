@@ -156,6 +156,14 @@ stopped anything: the animation timer is what has to notice the window is gone,
 and it stops itself. The tick that reads the status starts it again when a
 window comes back.
 
+**Showing means a window on a frame that is up**, not a window that exists. A
+frame goes invisible and a frame is iconified without its windows going
+anywhere, and a transcript left in one is a transcript nobody is reading. The
+frames are asked one at a time rather than through a selector over all of them,
+because an Emacs holds frames on more than one terminal — a graphical frame and
+an `emacsclient -t` frame — and the operator is reading a frame whether or not
+it is on the terminal he last typed in.
+
 **Ten frames a second, and a frame costs less than the noise in a redisplay that
 has nothing to do.** Measured on Emacs 28.2 in an 80 column tmux pane, in a
 window 21 rows deep, over a buffer of 453,780 bytes and 6,000 lines rendered
