@@ -19,15 +19,17 @@ parley is for reading what it said.
 - `M-x parley-switch` picks a live session and opens its conversation. With
   sallet it matches the columns one at a time: `orc` for the name, `/worker-2`
   for the working directory, `@orc-b3:3.1` for the tmux window a session is in,
-  `:idle` for the status.
+  `:idle` for the status. Every column is coloured apart and the status by
+  what it says, so the busy session and the one waiting on you are seen rather
+  than read for.
 - `M-x parley-transcript` opens the same buffer for a session you already have
   in hand. Either way the buffer delivers the transcript from its first byte and
   then follows the file.
 - Submitting at the prompt types the message into the session's tmux pane.
   `S-<return>` opens another line at the prompt without submitting anything, and
   the whole block goes as one message wherever point stands in it. A session
-  outside tmux has no pane and is read only, and the switcher says so on its
-  row.
+  outside tmux has no pane and is read only, and the switcher marks it `[RO]`
+  beside the status.
 - `RET` on a turn you took earlier sends that turn again, all of it and without
   the quote the view draws it with. On anything else — an agent's turn, the
   line a run of tool calls collapsed to — it sends nothing and says so.
