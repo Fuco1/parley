@@ -1781,14 +1781,35 @@ the spinner is running.")
 ;; holding it.
 (put 'parley-transcript--spinner-timer 'permanent-local t)
 
+(defun parley-transcript--on-screen-p (buffer)
+  "Non-nil when a window on a frame the operator can see is showing BUFFER.
+`get-buffer-window' answers a near enough question and not this
+one, whichever of its selectors it is given: t counts a window on
+a frame that is not on screen, and `visible' counts only frames
+on the terminal of the selected one -- an Emacs holding a
+graphical frame and an `emacsclient -t' frame has two terminals,
+and on that selector the spinner would stop in whichever of them
+the operator is not typing in.  So the windows showing BUFFER are
+asked for whole and their frames are asked whether they are up.
+`frame-visible-p' answers `icon' for an iconified frame, which is
+a frame nobody is reading."
+  (seq-some (lambda (window) (eq t (frame-visible-p (window-frame window))))
+            (get-buffer-window-list buffer nil t)))
+
 (defun parley-transcript--show-status ()
   "Draw this buffer's status in front of its prompt, animating a working one.
 The animation is started and stopped from here, which
 `parley-transcript--read-status' calls on the tick that learns
 the status: a session that has stopped working stops its spinner
 within that tick, and a spinner is never left running over a
-session that is doing nothing."
-  (if (eq parley-transcript-status 'working)
+session that is doing nothing.
+
+A buffer that is on no screen never starts one, though its status
+is read: the reader takes a window on any frame at all for
+looking at it, and `parley-transcript--on-screen-p' is the
+question the animation has to ask."
+  (if (and (eq parley-transcript-status 'working)
+           (parley-transcript--on-screen-p (current-buffer)))
       (parley-transcript--animate-marker)
     (parley-transcript--unanimate-marker))
   (parley-transcript--draw-input-marker))
@@ -1815,19 +1836,19 @@ half unstoppable."
 (defun parley-transcript--advance-marker (buffer)
   "Show BUFFER's spinner one frame on, and stop if there is nothing to animate.
 
-It stops itself on a buffer no window is showing, which is the
-case `parley-transcript--read-status' cannot stop: that one reads
-nothing for such a buffer, so it never reaches the status that
-would have stopped this.  A frame redrawn where nobody is looking
-is a redisplay bought for no one, and the status it would draw is
-stale anyway.
+It stops itself on a buffer that has gone off screen, which is
+the case `parley-transcript--read-status' cannot stop: that one
+reads nothing for a buffer no window is showing, so it never
+reaches the status that would have stopped this.  A frame
+redrawn where nobody is looking is a redisplay bought for no one,
+and the status it would draw is stale anyway.
 
-A window showing BUFFER again starts it back up, on the tick that
+BUFFER coming back on screen starts it back up, on the tick that
 reads the status."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (if (and (eq parley-transcript-status 'working)
-               (get-buffer-window buffer t))
+               (parley-transcript--on-screen-p buffer))
           (progn
             (setq parley-transcript--spinner-frame
                   (1+ parley-transcript--spinner-frame))

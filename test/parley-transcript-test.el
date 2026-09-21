@@ -1858,6 +1858,42 @@ buffer nobody is showing, so the status it left behind still says
                                  'parley-transcript--spinner-timer buffer)))))
       (should (eq (parley-transcript-test--status buffer) 'working)))))
 
+(ert-deftest parley-transcript-test-animates-only-on-a-frame-that-is-up ()
+  "A window on a frame that is not on screen is no window showing the buffer.
+A frame goes down without its windows going anywhere: it can be
+made invisible and it can be iconified, and either way
+`get-buffer-window' with t hands back the window it still holds.
+That is how a transcript nobody can see keeps a timer redrawing
+it, so the frame is asked whether it is up.
+
+Batch Emacs has one frame and nothing that puts it down --
+`make-frame' finds no terminal type it can use, and
+`make-frame-invisible' over a frame opened on a pty leaves
+`frame-visible-p' answering t (Emacs 28.2).  So the answer is
+stubbed, which is that same question and the only way this Emacs
+can be made to give it.
+
+The window stays on the buffer throughout and the session stays
+at work: what stops the animation is the frame, and the tick that
+reads the status is not what stopped it.  A window coming back up
+starts it again, which is what the second round waits for."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (dolist (down '(nil icon))
+        (should (parley-transcript-test--wait
+                 (lambda () (timerp (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+        (cl-letf (((symbol-function 'frame-visible-p) (lambda (_frame) down)))
+          (should (parley-transcript-test--wait
+                   (lambda () (null (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+          (should (get-buffer-window buffer t))
+          (should (eq (parley-transcript-test--status buffer) 'working)))))))
+
 (ert-deftest parley-transcript-test-leaves-a-rendered-turn-without-a-cell ()
   "No line of a turn already taken carries the cell, and none of it is buffer text.
 `parley-transcript--quote-marker' heads every line of every turn
