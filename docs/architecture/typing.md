@@ -49,8 +49,11 @@ An overlay has a position whether or not there is text under it.
 buffer after that mark is a mark typed into the session. The `> ` at the head of
 the zone is the overlay's `before-string`: shown at a position where the buffer
 holds nothing, and it is the `> ` every turn of his is quoted with because what
-he is typing is the turn it is about to be. The band under it is a face of the
-zone's own, so his next turn stands apart from the turns it will join — and the
+he is typing is the turn it is about to be. It opens with the blank line every
+block of conversation opens with, so the zone stands apart from the turn above
+it the way two turns do, and that line is bare because it belongs to neither.
+The band under it is a face of the zone's own, so his next turn stands apart
+from the turns it will join — and the
 run of lines a past turn is found by reads the face on buffer text at the head
 of a line, which this mark is not, so no line of the zone is taken for a turn
 already sent.

@@ -1337,6 +1337,22 @@ else."
   (should (equal (face-attribute 'parley-input-marker :background nil t)
                  (face-attribute 'parley-input :background nil t))))
 
+(ert-deftest parley-transcript-test-opens-the-input-zone-with-a-blank-line ()
+  "The zone stands one blank line below the turn above it.
+Every block of conversation opens with a blank line so turns
+stand apart, and the zone is the turn the operator is about to
+take: without one his text would begin on the line under the last
+line an agent wrote.
+
+The line is shown and is not in the buffer, for the reason the
+mark itself is not, and it carries no face of its own -- a blank
+line between two turns belongs to neither, so the band under the
+zone does not begin on it."
+  (should (string-prefix-p "\n> " parley-transcript--input-marker))
+  (should-not (get-text-property 0 'face parley-transcript--input-marker))
+  (should (eq 'parley-input-marker
+              (get-text-property 1 'face parley-transcript--input-marker))))
+
 
 ;;; Aligning a table
 

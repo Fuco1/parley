@@ -1313,13 +1313,20 @@ unspecified -- the foreground -- from `shadow'."
   :group 'parley)
 
 (defconst parley-transcript--input-marker
-  (propertize "> " 'face 'parley-input-marker)
+  (concat "\n" (propertize "> " 'face 'parley-input-marker))
   "What stands at the head of the input zone.
 The zone's overlay shows it as its `before-string', which is
 displayed and is not in the buffer -- and what
 `comint-send-input' sends is buffer text from the process mark
 on.  It is the `> ' every turn of the operator's is quoted with,
-because what he is typing is the turn it is about to be.")
+because what he is typing is the turn it is about to be.
+
+It opens with the blank line every block opens with, so the zone
+stands apart from the turn above it the way two turns stand
+apart.  That newline is bare: the blank line is between the last
+turn and the next and belongs to neither, which is the rule
+`parley-transcript--quote' leaves the one at the head of its
+block by.")
 
 (defconst parley-transcript--input-fill
   (propertize " " 'display '(space :align-to right)
