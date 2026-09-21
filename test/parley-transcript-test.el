@@ -220,8 +220,11 @@ apart by."
     ;; Its pid is this Emacs, which is a process really running: what
     ;; the status reader compares a session's file against is the start
     ;; time /proc reports for that pid, and an invented pid has none.
+    ;; Its `:status' is what `claude agents' said when the record was
+    ;; built, and a buffer holding that instead of what the session's
+    ;; file says now is what the status tests are looking for.
     (list :name name :cwd temporary-file-directory :pid (emacs-pid)
-          :session-id file :transcript file)))
+          :status "idle" :session-id file :transcript file)))
 
 (defun parley-transcript-test--buffers ()
   "Return every buffer following a session."
@@ -928,7 +931,10 @@ did."
 (ert-deftest parley-transcript-test-holds-what-the-session-file-says ()
   "The buffer holds the status its session's file gives it, and follows it.
 Nothing announces a change, so what the buffer holds after the
-file has been written again is what the tick found there.
+file has been written again is what the tick found there.  The
+record the buffer was opened with says `idle' throughout and the
+file never does, so a buffer holding the record's status would
+hold `idle' at both of the reads below.
 
 And nothing is read at all for a buffer no window is showing:
 before the buffer is put in a window it stays at `unknown' with a
@@ -943,10 +949,10 @@ file beside it saying otherwise."
       (should (parley-transcript-test--wait
                (lambda ()
                  (eq (parley-transcript-test--status buffer) 'working))))
-      (parley-transcript-test--write-status buffer "idle")
+      (parley-transcript-test--write-status buffer "waiting")
       (should (parley-transcript-test--wait
                (lambda ()
-                 (eq (parley-transcript-test--status buffer) 'idle)))))))
+                 (eq (parley-transcript-test--status buffer) 'waiting)))))))
 
 (ert-deftest parley-transcript-test-kill-stops-the-status-tick ()
   "Killing the buffer cancels the timer reading its status.
