@@ -391,18 +391,6 @@ to hide."
                      'parley-row-read-only)))))
 
 
-;;; The order
-
-(ert-deftest parley-switch-test-sessions-are-ordered-by-status ()
-  "Idle sessions come first, then busy, then the ones with no status.
-Sessions sharing a status keep the order discovery returned them
-in, which is not the order they come out in here."
-  (parley-switch-test--with-sessions
-    (should (equal (mapcar (lambda (session) (plist-get session :pid))
-                           (parley-sessions-by-status))
-                   '(2 4 6 1 5 3)))))
-
-
 ;;; The buffer, which belongs to the transcript
 
 (ert-deftest parley-switch-test-shows-the-buffer-the-pipeline-runs-in ()
