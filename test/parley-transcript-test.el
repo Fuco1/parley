@@ -417,7 +417,7 @@ test here that does not start a pipeline."
                         :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
          (unnamed (list :name nil :pane nil
                         :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
-         (names (mapcar #'parley-transcript-buffer-name
+         (names (mapcar #'parley-transcript--buffer-name
                         (list one two same sharing gone outside unnamed))))
     (should (equal names
                    '("*parley: orc-w1 orc-b3:2.0 1111ffff-0000-4000-8000-000000000001*"
@@ -432,7 +432,7 @@ test here that does not start a pipeline."
         (should-not
          (and pane (string-match-p
                     (regexp-quote pane)
-                    (parley-transcript-buffer-name session))))))
+                    (parley-transcript--buffer-name session))))))
     (should (equal (length (delete-dups (copy-sequence names))) 7))))
 
 (ert-deftest parley-transcript-test-one-buffer-per-session ()

@@ -58,7 +58,7 @@
 (require 'markdown-mode)
 (require 'parley)
 
-(defconst parley-transcript-projection
+(defconst parley-transcript--projection
   (concat
    "select(.type == \"user\" or .type == \"assistant\")"
    " | { role: .type,"
@@ -123,7 +123,7 @@ at all: a control character inside a JSON string is written as
 the six characters \\u001b."
   (concat "tail -c +1 -F " (shell-quote-argument file)
           " | jq -M -c --unbuffered "
-          (shell-quote-argument parley-transcript-projection)))
+          (shell-quote-argument parley-transcript--projection)))
 
 ;;; Rendering
 
@@ -1331,7 +1331,7 @@ and never the objects."
   ;; `parley-transcript--status-interval'.
   (parley-transcript--watch-status))
 
-(defun parley-transcript-buffer-name (session)
+(defun parley-transcript--buffer-name (session)
   "Return the name of the buffer that follows SESSION.
 The name carries the session's name and its tag, which is the two
 the switcher lists it under.  The name `claude agents' gives a
@@ -1358,7 +1358,7 @@ by such a leftover is not a name this session can have."
                                     :session-id)
                          (plist-get session :session-id)))
                 (buffer-list))
-      (generate-new-buffer (parley-transcript-buffer-name session))))
+      (generate-new-buffer (parley-transcript--buffer-name session))))
 
 ;;;###autoload
 (defun parley-transcript (session)
