@@ -70,6 +70,35 @@ a table or a fence in it is written here as itself."
                   "\"content\":[{\"type\":\"text\",\"text\":%s}]}}")
           (json-serialize text)))
 
+(defun parley-transcript-test--meta-turn (text)
+  "Return a transcript line for an injected turn carrying TEXT.
+A harness injection reaches a transcript under the operator's
+role and with `isMeta' on it, which is the mark the transcript
+puts on what he did not type."
+  (format (concat "{\"type\":\"user\",\"isMeta\":true,\"message\":"
+                  "{\"role\":\"user\",\"content\":%s}}")
+          (json-serialize text)))
+
+(defconst parley-transcript-test--skill-body
+  "You are a lazy senior developer, and laziness is the whole of the law."
+  "A line of the instructions a skill load carries into a transcript.
+The buffer shows no line of them, and finding this one in it
+means a skill body reached the conversation.")
+
+(defun parley-transcript-test--skill-load (directory heading)
+  "Return the text a skill read from DIRECTORY injects, under HEADING.
+HEADING is nil for a skill whose body opens with none, which is
+what `unslop', `ponytail-review' and `ponytail-audit' do."
+  (concat "Base directory for this skill: " directory "\n\n"
+          (if heading (concat "# " heading "\n\n") "")
+          parley-transcript-test--skill-body "\n"))
+
+(defconst parley-transcript-test--caveat
+  (concat "<local-command-caveat>Caveat: The messages below were generated"
+          " by the user while running local commands."
+          "</local-command-caveat>")
+  "The injection a local command prepends, which the buffer shows nowhere.")
+
 ;; What the nine lines above render to, blank lines dropped.  The tool
 ;; result, the thinking, the two non-message lines and the empty turn
 ;; contribute nothing at all; what the operator said is quoted; the two
@@ -688,6 +717,74 @@ buffer with no idea why."
                                  (string-match-p (regexp-quote file) line))
                                (parley-transcript-test--shown buffer))))))
       (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
+(ert-deftest parley-transcript-test-collapses-a-skill-load-to-one-line ()
+  "A skill load is one line naming the skill, and no other injection is shown.
+
+Four shapes, which is what the render pass has to tell apart.  A
+skill whose body opens with a heading is named by that heading,
+because it is what the skill calls itself; one whose body opens
+with none is named by the last segment of the directory it was
+read from.  The caveat a local command prepends is shown nowhere
+at all, a constant line saying an injection happened carrying no
+information.  And a turn of the operator's holding the
+`<command-name>' a slash command writes is not marked, so it is
+quoted as any turn of his is -- the mark is the whole of the
+test, and no pattern in the text is consulted.
+
+The instructions a load carries are the point of collapsing it:
+a skill body is a thousand lines of them, and none belongs in a
+buffer whose subject is the conversation."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--meta-turn
+             (parley-transcript-test--skill-load
+              "/home/x/.claude/plugins/cache/ponytail/4.9.0/skills/ponytail"
+              "Ponytail"))
+            (parley-transcript-test--meta-turn
+             (parley-transcript-test--skill-load
+              "/home/x/.claude/plugins/cache/ydistri/3.2.0/skills/unslop" nil))
+            (parley-transcript-test--meta-turn parley-transcript-test--caveat)
+            (parley-transcript-test--user-turn
+             "<command-name>/ydistri:unslop</command-name>"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 3 (length shown)) shown))))
+                   (list "● Loaded skill \"Ponytail\""
+                         "● Loaded skill \"unslop\""
+                         "> <command-name>/ydistri:unslop</command-name>")))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward parley-transcript-test--skill-body nil t))
+      ;; The line is the renderer's and not anyone's in the
+      ;; conversation, so it stands in the face the tool run line
+      ;; stands in.
+      (goto-char (point-min))
+      (should (search-forward "● Loaded skill" nil t))
+      (should (eq (get-text-property (match-beginning 0) 'font-lock-face)
+                  'parley-tool-run)))))
+
+(ert-deftest parley-transcript-test-keeps-a-run-unbroken-across-an-injection ()
+  "An injection the buffer does not show is no break in a run of tool calls.
+
+It renders the empty string, which is what a turn that said
+nothing renders to, and a run carries across one of those.  Two
+calls, the caveat, three calls: one line saying five, and no
+blank block where the caveat was."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--tool-turn 2)
+            (parley-transcript-test--meta-turn parley-transcript-test--caveat)
+            (parley-transcript-test--tool-turn 3))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (equal shown (list "● 5 tool calls")) shown))))
+                   (list "● 5 tool calls")))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward "\n\n\n" nil t)))))
 
 
 ;;; Typing into the pane
@@ -1894,6 +1991,31 @@ the block it stands in opens with."
       (goto-char (point-min))
       (imenu "what is here")
       (should (looking-at-p "> what is here")))))
+
+(ert-deftest parley-transcript-test-indexes-no-injected-turn ()
+  "A turn the transcript marked as injected takes no imenu entry.
+
+The site that records an entry is reached only for a record the
+transcript did not mark, so an injection is indexed by nothing
+whether or not it reaches the buffer: the skill load here does
+reach it, as
+the line naming the skill, and the index still holds only the
+prompt under it.  An injection is not a prompt, and the operator
+jumping through the index is looking for what he typed."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--meta-turn
+             (parley-transcript-test--skill-load
+              "/home/x/.claude/skills/commit-messages"
+              "A commit message is one line"))
+            (parley-transcript-test--user-turn "and now commit it"))
+    (should (parley-transcript-test--wait
+             (lambda ()
+               (equal (parley-transcript-test--shown buffer)
+                      (list "● Loaded skill \"A commit message is one line\""
+                            "> and now commit it")))))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "and now commit it")))))
 
 (ert-deftest parley-transcript-test-labels-an-entry-with-the-first-line ()
   "An entry is labelled with the first line of its prompt, truncated.
