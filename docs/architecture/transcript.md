@@ -31,6 +31,9 @@ never enter the Emacs process at all.
 in a `tool_result` block and again in a top-level `toolUseResult` field;
 emitting only the fields parley renders means neither is ever read, where a
 filter that deleted the payloads would have to know every place one can hide.
+It carries `isMeta` for the same reason from the other side: the render pass
+cannot ask for a field the projection did not emit, and that field is what marks
+a harness injection.
 
 **A message that renders to nothing is dropped rather than emitted empty**,
 which is what becomes of a `tool_result` turn and of an assistant turn that was
@@ -80,6 +83,39 @@ a turn's block carries the face as well as the text before it.
 dim the mark the renderer added without dimming the words the operator wrote.
 It inherits the turn's face before anything else, so the band under it is
 unbroken.
+
+### A harness injection is marked, and is not his turn
+
+A skill load reaches a transcript as a `user` message carrying the whole of the
+skill, and so does the caveat a local command prepends, the expansion of a
+personal command, and the notice the `Agent` tool writes about a fork. Quoted as
+the operator's speech, a skill load is a thousand lines of instructions behind a
+`>` marker in a buffer whose whole subject is the conversation.
+
+**`isMeta` is what marks one, and it is the whole of the test.** The transcript
+puts that field on every turn the harness injected and on nothing the operator
+typed — so the `<command-name>` turn Claude Code writes when he invokes a skill
+by typing its slash command carries no mark, and is quoted, marked and indexed
+as any turn of his is. A pattern in the text would decide the opposite, and
+would be deciding it about his own words.
+
+**A skill load is the one injection the buffer shows, and it is worth one
+line.** Both ways into a skill — the `Skill` tool and the slash command typed
+for it — open with the same `Base directory for this skill: PATH` line, which is
+what identifies the load, and the line the buffer shows is named from the
+skill's own first `# ` heading: that heading is the name because it is what the
+skill calls itself. A skill whose body opens with no heading is named by the
+last segment of `PATH`. The name is quoted in the line, so a heading of several
+words cannot read as prose an agent wrote.
+
+**Every other injection renders nothing at all.** A constant line saying an
+injection happened carries no information, and the caveat and the command
+expansion each stand under a turn of the operator's that already says what he
+did. Rendering nothing is the empty string a turn that said nothing renders to,
+so such an injection is no break in a run of tool calls either.
+
+**An injected turn is not a prompt, so it takes no imenu entry** however it
+renders — the operator jumping through that index is looking for what he typed.
 
 ### Fontification happens in another buffer, twice over
 
@@ -229,6 +265,11 @@ of different widths is aligned to whichever of them changed last.
 The operator wants the conversation. The calls an agent made on its way to an
 answer are worth one line however many there were, and the pane is still there
 for anyone who wants to watch the work.
+
+**A `●` heads every line the renderer wrote rather than anyone in the
+conversation**, the run of tool calls and the skill load alike, and they stand
+in one face — so a line the renderer is telling the operator something on
+cannot be read as one an agent typed.
 
 **The count cannot be held back until the run ends.** A line that waited for the
 final count would appear only once the agent had stopped working, which is
