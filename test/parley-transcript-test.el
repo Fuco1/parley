@@ -763,7 +763,12 @@ buffer whose subject is the conversation."
       (goto-char (point-min))
       (should (search-forward "● Loaded skill" nil t))
       (should (eq (get-text-property (match-beginning 0) 'font-lock-face)
-                  'parley-tool-run)))))
+                  'parley-tool-run)))
+    ;; Marked and indexed as well as quoted: the unmarked turn is a
+    ;; prompt like any other, and the two loads above it are in no
+    ;; index however they render.
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "<command-name>/ydistri:unslop</command-name>")))))
 
 (ert-deftest parley-transcript-test-keeps-a-run-unbroken-across-an-injection ()
   "An injection the buffer does not show is no break in a run of tool calls.
