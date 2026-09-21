@@ -1602,7 +1602,7 @@ the face that draws the line at the other edge of its row.")
 
 (defcustom parley-input-spinner-frames
   '("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
-  "The frames the cell in front of the prompt cycles through while the session works.
+  "The frames the cell in front of the prompt cycles while the session works.
 Shown in order, one per tick of `parley-transcript--spinner-interval',
 and round again.
 
