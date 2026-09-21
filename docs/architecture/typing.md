@@ -159,14 +159,19 @@ window comes back.
 **Ten frames a second, and a frame costs less than the noise in a redisplay that
 has nothing to do.** Measured on Emacs 28.2 in an 80 column tmux pane, in a
 window 21 rows deep, over a buffer of 453,780 bytes and 6,000 lines rendered
-from a 3,000 record transcript: six rounds of 300 forced redisplays each, with
-the spinner advancing and redrawn, come to 0.044 ms a redisplay against 0.042 ms
-with nothing changed at all. The difference is 0.004 ms and the still
-measurement's own spread across those rounds is 0.037 to 0.045 ms, so a frame
-costs somewhere inside it. Advancing the frame counter without drawing it
-measures 0.041 ms, which is what says the difference is the drawing and not the
-arithmetic. At ten frames a second the animation is therefore under a twentieth
-of a millisecond of work a second, and the rate is chosen for how it reads.
+from a 3,000 record transcript: six rounds of 300 forced redisplays each, quoted
+as the median round. A redisplay with the spinner advancing and redrawn takes
+0.044 ms, one with nothing changed at all 0.042 ms, and one with the frame
+counter advancing but nothing drawn 0.040 ms — the last is what says the
+difference is the drawing and not the arithmetic.
+
+**The difference is smaller than the spread it was taken in**, which is the
+whole of the argument for the rate. Those medians differ by 0.002 ms; the six
+rounds differenced one against one give −0.001 to 0.006 ms, whose own median is
+0.004 ms. The still measurement varies by more than any of that across the same
+rounds, from 0.037 to 0.045 ms. So ten frames a second costs under a tenth of a
+millisecond of work a second, by whichever of those figures it is reckoned, and
+the rate is chosen for how it reads rather than for what it costs.
 
 ## Two send shapes, and the newline is what chooses
 
