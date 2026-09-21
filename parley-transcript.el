@@ -623,17 +623,19 @@ yes when it did not."
 (defun parley-transcript--wrapped (text width)
   "Return TEXT laid out in WIDTH columns, its cells wrapped over lines.
 
-The grid is written here rather than handed back to
-`markdown-table-align', because a wrapped cell is not markdown
-the aligner can be shown.  A cell may hold a bar that is not a
-column boundary -- the one inside a wiki link, which
-`markdown--table-line-to-columns' reads over -- and a line of
-that cell alone is a construct left open, whose bar the next
-parse takes for a boundary and whose row gains a column.  The
-cells here are read once, from TEXT, where every construct in
-them is whole; what is written out of them is the layout
-`markdown-table-align' writes, so the wrapped form is the same
-grid the aligned form would be.
+The grid is written from the cells here rather than handed back
+to `markdown-table-align'.  The widths are decided above and the
+padding follows from them, so a second parse would read back only
+what this function has just written -- and the cells are read
+once, from TEXT, where every construct in them is whole.  What is
+written out of them is the layout `markdown-table-align' writes,
+so the wrapped form is the same grid the aligned form would be.
+
+A cell may hold a bar that is no column boundary -- the one
+inside a wiki link, which `markdown--table-line-to-columns' reads
+over -- and what keeps that bar out of the grid is
+`parley-transcript--cell-words', which hands the wrap such a link
+whole rather than as words it may break apart.
 
 Nothing here is held to TEXT the way the aligned form is, because
 there is nothing between the cells and the form to lose one:
@@ -660,6 +662,54 @@ ending without a bar loses its last cell."
                            lines rows)
                  "\n")))
 
+(defun parley-transcript--cell-words (text)
+  "Return the pieces of TEXT a wrap may put on lines of their own.
+
+The words, except that a wiki link holding a bar is one piece
+however many spaces stand inside it.  That bar is not a column
+boundary -- `markdown--table-line-to-columns' reads over it, so
+`[[target|link words]]' is one cell and not two -- but it is only
+read over while the link is whole.  A line carrying
+`[[target|link' alone is that construct left open, and its bar is
+a boundary again: to a reader of the wrapped form, and to the
+operator, for whom the row then has a column the table does not.
+
+Whether a link is read at all is markdown-mode's own
+`markdown-enable-wiki-links', which is what
+`markdown--thing-at-wiki-link' asks before the cell reader passes
+over a bar.  With links off that bar is a boundary, what stands
+either side of it is a cell of its own, and there is nothing here
+to hold together.
+
+A link carrying no bar is broken like any other run of words.
+What a wrap may not do is put a bar where the grid has none, and
+`[[Page Name]]' split over two lines puts none -- while a piece
+held together is a piece the column it stands in cannot be
+narrowed past, which is width the table pays for."
+  (let ((links nil)
+        (from 0))
+    (while (and markdown-enable-wiki-links
+                (string-match markdown-regex-wiki-link text from))
+      (setq from (match-end 1))
+      (when (match-beginning 4)
+        (push (cons (match-beginning 1) (match-end 1)) links)))
+    (let ((words nil)
+          (cut 0)
+          (at 0))
+      (while (string-match "[ \t]+" text at)
+        (let ((beginning (match-beginning 0))
+              (end (match-end 0)))
+          (setq at end)
+          (unless (seq-some (lambda (link)
+                              (and (< (car link) beginning) (< end (cdr link))))
+                            links)
+            (when (< cut beginning)
+              (push (substring text cut beginning) words))
+            (setq cut end))))
+      (when (< cut (length text))
+        (push (substring text cut) words))
+      (nreverse words))))
+
 (defun parley-transcript--column-widths (rows width)
   "Return the width each column of ROWS is wrapped to, to fit WIDTH in all.
 
@@ -668,13 +718,14 @@ narrowed a column at a time and the widest of them first -- so
 the cell of prose gives before the cells of one word each do --
 until the grid fits WIDTH.
 
-A column is never narrowed past the longest word standing in it.
-That floor is not what keeps the word whole, which
-`parley-transcript--wrapped-cell' does whatever width it is
-handed; it is what stops the columns beside an incompressible one
-being packed tighter than the table they share will ever be, and
-it is why a table holding a word longer than the window settles
-wider than WIDTH rather than at it.
+A column is never narrowed past the longest piece standing in it,
+which is a word or a whole wiki link -- what
+`parley-transcript--cell-words' returns.  That floor is not what
+keeps a piece whole, which `parley-transcript--wrapped-cell' does
+whatever width it is handed; it is what stops the columns beside
+an incompressible one being packed tighter than the table they
+share will ever be, and it is why a table holding a piece longer
+than the window settles wider than WIDTH rather than at it.
 
 A grid of N columns spends 3N+1 of WIDTH on what is not a cell,
 which is `markdown-table-align''s own format: a bar between two
@@ -688,7 +739,7 @@ cell."
       (dotimes (column columns)
         (let ((cell (or (nth column row) "")))
           (aset widths column (max (aref widths column) (string-width cell)))
-          (dolist (word (split-string cell))
+          (dolist (word (parley-transcript--cell-words cell))
             (aset floors column
                   (max (aref floors column) (string-width word)))))))
     (while (and (> (seq-reduce #'+ widths 0) room)
@@ -705,19 +756,23 @@ cell."
     (append widths nil)))
 
 (defun parley-transcript--wrapped-cell (text width)
-  "Return the words of TEXT packed into lines of at most WIDTH columns.
+  "Return the pieces of TEXT packed into lines of at most WIDTH columns.
 
-Whole words only: one that will not fit starts the next line
+A piece is what `parley-transcript--cell-words' returns: a word,
+and a wiki link holding a bar however many words stand in it.
+
+Whole pieces only: one that will not fit starts the next line
 rather than being broken across two, and one wider than WIDTH
 stands alone and over the end of it.  Breaking one is the thing
 wrapping a table may not do -- what a broken word costs the
-operator is the word, where a table over the edge of the window
+operator is the word and what a broken link costs him is a bar
+the grid does not have, where a table over the edge of the window
 costs him only the grid, which he can still read back.
 
 `parley-transcript--column-widths' is what keeps a table from
 asking for that overflow at all, by never narrowing a column past
-the longest word standing in it.  The two together are why a
-table holding a word longer than the window comes out wider than
+the longest piece standing in it.  The two together are why a
+table holding a piece longer than the window comes out wider than
 the window and not with a word broken in half.
 
 A cell with nothing in it is one empty line, because a row is as
@@ -725,7 +780,7 @@ tall as its tallest cell and every cell of it has to reach the
 foot of the row."
   (let ((lines nil)
         (line ""))
-    (dolist (word (split-string text))
+    (dolist (word (parley-transcript--cell-words text))
       (setq line (cond ((equal line "") word)
                        ((<= (+ (string-width line) 1 (string-width word)) width)
                         (concat line " " word))

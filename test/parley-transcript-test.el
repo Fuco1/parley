@@ -1635,35 +1635,73 @@ and the grid the other width asserts goes with it."
   "A bar standing inside a cell is not a column boundary, and a wrap leaves it none.
 
 The bar inside a wiki link is one markdown-mode reads over, so
-`[[target|link words]]' is one cell.  Wrapping splits it across
-lines and `[[target|link' is then a construct left open: written
-back out as a table and parsed a second time, its bar is read as
-a boundary and the row gains a column -- so the table wrapped to
-fit 25 comes back three columns wide and wider than the window.
-Writing the grid from the cells rather than parsing it again is
-what this asserts, and it asserts it where that second parse
-would have shown: the width it settles at, and the column count
-the delimiter row states.
+`[[target|link words]]' is one cell and not two -- and it is read
+over only while the link is whole.  A wrap that broke the link at
+its space would leave `[[target|link' standing on a line of its
+own, where that bar is a boundary again: the row reads as three
+columns where the table has two, and the line the wrap produced
+is the one line of the table whose grid is gone.
 
-The delimiter row is what the columns are counted from because it
-is the one line of the grid that can hold no bar but a boundary.
+So the link is one piece of the wrap, and every line of the
+wrapped form is read back here with markdown-mode's own
+`markdown--table-line-to-columns' -- the reader
+`markdown-table-align' measures the cells with, and the one whose
+answer decides whether a bar is a boundary at all.  Every line
+has to hold the two columns the table has, and the link has to
+come back whole in one of them.
+
+A word stands before the link in that cell, and it is what makes
+the packing the thing under test rather than the width: a wrap
+which packed words would fit `[[target|link' onto the line that
+word begins and break the link there, where one packing the link
+whole starts a line for it.  Without that word the link begins
+its column's first line either way and no packing can be told
+from another.
+
+That the table was wrapped at all is asserted beside it, because
+a rendering which stopped wrapping this table would keep its
+columns too: the link and the prose after it each stand on a line
+of their own, in the column they were written in, under a first
+cell left empty.
+
+At 25 the link is a piece nothing can narrow, exactly as a long
+word is, and the table settles at 30: 21 columns for the link, 2
+for `id', and 7 for the bars and the spaces a grid of two columns
+spends.  Wider than the window is the honest outcome -- the other
+way out is a bar put where the grid has none.
+
+The floor under that column is what puts it there, and what says
+so is the grid asserted at 25 beside the width: narrow the column
+past the link and the link stands over the edge of it, so the
+line it is on comes out longer than every other line of the table
+and the widest line is 30 either way.
 
 Wiki links are markdown-mode's own and off by default, so they
-are turned on here: with them off there is no cell holding a bar
-and nothing to wrap wrongly."
+are turned on here: with them off that bar is a boundary, what
+stands either side of it is a cell of its own, and there is
+nothing here to hold together."
   (let* ((markdown-enable-wiki-links t)
+         (link "[[target|link words]]")
          (text (concat "| id | note |\n"
                        "|---|---|\n"
-                       "| 1 | [[target|link words]] more prose all fit |"))
-         (form (parley-transcript--aligned text 25))
-         (lines (split-string form "\n")))
+                       "| 1 | first " link " more prose all fit |"))
+         (form (parley-transcript--aligned text 34))
+         (rows (mapcar #'markdown--table-line-to-columns
+                       (split-string form "\n"))))
     (should form)
-    (should (<= (parley-transcript--columns form) 25))
-    (should (= 1 (length (seq-uniq (mapcar #'string-width lines)))))
-    (should (= 2 (length (parley-transcript-test--cells
-                          (seq-find #'markdown--is-delimiter-row lines)))))
-    (should (string-search "[[target|link" form))
-    (should (string-search "words]]" form))))
+    (should (<= (parley-transcript--columns form) 34))
+    (should (= 1 (length (seq-uniq (mapcar #'string-width
+                                           (split-string form "\n"))))))
+    (should (seq-every-p (lambda (row) (= 2 (length row))) rows))
+    (should (member (list "1" "first") rows))
+    (should (member (list "" link) rows))
+    (should (member (list "" "more prose all fit") rows))
+    (let* ((tight (parley-transcript--aligned text 25))
+           (lines (split-string tight "\n")))
+      (should (= 30 (parley-transcript--columns tight)))
+      (should (= 1 (length (seq-uniq (mapcar #'string-width lines)))))
+      (should (member (list "" link)
+                      (mapcar #'markdown--table-line-to-columns lines))))))
 
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
   "A table of nothing but delimiter rows is shown as the agent wrote it.
