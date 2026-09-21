@@ -1491,7 +1491,11 @@ what it was doing when it died."
   (when (and (buffer-live-p buffer) (get-buffer-window buffer t))
     (with-current-buffer buffer
       (setq parley-transcript-status
-            (parley-session-status parley-transcript-session)))))
+            (parley-session-status parley-transcript-session))
+      ;; What draws it is `parley-transcript--show-status', in the
+      ;; section below: the cell it changes is part of the mark at the
+      ;; head of the input zone, and the zone is that section's.
+      (parley-transcript--show-status))))
 
 (defun parley-transcript--watch-status ()
   "Read this buffer's status on a tick, until the buffer is killed.
@@ -1596,22 +1600,88 @@ still be the old width after a resize.")
 The stretched space of `parley-transcript--input-rule-above', in
 the face that draws the line at the other edge of its row.")
 
-(defconst parley-transcript--input-marker
-  (concat parley-transcript--input-rule-above "\n"
-          (propertize parley-transcript--quote-marker
-                      'face 'parley-input-marker))
-  "What stands at the head of the input zone.
+(defcustom parley-input-spinner-frames
+  '("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+  "The frames the cell in front of the prompt cycles through while the session works.
+Shown in order, one per tick of `parley-transcript--spinner-interval',
+and round again.
+
+Every frame has to be one column wide, because the cell stands in
+front of the prompt mark and a cell that changes width moves the
+`❯' under the operator's hands.  Braille by default: the block is
+neutral width, so Emacs lays every one of these out in one
+column, and where the font has no glyph for them a terminal
+usually draws two -- which is the case this variable exists for.
+
+An empty list is a session that works with a blank in front of
+its prompt, which is the whole of turning the animation off."
+  :type '(repeat string)
+  :group 'parley)
+
+(defconst parley-transcript--input-waiting-mark
+  "◆"
+  "The cell in front of the prompt of a session waiting for the operator.
+It does not move, and that is the point: motion says wait, and a
+mark that stays says answer me.  The state that wants him is the
+one that is not busy.
+
+No frame of `parley-input-spinner-frames' and no glyph of their
+block, so a spinner stopped on its last frame and a session
+asking a question cannot be read for each other -- and not the
+`●' a run of tool calls collapses to either, which stands in the
+same conversation.  One column wide, as every frame is.")
+
+(defun parley-transcript--status-cell ()
+  "Return the cell that stands between the rule and the prompt mark.
+One column in every state, so `parley-transcript--quote-marker'
+stands in the same place whatever the session is doing: a frame
+of `parley-input-spinner-frames' while it is working,
+`parley-transcript--input-waiting-mark' while it waits for the
+operator, and a space when it is idle or nothing is known about
+it.
+
+It wears the mark's own face, so the band under the zone runs
+through it rather than breaking for a column."
+  (propertize
+   (pcase parley-transcript-status
+     ('working (if parley-input-spinner-frames
+                   (nth (mod parley-transcript--spinner-frame
+                             (length parley-input-spinner-frames))
+                        parley-input-spinner-frames)
+                 " "))
+     ('waiting parley-transcript--input-waiting-mark)
+     (_ " "))
+   'face 'parley-input-marker))
+
+(defun parley-transcript--input-marker ()
+  "Return what stands at the head of the input zone.
 The zone's overlay shows it as its `before-string', which is
 displayed and is not in the buffer -- and what
 `comint-send-input' sends is buffer text from the process mark
 on.
 
 A rule across the window on its own line, then
+`parley-transcript--status-cell' and
 `parley-transcript--quote-marker' -- the mark every turn of the
 operator's is quoted with, because what he is typing is the turn
 it is about to be.  The rule is what separates that turn from the
 one above it, and `parley-transcript--input-fill' closes the zone
-with the other of the pair.")
+with the other of the pair.
+
+The cell is part of this string and not of the marker constant,
+which is written into the buffer in front of every line of every
+turn the operator took: a cell added there would put a spinner
+down the whole conversation, and `parley-transcript--old-input'
+strips that constant with a `^' anchored regexp to send a past
+turn again.
+
+It is built on each draw rather than held, because the cell
+changes while the buffer is open and the rest of it does not
+change at all."
+  (concat parley-transcript--input-rule-above "\n"
+          (parley-transcript--status-cell)
+          (propertize parley-transcript--quote-marker
+                      'face 'parley-input-marker)))
 
 (defconst parley-transcript--input-fill
   (concat (propertize " " 'display '(space :align-to right)
@@ -1673,10 +1743,96 @@ zone is wherever the mark is now."
         (setq parley-transcript--input-overlay
               (make-overlay start (point-max) nil nil t))
         (overlay-put parley-transcript--input-overlay 'face 'parley-input)
-        (overlay-put parley-transcript--input-overlay 'before-string
-                     parley-transcript--input-marker)
         (overlay-put parley-transcript--input-overlay 'after-string
-                     parley-transcript--input-fill)))))
+                     parley-transcript--input-fill))
+      (parley-transcript--draw-input-marker))))
+
+(defun parley-transcript--draw-input-marker ()
+  "Show this buffer's status in the cell in front of its prompt.
+The whole marker is redrawn, since the cell is part of it, and
+only when the text has changed: the marker is drawn on every tick
+and after every output, and an `overlay-put' of what is already
+there is a window marked for redisplay that has nothing to
+redisplay.  `equal' over two strings is their text, which is the
+whole of what changes here."
+  (when (overlayp parley-transcript--input-overlay)
+    (let ((marker (parley-transcript--input-marker)))
+      (unless (equal marker (overlay-get parley-transcript--input-overlay
+                                         'before-string))
+        (overlay-put parley-transcript--input-overlay 'before-string marker)))))
+
+(defconst parley-transcript--spinner-interval 0.1
+  "Seconds between two frames of the spinner in front of the prompt.
+Ten frames a second, which reads as motion rather than as a mark
+that keeps changing.")
+
+(defvar-local parley-transcript--spinner-frame 0
+  "Which frame of `parley-input-spinner-frames' the prompt shows, as a count.
+It only ever goes up, and the frame is taken modulo the frames
+there are: the operator may set that list to another length while
+the spinner is running.")
+
+(defvar-local parley-transcript--spinner-timer nil
+  "The timer animating this buffer's spinner, nil when nothing is animating.")
+
+;; Permanent for the reason `parley-transcript--status-timer' is:
+;; reentering the major mode clears every buffer-local binding that is
+;; not, and the timer this one names goes on running with nothing left
+;; holding it.
+(put 'parley-transcript--spinner-timer 'permanent-local t)
+
+(defun parley-transcript--show-status ()
+  "Draw this buffer's status in front of its prompt, animating a working one.
+The animation is started and stopped from here, which
+`parley-transcript--read-status' calls on the tick that learns
+the status: a session that has stopped working stops its spinner
+within that tick, and a spinner is never left running over a
+session that is doing nothing."
+  (if (eq parley-transcript-status 'working)
+      (parley-transcript--animate-marker)
+    (parley-transcript--unanimate-marker))
+  (parley-transcript--draw-input-marker))
+
+(defun parley-transcript--animate-marker ()
+  "Advance this buffer's spinner on a tick of its own, if it is not already.
+Idempotent, because what calls it is itself a tick: a second
+timer over the same buffer would animate it twice as fast and be
+half unstoppable."
+  (unless (timerp parley-transcript--spinner-timer)
+    (setq parley-transcript--spinner-timer
+          (run-with-timer parley-transcript--spinner-interval
+                          parley-transcript--spinner-interval
+                          #'parley-transcript--advance-marker
+                          (current-buffer)))
+    (add-hook 'kill-buffer-hook #'parley-transcript--unanimate-marker nil t)))
+
+(defun parley-transcript--unanimate-marker ()
+  "Stop animating this buffer's spinner."
+  (when (timerp parley-transcript--spinner-timer)
+    (cancel-timer parley-transcript--spinner-timer)
+    (setq parley-transcript--spinner-timer nil)))
+
+(defun parley-transcript--advance-marker (buffer)
+  "Show BUFFER's spinner one frame on, and stop if there is nothing to animate.
+
+It stops itself on a buffer no window is showing, which is the
+case `parley-transcript--read-status' cannot stop: that one reads
+nothing for such a buffer, so it never reaches the status that
+would have stopped this.  A frame redrawn where nobody is looking
+is a redisplay bought for no one, and the status it would draw is
+stale anyway.
+
+A window showing BUFFER again starts it back up, on the tick that
+reads the status."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (if (and (eq parley-transcript-status 'working)
+               (get-buffer-window buffer t))
+          (progn
+            (setq parley-transcript--spinner-frame
+                  (1+ parley-transcript--spinner-frame))
+            (parley-transcript--draw-input-marker))
+        (parley-transcript--unanimate-marker)))))
 
 (defvar-local parley-transcript--sent nil
   "What has been sent from this buffer and not yet come back, as a list of texts.
