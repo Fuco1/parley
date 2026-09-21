@@ -1825,6 +1825,12 @@ half unstoppable."
                           parley-transcript--spinner-interval
                           #'parley-transcript--advance-marker
                           (current-buffer)))
+    ;; The hook is what stops a spinner running over a buffer about to
+    ;; be killed, and it is kept over a major mode reentered on this
+    ;; buffer as the timer above is: `kill-buffer-hook' carries
+    ;; `permanent-local' itself (Emacs 28.2), so a reentry that cleared
+    ;; it would be clearing every buffer-local kill hook in Emacs and
+    ;; not this one alone.
     (add-hook 'kill-buffer-hook #'parley-transcript--unanimate-marker nil t)))
 
 (defun parley-transcript--unanimate-marker ()

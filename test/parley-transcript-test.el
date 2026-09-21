@@ -1911,6 +1911,46 @@ starts it again, which is what the second round waits for."
           (should (get-buffer-window buffer t))
           (should (eq (parley-transcript-test--status buffer) 'working)))))))
 
+(ert-deftest parley-transcript-test-kill-stops-the-animation ()
+  "Killing the buffer cancels the timer animating its cell, reentered mode or not.
+The animation is stopped by a buffer-local `kill-buffer-hook',
+put on the buffer by whatever started the timer.  Both survive a
+major mode reentered over this buffer -- the timer because
+`parley-transcript--spinner-timer' is declared permanent, and the
+hook because `kill-buffer-hook' carries `permanent-local' itself
+(Emacs 28.2) -- so the kill reaches whichever timer is running by
+then.
+
+A reentry is where one would be left behind, so the buffer goes
+through one while the session works: the spinner has to be
+running again by the time the buffer is killed, and nothing of
+either generation may be left on `timer-list' afterwards."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda () (timerp (buffer-local-value
+                                   'parley-transcript--spinner-timer buffer)))))
+      (let ((first (buffer-local-value 'parley-transcript--spinner-timer buffer)))
+        (with-current-buffer buffer
+          (parley-transcript-mode)
+          ;; The record the tick reads the status from is not one the
+          ;; mode keeps, and a buffer that has lost it is a buffer whose
+          ;; session never works again -- which would leave this killing
+          ;; a buffer with nothing running on it.
+          (setq parley-transcript-session session))
+        (should (parley-transcript-test--wait
+                 (lambda () (timerp (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+        (let ((second (buffer-local-value
+                       'parley-transcript--spinner-timer buffer)))
+          (kill-buffer buffer)
+          (should-not (memq first timer-list))
+          (should-not (memq second timer-list)))))))
+
 (ert-deftest parley-transcript-test-leaves-a-rendered-turn-without-a-cell ()
   "No line of a turn already taken carries the cell, and none of it is buffer text.
 `parley-transcript--quote-marker' heads every line of every turn
