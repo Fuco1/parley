@@ -128,13 +128,21 @@ face and `t' only when the face says so."
   :group 'parley)
 
 (defface parley-user-marker '((t :inherit (parley-user shadow)))
-  "Face for the `> ' at the head of each line of a turn the operator took.
+  "Face for the `❯ ' at the head of each line of a turn the operator took.
 It inherits `parley-user' first, so the marker stands on the same
 background as the turn it marks, and takes only what that face
 leaves unspecified -- the foreground -- from `shadow'.  The
 marker is the renderer's and the words after it are the
 operator's, and the two are worth telling apart."
   :group 'parley)
+
+(defconst parley-transcript--quote-marker "❯ "
+  "What stands at the head of every line of a turn the operator took.
+`parley-transcript--quote' writes it in front of every line of
+every turn of his, and `parley-transcript--input-marker' heads
+the zone he types in with the same string: what he is typing is
+the turn it is about to be, so the two are one constant and
+cannot come out looking different.")
 
 (defface parley-tool-run '((t :inherit shadow))
   "Face for the one line a run of tool calls collapses to."
@@ -295,7 +303,7 @@ line of the last block -- which is what
   "Return the block of buffer text the operator's turn TEXT renders to.
 It is quoted and otherwise left alone: what he typed at a
 terminal is not markdown, and fontifying it as though it were
-would invent emphasis he never wrote.  The `> ' the quoting adds
+would invent emphasis he never wrote.  The `❯ ' the quoting adds
 carries `parley-user-marker' and the words it stands in front of
 carry `parley-user', so the renderer's mark and the operator's
 text can be coloured apart.
@@ -313,8 +321,10 @@ the two cannot come out looking different."
     (if (string= trimmed "")
         ""
       (let ((block (parley-transcript--block
-                    (propertize (replace-regexp-in-string "^" "> " trimmed)
+                    (propertize (replace-regexp-in-string
+                                 "^" parley-transcript--quote-marker trimmed)
                                 'font-lock-face 'parley-user)))
+            (marker (concat "^" (regexp-quote parley-transcript--quote-marker)))
             (position 0))
         ;; The newline ending a line is what its background is painted
         ;; from, so the one the block closes with carries the face
@@ -324,7 +334,7 @@ the two cannot come out looking different."
         ;; blank line is between two turns and belongs to neither.
         (put-text-property (1- (length block)) (length block)
                            'font-lock-face 'parley-user block)
-        (while (string-match "^> " block position)
+        (while (string-match marker block position)
           (put-text-property (match-beginning 0) (match-end 0)
                              'font-lock-face 'parley-user-marker block)
           (setq position (match-end 0)))
@@ -1312,26 +1322,47 @@ band as the zone it marks, and takes only what that face leaves
 unspecified -- the foreground -- from `shadow'."
   :group 'parley)
 
+(defface parley-input-rule '((t :inherit shadow :underline t))
+  "Face for the rules that close the input zone above and below.
+It does not inherit `parley-input': a rule stands outside the
+zone it bounds, and one carrying the band would read as a line of
+the zone rather than its edge."
+  :group 'parley)
+
+(defconst parley-transcript--input-rule
+  (propertize " " 'display '(space :align-to right) 'face 'parley-input-rule)
+  "One rule across the window, as the zone's overlay shows it.
+
+A space stretched to the right edge and underlined, which is what
+makes the line run the width of the window whatever that is:
+measured on Emacs 28.2 in a 60 column tmux pane, `capture-pane
+-e' shows the underline SGR over every column of that row.  A
+line of `---' characters instead would be a string as wide as the
+window, and nothing rewrites this buffer after an insertion, so
+it would still be the old width after a resize.")
+
 (defconst parley-transcript--input-marker
-  (concat "\n" (propertize "> " 'face 'parley-input-marker))
+  (concat parley-transcript--input-rule "\n"
+          (propertize parley-transcript--quote-marker
+                      'face 'parley-input-marker))
   "What stands at the head of the input zone.
 The zone's overlay shows it as its `before-string', which is
 displayed and is not in the buffer -- and what
 `comint-send-input' sends is buffer text from the process mark
-on.  It is the `> ' every turn of the operator's is quoted with,
-because what he is typing is the turn it is about to be.
+on.
 
-It opens with the blank line every block opens with, so the zone
-stands apart from the turn above it the way two turns stand
-apart.  That newline is bare: the blank line is between the last
-turn and the next and belongs to neither, which is the rule
-`parley-transcript--quote' leaves the one at the head of its
-block by.")
+A rule across the window on its own line, then
+`parley-transcript--quote-marker' -- the mark every turn of the
+operator's is quoted with, because what he is typing is the turn
+it is about to be.  The rule is what separates that turn from the
+one above it, and `parley-transcript--input-fill' closes the zone
+with the other of the pair.")
 
 (defconst parley-transcript--input-fill
-  (propertize " " 'display '(space :align-to right)
-              'face 'parley-input 'cursor t)
-  "What carries the band across the last line of the input zone.
+  (concat (propertize " " 'display '(space :align-to right)
+                      'face 'parley-input 'cursor t)
+          "\n" parley-transcript--input-rule)
+  "What carries the band across the last line of the input zone, and closes it.
 The zone's overlay shows it as its `after-string'.  `:extend'
 paints from the newline that ends a line, and the last line of
 the zone is the last line of the buffer and ends in none, so that
@@ -1345,7 +1376,11 @@ of the window on every line that has one.
 space rather than at the far end of it, where the operator would
 be watching a cursor at the window edge as he typed: measured the
 same way, point at the end of the buffer is drawn in column 190,
-the last column of the window, without it.")
+the last column of the window, without it.
+
+The rule after it is the other of the pair
+`parley-transcript--input-marker' opens the zone with, so the
+zone is bounded whether or not anything has been typed in it.")
 
 (defvar-local parley-transcript--input-overlay nil
   "The overlay marking the input zone, nil in a buffer that has none.")
@@ -1546,7 +1581,7 @@ into at all, and this is where the operator finds that out."
 (defun parley-transcript--turn-line-p ()
   "Non-nil if the line point is on is one line of a turn of the operator's.
 Read at the beginning of the line, which is where
-`parley-transcript--quote' puts the `> ' it marks every line of a
+`parley-transcript--quote' puts the `❯ ' it marks every line of a
 turn with -- and reading there rather than under point is what
 leaves point at the end of a line still on it."
   (eq (get-text-property (line-beginning-position) 'font-lock-face)
@@ -1561,22 +1596,22 @@ property and is wrong here in two ways at once.  A turn the
 transcript delivered carries `field output', because
 `comint-output-filter' puts that on everything it inserts, so the
 default takes the line under point whole -- measured on Emacs
-28.2 over the rendered turn `what is here', it returns \"> what
-is here\", and the session is asked a question opening with a
-quote mark.  A turn submitted here carries no `field' at all,
+28.2 over the rendered turn `what is here', it returns \"❯ what
+is here\", and the session is asked a question opening with the
+mark the renderer put there.  A turn submitted here carries no `field' at all,
 because `parley-transcript--render-input' deleted the text comint
 had just put `field input' on and inserted a block that inherits
 nothing, so the default returns the whole unfielded run around
-it: \"\\n> what is here\\n\" over the same buffer.  Both are one
+it: \"\\n❯ what is here\\n\" over the same buffer.  Both are one
 line where the turn may be four.
 
 A turn is the run of lines whose head carries
 `parley-user-marker', the face `parley-transcript--quote' puts on
-the `> ' it writes in front of every line of every turn of the
-operator's whichever door it came in by.  The face rather than the
-`> ' itself, because an assistant turn quoting something is
-markdown with `> ' at the front of a line too, and that quote is
-markdown-mode's to hide rather than this one's to strip.
+the `❯ ' it writes in front of every line of every turn of the
+operator's whichever door it came in by.  The face rather than
+the mark itself, because a turn of his may open a line with one
+too, and a mark he typed is his text rather than the renderer's
+to strip.
 
 Anything else -- an assistant turn, the line a run of tool calls
 collapsed to, a blank line between two blocks -- is nobody's turn
@@ -1599,7 +1634,8 @@ session."
         (forward-line 1)
         (end-of-line))
       (replace-regexp-in-string
-       "^> " "" (buffer-substring-no-properties start (point))))))
+       (concat "^" (regexp-quote parley-transcript--quote-marker)) ""
+       (buffer-substring-no-properties start (point))))))
 
 (provide 'parley-transcript)
 ;;; parley-transcript.el ends here

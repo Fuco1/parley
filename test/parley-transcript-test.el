@@ -76,7 +76,7 @@ a table or a fence in it is written here as itself."
 ;; tool calls are one line, and it stands where the run happened rather
 ;; than inside the turn that started it.
 (defconst parley-transcript-test--rendered
-  '("> what is here"
+  '("❯ what is here"
     "Let me look."
     "2 tool calls"
     "first line"
@@ -291,7 +291,7 @@ notices."
                         (and (> (length shown)
                                 (length parley-transcript-test--rendered))
                              (car (last shown))))))
-                   "> and now this"))))
+                   "❯ and now this"))))
 
 (ert-deftest parley-transcript-test-kill-stops-the-pipeline ()
   "Killing the buffer leaves no `tail' and no `jq' behind.
@@ -441,7 +441,7 @@ text alone has every line but its last running to the edge."
   (let ((block (parley-transcript--quote "first line\nsecond")))
     (should (stringp (face-attribute 'parley-user :background nil t)))
     (should (eq t (face-attribute 'parley-user :extend nil t)))
-    (should (equal "\n> first line\n> second\n"
+    (should (equal "\n❯ first line\n❯ second\n"
                    (substring-no-properties block)))
     (should (eq ?\n (aref block (1- (length block)))))
     (should (eq 'parley-user
@@ -449,7 +449,7 @@ text alone has every line but its last running to the edge."
                                    block)))))
 
 (ert-deftest parley-transcript-test-marks-a-turn-in-a-face-of-its-own ()
-  "The `> ' at the head of a quoted line is faced apart from the turn's text.
+  "The `❯ ' at the head of a quoted line is faced apart from the turn's text.
 The mark is the renderer's and the words after it are the
 operator's, so `parley-user-marker' is what the first two
 characters of every line of a turn carry and `parley-user' -- the
@@ -462,9 +462,9 @@ is unbroken across a mark the operator never typed."
   (let ((block (parley-transcript--quote "first line\nsecond")))
     (should (equal (parley-transcript-test--shape block)
                    '(("\n" . nil)
-                     ("> " . parley-user-marker)
+                     ("❯ " . parley-user-marker)
                      ("first line\n" . parley-user)
-                     ("> " . parley-user-marker)
+                     ("❯ " . parley-user-marker)
                      ("second\n" . parley-user))))
     (should (stringp (face-attribute 'parley-user :background nil t)))
     (should (equal (face-attribute 'parley-user-marker :background nil t)
@@ -922,7 +922,7 @@ that comparison from being satisfied by two identical wrongs."
       (parley-transcript-test--submit buffer "hello there"))
     (should (equal (parley-transcript-test--shape
                     (parley-transcript-test--tail buffer 15))
-                   '(("\n" . nil) ("> " . parley-user-marker)
+                   '(("\n" . nil) ("❯ " . parley-user-marker)
                      ("hello there\n" . parley-user))))
     (with-current-buffer buffer
       (should-not (text-property-any (point-min) (point-max) 'font-lock-face
@@ -930,13 +930,13 @@ that comparison from being satisfied by two identical wrongs."
     (parley-transcript-test--write
      file (make-list 2 (parley-transcript-test--user-turn "hello there")))
     (should (parley-transcript-test--wait
-             (lambda () (= 2 (seq-count (lambda (line) (equal line "> hello there"))
+             (lambda () (= 2 (seq-count (lambda (line) (equal line "❯ hello there"))
                                         (parley-transcript-test--shown buffer))))))
     (should (equal (parley-transcript-test--shape
                     (parley-transcript-test--tail buffer 30))
-                   '(("\n" . nil) ("> " . parley-user-marker)
+                   '(("\n" . nil) ("❯ " . parley-user-marker)
                      ("hello there\n" . parley-user)
-                     ("\n" . nil) ("> " . parley-user-marker)
+                     ("\n" . nil) ("❯ " . parley-user-marker)
                      ("hello there\n" . parley-user))))))
 
 (ert-deftest parley-transcript-test-quotes-every-line-of-what-was-submitted ()
@@ -955,17 +955,17 @@ render pass writes for the same message coming back."
      file (make-list 2 (parley-transcript-test--user-turn
                         "first line\\nsecond line")))
     (should (parley-transcript-test--wait
-             (lambda () (= 2 (seq-count (lambda (line) (equal line "> second line"))
+             (lambda () (= 2 (seq-count (lambda (line) (equal line "❯ second line"))
                                         (parley-transcript-test--shown buffer))))))
     (should (equal (parley-transcript-test--shape
                     (parley-transcript-test--tail
-                     buffer (* 2 (length "\n> first line\n> second line\n"))))
+                     buffer (* 2 (length "\n❯ first line\n❯ second line\n"))))
                    '(("\n" . nil)
-                     ("> " . parley-user-marker) ("first line\n" . parley-user)
-                     ("> " . parley-user-marker) ("second line\n" . parley-user)
+                     ("❯ " . parley-user-marker) ("first line\n" . parley-user)
+                     ("❯ " . parley-user-marker) ("second line\n" . parley-user)
                      ("\n" . nil)
-                     ("> " . parley-user-marker) ("first line\n" . parley-user)
-                     ("> " . parley-user-marker)
+                     ("❯ " . parley-user-marker) ("first line\n" . parley-user)
+                     ("❯ " . parley-user-marker)
                      ("second line\n" . parley-user))))))
 
 (ert-deftest parley-transcript-test-does-not-render-its-own-echo ()
@@ -989,7 +989,7 @@ is a buffer that has seen the message too."
     (should (parley-transcript-test--wait
              (lambda () (member "of course"
                                 (parley-transcript-test--shown buffer)))))
-    (should (= 1 (seq-count (lambda (line) (equal line "> hello there"))
+    (should (= 1 (seq-count (lambda (line) (equal line "❯ hello there"))
                             (parley-transcript-test--shown buffer))))))
 
 (ert-deftest parley-transcript-test-drops-an-echo-however-late-it-comes-back ()
@@ -1020,7 +1020,7 @@ echoes when they land."
              (lambda () (member "both answered"
                                 (parley-transcript-test--shown buffer)))))
     (let ((shown (parley-transcript-test--shown buffer)))
-      (dolist (quoted '("> first question" "> second question"))
+      (dolist (quoted '("❯ first question" "❯ second question"))
         (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown)))))))
 
 (ert-deftest parley-transcript-test-drops-one-echo-for-each-copy-submitted ()
@@ -1044,7 +1044,7 @@ already holds."
     (should (parley-transcript-test--wait
              (lambda () (member "twice then"
                                 (parley-transcript-test--shown buffer)))))
-    (should (= 2 (seq-count (lambda (line) (equal line "> say it again"))
+    (should (= 2 (seq-count (lambda (line) (equal line "❯ say it again"))
                             (parley-transcript-test--shown buffer))))))
 
 (ert-deftest parley-transcript-test-renders-what-was-typed-at-the-pane ()
@@ -1069,9 +1069,9 @@ two of them and not one."
                 (parley-transcript-test--user-turn "hello there")
                 (parley-transcript-test--user-turn "typed at the pane")))
     (should (parley-transcript-test--wait
-             (lambda () (member "> typed at the pane"
+             (lambda () (member "❯ typed at the pane"
                                 (parley-transcript-test--shown buffer)))))
-    (should (= 2 (seq-count (lambda (line) (equal line "> hello there"))
+    (should (= 2 (seq-count (lambda (line) (equal line "❯ hello there"))
                             (parley-transcript-test--shown buffer))))))
 
 (defun parley-transcript-test--after (buffer text)
@@ -1098,7 +1098,7 @@ directly, because RET is how he reaches this at all."
 and `comint-output-filter' puts `field output' on everything it
 inserts -- so over a turn the transcript delivered it takes the
 line whole.  Measured on Emacs 28.2 over this fixture with point
-in the rendered `what is here', it returns \"> what is here\",
+in the rendered `what is here', it returns \"❯ what is here\",
 and the session is asked a question opening with a quote mark.
 
 One `send-keys' and not a paste is also what says no newline came
@@ -1128,7 +1128,7 @@ is what says the three reached the pane as one message."
      file (list (parley-transcript-test--user-turn
                  "alpha line\\nbeta line\\ngamma line")))
     (should (parley-transcript-test--wait
-             (lambda () (member "> gamma line"
+             (lambda () (member "❯ gamma line"
                                 (parley-transcript-test--shown buffer)))))
     (parley-transcript-test--with-tmux
       (parley-transcript-test--resubmit
@@ -1148,7 +1148,7 @@ A turn submitted here carries no `field' property at all:
 just put `field input' on and inserted a block that inherits
 nothing.  So `comint-get-old-input-default' takes its other
 branch and returns the whole unfielded run -- measured on Emacs
-28.2 over this buffer, \"\\n> what is here\\n\" rather than the
+28.2 over this buffer, \"\\n❯ what is here\\n\" rather than the
 turn.
 
 The same text is sent through both doors and both positions are
@@ -1337,21 +1337,26 @@ else."
   (should (equal (face-attribute 'parley-input-marker :background nil t)
                  (face-attribute 'parley-input :background nil t))))
 
-(ert-deftest parley-transcript-test-opens-the-input-zone-with-a-blank-line ()
-  "The zone stands one blank line below the turn above it.
-Every block of conversation opens with a blank line so turns
-stand apart, and the zone is the turn the operator is about to
-take: without one his text would begin on the line under the last
-line an agent wrote.
+(ert-deftest parley-transcript-test-closes-the-input-zone-with-a-rule ()
+  "A rule across the window stands above the input zone and another below it.
+What the operator is writing is closed off from the conversation
+above it and from the end of the buffer below, and both rules are
+shown and are not in the buffer: one is a line of the overlay's
+`before-string' and the other a line of its `after-string', for
+the reason the mark itself is neither.
 
-The line is shown and is not in the buffer, for the reason the
-mark itself is not, and it carries no face of its own -- a blank
-line between two turns belongs to neither, so the band under the
-zone does not begin on it."
-  (should (string-prefix-p "\n> " parley-transcript--input-marker))
-  (should-not (get-text-property 0 'face parley-transcript--input-marker))
-  (should (eq 'parley-input-marker
-              (get-text-property 1 'face parley-transcript--input-marker))))
+The line runs the width of the window because it is drawn by
+`:underline' under a space stretched to the right edge, so
+nothing has to redraw it when the window changes size."
+  (should (equal '(space :align-to right)
+                 (get-text-property 0 'display parley-transcript--input-rule)))
+  (should (eq 'parley-input-rule
+              (get-text-property 0 'face parley-transcript--input-rule)))
+  (should (face-attribute 'parley-input-rule :underline nil t))
+  (should (string-prefix-p (concat parley-transcript--input-rule "\n")
+                           parley-transcript--input-marker))
+  (should (string-suffix-p (concat "\n" parley-transcript--input-rule)
+                           parley-transcript--input-fill)))
 
 
 ;;; Aligning a table
@@ -1864,14 +1869,14 @@ the block it stands in opens with."
     (let ((index (parley-transcript-test--index buffer)))
       (should (equal (mapcar #'car index) '("what is here")))
       (should (equal (parley-transcript-test--at buffer (car index))
-                     "> what is here")))
+                     "❯ what is here")))
     ;; And an entry is something imenu can act on, not merely something
     ;; shaped like one: the command itself is what has to land on the
     ;; prompt.
     (with-current-buffer buffer
       (goto-char (point-min))
       (imenu "what is here")
-      (should (looking-at-p "> what is here")))))
+      (should (looking-at-p "❯ what is here")))))
 
 (ert-deftest parley-transcript-test-labels-an-entry-with-the-first-line ()
   "An entry is labelled with the first line of its prompt, truncated.
@@ -1908,9 +1913,9 @@ was there before these two arrived still points at itself."
       (should (equal (mapcar (lambda (entry)
                                (parley-transcript-test--at buffer entry))
                              index)
-                     (list "> what is here"
-                           "> first line of it"
-                           (concat "> " (make-string 100 ?x))))))))
+                     (list "❯ what is here"
+                           "❯ first line of it"
+                           (concat "❯ " (make-string 100 ?x))))))))
 
 (ert-deftest parley-transcript-test-tells-two-prompts-of-one-line-apart ()
   "Two prompts with one first line get a name each, and both can be reached.
@@ -1948,18 +1953,18 @@ next two tests."
                 (parley-transcript-test--user-turn "continue\\nwith the second")
                 (parley-transcript-test--user-turn "continue\\nwith the third")))
     (should (parley-transcript-test--wait
-             (lambda () (member "> with the third"
+             (lambda () (member "❯ with the third"
                                 (parley-transcript-test--shown buffer)))))
     (let ((imenu-max-item-length nil))
       (should (equal (mapcar #'car (parley-transcript-test--index buffer))
                      '("what is here" "continue" "continue<2>" "continue<3>"))))
     (with-current-buffer buffer
-      (dolist (entry '(("continue" . "> with the first")
-                       ("continue<2>" . "> with the second")
-                       ("continue<3>" . "> with the third")))
+      (dolist (entry '(("continue" . "❯ with the first")
+                       ("continue<2>" . "❯ with the second")
+                       ("continue<3>" . "❯ with the third")))
         (goto-char (point-min))
         (imenu (car entry))
-        (should (looking-at-p "> continue"))
+        (should (looking-at-p "❯ continue"))
         (forward-line 1)
         (should (looking-at-p (regexp-quote (cdr entry))))))))
 
@@ -2031,7 +2036,7 @@ rebuilds the index on every look."
                   (parley-transcript-test--user-turn
                    (concat (make-string 30 ?x) "\\nthe second of them"))))
       (should (parley-transcript-test--wait
-               (lambda () (member "> the second of them"
+               (lambda () (member "❯ the second of them"
                                   (parley-transcript-test--shown buffer)))))
       (with-current-buffer buffer
         (let ((labels (mapcar #'car (imenu--make-index-alist))))
@@ -2042,7 +2047,7 @@ rebuilds the index on every look."
           (goto-char (point-min))
           (imenu (car (last labels)))
           (forward-line 1)
-          (should (looking-at-p "> the second of them")))))))
+          (should (looking-at-p "❯ the second of them")))))))
 
 (ert-deftest parley-transcript-test-numbers-a-label-a-short-limit-crowds-out ()
   "A number that fills the limit takes the label's place rather than its own.
@@ -2146,16 +2151,16 @@ all."
      file (list (parley-transcript-test--user-turn
                  "\\n  \\nfind the bug\\nand fix it")))
     (should (parley-transcript-test--wait
-             (lambda () (member "> and fix it"
+             (lambda () (member "❯ and fix it"
                                 (parley-transcript-test--shown buffer)))))
     ;; The blank lines the prompt opened with are not quoted into the
     ;; buffer, which is what leaves the label and the entry on one line.
-    (should-not (member "> " (parley-transcript-test--shown buffer)))
+    (should-not (member "❯ " (parley-transcript-test--shown buffer)))
     (let ((entry (assoc "find the bug"
                         (parley-transcript-test--index buffer))))
       (should entry)
       (should (equal (parley-transcript-test--at buffer entry)
-                     "> find the bug")))))
+                     "❯ find the bug")))))
 
 (ert-deftest parley-transcript-test-indexes-a-prompt-sent-from-the-prompt ()
   "A message submitted at the prompt is one entry, pointing at it.
@@ -2184,7 +2189,7 @@ a second message."
       (should (equal (mapcar #'car index)
                      '("what is here" "ask it something")))
       (should (equal (parley-transcript-test--at buffer (cadr index))
-                     "> ask it something")))))
+                     "❯ ask it something")))))
 
 (ert-deftest parley-transcript-test-indexes-a-prompt-typed-below-a-blank-line ()
   "A message submitted at the prompt is entered at the first thing it says.
@@ -2202,12 +2207,12 @@ delivered."
     (parley-transcript-test--pane buffer "%7")
     (parley-transcript-test--with-tmux
       (parley-transcript-test--submit buffer "\n  \nask it something"))
-    (should-not (member "> " (parley-transcript-test--shown buffer)))
+    (should-not (member "❯ " (parley-transcript-test--shown buffer)))
     (let ((entry (assoc "ask it something"
                         (parley-transcript-test--index buffer))))
       (should entry)
       (should (equal (parley-transcript-test--at buffer entry)
-                     "> ask it something")))))
+                     "❯ ask it something")))))
 
 (ert-deftest parley-transcript-test-index-survives-a-truncated-buffer ()
   "The top of the buffer going takes its entries and moves the rest.
@@ -2230,16 +2235,16 @@ one it names.  It has to go instead."
     (parley-transcript-test--write
      file (list (parley-transcript-test--user-turn "the last word")))
     (should (parley-transcript-test--wait
-             (lambda () (member "> the last word"
+             (lambda () (member "❯ the last word"
                                 (parley-transcript-test--shown buffer)))))
     (with-current-buffer buffer
       (let ((comint-buffer-maximum-size 4))
         (comint-truncate-buffer))
-      (should-not (member "> what is here" (parley-transcript-test--shown buffer))))
+      (should-not (member "❯ what is here" (parley-transcript-test--shown buffer))))
     (let ((index (parley-transcript-test--index buffer)))
       (should (equal (mapcar #'car index) '("the last word")))
       (should (equal (parley-transcript-test--at buffer (car index))
-                     "> the last word")))))
+                     "❯ the last word")))))
 
 (ert-deftest parley-transcript-test-index-does-not-go-stale ()
   "imenu finds a prompt that arrived after it last looked.
@@ -2264,7 +2269,7 @@ the 600 KB that guard turns on."
     (parley-transcript-test--write
      file (list (parley-transcript-test--user-turn "and one more thing")))
     (should (parley-transcript-test--wait
-             (lambda () (member "> and one more thing"
+             (lambda () (member "❯ and one more thing"
                                 (parley-transcript-test--shown buffer)))))
     (with-current-buffer buffer
       (should (equal (mapcar #'car (imenu--make-index-alist))
@@ -2297,7 +2302,7 @@ off it."
       (should (equal (mapcar #'car index)
                      '("what is here" "after the run")))
       (should (equal (parley-transcript-test--at buffer (cadr index))
-                     "> after the run")))))
+                     "❯ after the run")))))
 
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
