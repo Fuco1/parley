@@ -380,14 +380,15 @@ it does.")
 
 (defun parley--status-rank (session)
   "Return the rank of SESSION in `parley-status-order'.
-SESSION's status is read through `parley--statuses' and the
-symbol it maps to is what the order is over -- `claude agents'
-reports the status out of the session's own file, so it is
-spelled there the way that table spells it.
+SESSION's status is mapped through `parley--statuses' and the
+value it maps to is what the order is over: `claude agents'
+reports a status out of the session's own file, which is the file
+that table reads, so the two spell one status alike.
 
-A status neither knows -- including the nil `claude agents'
-reports for a session it knows no status for -- maps to nothing,
-is in no order, and ranks after every status they do."
+A status neither the order nor that table names -- including the
+nil `claude agents' reports for a session it knows no status for
+-- maps to nothing, is in no order, and ranks after every status
+they do."
   (or (seq-position parley-status-order
                     (cdr (assoc (plist-get session :status)
                                 parley--statuses)))
