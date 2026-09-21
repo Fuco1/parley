@@ -164,22 +164,24 @@ because an Emacs holds frames on more than one terminal — a graphical frame an
 an `emacsclient -t` frame — and the operator is reading a frame whether or not
 it is on the terminal he last typed in.
 
-**Ten frames a second, and a frame costs less than the noise in a redisplay that
-has nothing to do.** Measured on Emacs 28.2 in an 80 column tmux pane, in a
-window 21 rows deep, over a buffer of 453,780 bytes and 6,000 lines rendered
-from a 3,000 record transcript: six rounds of 300 forced redisplays each, quoted
-as the median round. A redisplay with the spinner advancing and redrawn takes
-0.044 ms, one with nothing changed at all 0.042 ms, and one with the frame
-counter advancing but nothing drawn 0.040 ms — the last is what says the
-difference is the drawing and not the arithmetic.
+**Ten frames a second costs one to two percent of a core, and what it costs is
+the redisplay and not the arithmetic.** Measured on Emacs 28.2 under tmux, over
+a buffer of 564,628 bytes and 6,000 lines rendered from a 3,000 record
+transcript: seven rounds of 300 forced redisplays each, the first discarded and
+the median of the rest quoted, and CPU time rather than wall — the machine
+carries other work, and wall time on it measures that work too. With the
+transcript in a window 10 rows deep in an 80 column pane, a redisplay that
+advances the frame and redraws it costs 1.18 ms against 0.08 ms for one with
+nothing changed; in a window 28 rows deep in a 120 column pane, 2.34 ms against
+0.11 ms. Building the string and putting it on the overlay is 0.006 ms of
+either, so what a frame buys is the redisplay the changed string forces, and
+that grows with the window it is drawn in.
 
-**The difference is smaller than the spread it was taken in**, which is the
-whole of the argument for the rate. Those medians differ by 0.002 ms; the six
-rounds differenced one against one give −0.001 to 0.006 ms, whose own median is
-0.004 ms. The still measurement varies by more than any of that across the same
-rounds, from 0.037 to 0.045 ms. So ten frames a second costs under a tenth of a
-millisecond of work a second, by whichever of those figures it is reckoned, and
-the rate is chosen for how it reads rather than for what it costs.
+**So a spinner is 11 to 22 ms of CPU a second**, which is the argument for
+stopping it the moment the buffer goes off screen rather than for slowing it
+down: a rate the operator reads as motion is worth one percent of a core in the
+transcript he is watching, and the same timer left running in ten transcripts
+nobody is looking at is a fifth of a core drawn for no one.
 
 ## Two send shapes, and the newline is what chooses
 
