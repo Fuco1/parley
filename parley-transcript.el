@@ -428,6 +428,70 @@ says what he did."
                  (file-name-nondirectory
                   (directory-file-name directory))))))))
 
+(defconst parley-transcript--local-output-rx
+  "\\`<local-command-stdout>"
+  "What a local command's own output opens with, anchored at the start.
+The text is trimmed before it is matched, and nothing further in
+is looked at: a turn of the operator's that quotes the tag is his
+own words.")
+
+(defconst parley-transcript--command-name-rx
+  "<command-name>\\(.*?\\)</command-name>"
+  "The tag a slash command's name reaches the transcript in, slash and all.")
+
+(defconst parley-transcript--command-args-rx
+  "<command-args>\\(\\(?:.\\|\n\\)*?\\)</command-args>"
+  "The tag a slash command's argument reaches the transcript in.
+The argument holds the newlines of a paste, so the group crosses
+them -- `.' does not -- and it is the first closing tag that ends
+it.")
+
+(defun parley-transcript--unwrapped (record)
+  "Return RECORD with what the harness wrapped around its text taken off.
+
+Two `user' records carry no turn of the conversation: the tags
+Claude Code writes when the operator types a slash command, and
+the output a local command printed at his terminal.  Neither
+carries `isMeta', so neither reaches
+`parley-transcript--injection' and both would be quoted as his
+own words, tags and all.
+
+A slash command is three tags, and what he typed is the name and
+the argument on one line -- `<command-message>' is the name a
+second time without its slash and says nothing
+`<command-name>' does not.  The argument is empty under a command
+he gave none, as it is under `/plugin', and the trim is what
+leaves that turn the name alone.  The tags arrive in either
+order and under an indent, so each is looked up on its own.
+
+A local command's own output renders nothing at all: it is the
+terminal answering, and his own turn invoking that command stands
+right above it saying what he did.
+
+Here, before the record is read for anything: what it renders to,
+what `parley-transcript--echoed-p' compares against what was
+sent, and what the imenu entry is labelled with all come off this
+text."
+  (let ((text (and record
+                   (equal (alist-get 'role record) "user")
+                   (not (alist-get 'meta record))
+                   (alist-get 'text record))))
+    (when text
+      (setcdr (assq 'text record)
+              (cond
+               ((string-match-p parley-transcript--local-output-rx
+                                (string-trim text))
+                "")
+               ((string-match parley-transcript--command-name-rx text)
+                (let ((name (match-string 1 text)))
+                  (string-trim
+                   (concat name " "
+                           (and (string-match
+                                 parley-transcript--command-args-rx text)
+                                (match-string 1 text))))))
+               (t text)))))
+  record)
+
 (defvar-local parley-transcript--partial ""
   "Output that has arrived without the newline that would end it.")
 
@@ -504,7 +568,11 @@ inserted and then rewritten in place."
         (when (and (> run 0) (not (parley-transcript--take-back-run)))
           (setq run 0))
         (dolist (line complete)
-          (let* ((record (parley-transcript--record line))
+          (let* (;; Unwrapped on the way in, so that nothing below
+                 ;; reads the wrapper the harness wrote around a
+                 ;; `user' record that is not speech.
+                 (record (parley-transcript--unwrapped
+                          (parley-transcript--record line)))
                  ;; What the harness injected under the operator's
                  ;; role, which the transcript marks and he never
                  ;; does.  The mark is the whole of the test: a
