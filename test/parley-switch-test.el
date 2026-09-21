@@ -2,9 +2,11 @@
 
 ;;; Commentary:
 
-;; Switching reads nothing about the machine except the session list,
-;; so every test here stubs `parley-sessions' with records and none of
-;; them needs a live session.
+;; Switching reads nothing about the machine except the session list
+;; and where tmux says each session's pane is, so every test here
+;; stubs the first with records and binds the second to a fixture map:
+;; none of them needs a live session, and no server the machine
+;; happens to be running can answer instead.
 ;;
 ;; The six records are what the sallet source is matched and rendered
 ;; against, and the columns it draws them in are
@@ -33,8 +35,9 @@
 ;; is what sibling worktrees really look like.  Two of those four
 ;; share a working directory and a status as well and differ in
 ;; nothing but their pane, which is two sessions started in one repo
-;; and the case a row without the pane cannot tell apart.  A third has
-;; no pane at all, so its tag has to fall back to its session id.  One
+;; and the case a row without the pane's location cannot tell apart.
+;; A third has no pane at all and a fourth a pane tmux does not
+;; report, so the tag of each falls back to its session id.  One
 ;; record has neither name nor status, which is what `claude agents'
 ;; reports for a session it knows none for.
 (defconst parley-switch-test--sessions
@@ -63,6 +66,24 @@
               :session-id "3333ffff-0000-4000-8000-000000000003"
               :pane "%63" :transcript "/tmp/3333ffff.jsonl")))
 
+(defconst parley-switch-test--pane-locations
+  '(("%23" . "app-8e:1.0")
+    ("%61" . "orc-b3743fe3:2.0")
+    ("%62" . "orc-b3743fe3:3.1")
+    ("%64" . "orc-b3743fe3:4.0"))
+  "Where tmux says each fixture pane is, keyed by pane id.
+The pane `%63' of the sixth record is missing on purpose: a
+window closed under a session that outlived it is a pane tmux
+reports nothing for, and that session is still one to read.")
+
+(defmacro parley-switch-test--with-locations (&rest body)
+  "Run BODY with tmux reporting the fixture pane locations.
+Bound and not started: a real tmux would answer with the panes of
+whatever the machine is running."
+  (declare (indent 0))
+  `(let ((parley--pane-locations parley-switch-test--pane-locations))
+     ,@body))
+
 (defun parley-switch-test--session (pid)
   "Return the fixture record whose pid is PID."
   (seq-find (lambda (session) (eq (plist-get session :pid) pid))
@@ -75,9 +96,10 @@ The records name working directories and transcripts that are not
 there, so BODY must not open a buffer over one: the test that
 opens one builds a session it can really follow."
   (declare (indent 0))
-  `(cl-letf (((symbol-function 'parley-sessions)
-              (lambda () (copy-sequence parley-switch-test--sessions))))
-     ,@body))
+  `(parley-switch-test--with-locations
+     (cl-letf (((symbol-function 'parley-sessions)
+                (lambda () (copy-sequence parley-switch-test--sessions))))
+       ,@body)))
 
 (defun parley-switch-test--opened ()
   "Return every buffer following a session."
@@ -86,15 +108,17 @@ opens one builds a session it can really follow."
               (buffer-list)))
 
 (defconst parley-switch-test--expected-tags
-  '((1 . "%23 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
-    (2 . "%61 1111ffff-0000-4000-8000-000000000001")
+  '((1 . "app-8e:1.0 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
+    (2 . "orc-b3743fe3:2.0 1111ffff-0000-4000-8000-000000000001")
     (3 . "7c1d0f9a-0000-4000-8000-000000000003")
-    (4 . "%62 2222ffff-0000-4000-8000-000000000002")
+    (4 . "orc-b3743fe3:3.1 2222ffff-0000-4000-8000-000000000002")
     (5 . "9a5a5635-26c3-4705-b06e-4dc108d75439")
-    (6 . "%63 3333ffff-0000-4000-8000-000000000003"))
+    (6 . "3333ffff-0000-4000-8000-000000000003"))
   "The tag each fixture session is listed and named under, by pid.
-A whole session id, and the pane before it when the session has
-one.  These are written out rather than computed with
+A whole session id, and where the session's pane is before it
+when tmux reports one -- never the pane id itself, which is what
+`tmux send-keys -t' takes and nothing the operator can act on.
+These are written out rather than computed with
 `parley-session-tag', so that a test comparing a tag against one
 of them is comparing it against something a change to that
 function cannot move with it.")
@@ -107,20 +131,21 @@ function cannot move with it.")
 ;;; The columns
 
 (ert-deftest parley-switch-test-a-session-is-five-fields ()
-  "A session is five fields: name, status, mark, directory, pane."
-  (should (equal (parley-session-fields (parley-switch-test--session 2))
-                 (vector "orc-w1" "idle" "" "/srv/orc/trees/worker-1/orc"
-                         (parley-switch-test--tag 2))))
-  ;; The working directory is shown the way the operator writes it.
-  (should (equal (aref (parley-session-fields
-                        (parley-switch-test--session 1))
-                       3)
-                 "~/dev/ydistri/Ydistri.Pairing"))
-  ;; A name and a status `claude agents' did not report still leave
-  ;; five fields, and the pane column falls back to the session id.
-  (should (equal (parley-session-fields (parley-switch-test--session 3))
-                 (vector "unnamed" "unknown" "read only" "/srv/matus"
-                         (parley-switch-test--tag 3)))))
+  "A session is five fields: name, status, mark, directory, tag."
+  (parley-switch-test--with-locations
+    (should (equal (parley-session-fields (parley-switch-test--session 2))
+                   (vector "orc-w1" "idle" "" "/srv/orc/trees/worker-1/orc"
+                           (parley-switch-test--tag 2))))
+    ;; The working directory is shown the way the operator writes it.
+    (should (equal (aref (parley-session-fields
+                          (parley-switch-test--session 1))
+                         3)
+                   "~/dev/ydistri/Ydistri.Pairing"))
+    ;; A name and a status `claude agents' did not report still leave
+    ;; five fields, and the tag column falls back to the session id.
+    (should (equal (parley-session-fields (parley-switch-test--session 3))
+                   (vector "unnamed" "unknown" "read only" "/srv/matus"
+                           (parley-switch-test--tag 3))))))
 
 (ert-deftest parley-switch-test-marks-a-session-with-no-pane-read-only ()
   "A session with no pane is listed as one that cannot be typed into.
@@ -131,50 +156,65 @@ session.
 It is read from the pane and not from the kind: both fixture
 sessions without a pane are reported interactive, and a session
 started outside tmux is as unreachable as a background agent
-dispatched from the agent view."
-  (dolist (pid '(3 5))
-    (let ((fields (parley-session-fields (parley-switch-test--session pid))))
-      (should (equal (plist-get (parley-switch-test--session pid) :kind)
-                     "interactive"))
-      (should (equal (aref fields 2) "read only"))
-      (should (string-match-p "read only" (parley-session-row fields)))))
-  ;; And a session with a pane carries no mark, so the row says
-  ;; something about this session rather than about every session.
-  (dolist (pid '(1 2 4 6))
-    (let ((fields (parley-session-fields (parley-switch-test--session pid))))
-      (should (equal (aref fields 2) ""))
-      (should-not (string-match-p "read only" (parley-session-row fields))))))
+dispatched from the agent view.
+
+It is read from the pane and not from its location either: the
+sixth record has a pane tmux reports nothing for, so its tag is
+its session id alone, and `send-keys -t' still takes that pane."
+  (parley-switch-test--with-locations
+    (dolist (pid '(3 5))
+      (let ((fields (parley-session-fields (parley-switch-test--session pid))))
+        (should (equal (plist-get (parley-switch-test--session pid) :kind)
+                       "interactive"))
+        (should (equal (aref fields 2) "read only"))
+        (should (string-match-p "read only" (parley-session-row fields)))))
+    ;; And a session with a pane carries no mark, so the row says
+    ;; something about this session rather than about every session.
+    (dolist (pid '(1 2 4 6))
+      (let ((fields (parley-session-fields (parley-switch-test--session pid))))
+        (should (equal (aref fields 2) ""))
+        (should-not (string-match-p "read only"
+                                    (parley-session-row fields)))))))
 
 (ert-deftest parley-switch-test-tag-tells-one-name-apart ()
   "The four sessions named `orc-w1' have four different tags.
-Two of them share a working directory as well, and one lives
-outside tmux and has no pane to be told apart by, so what every
-tag ends in is the session id -- the one thing two records cannot
-share."
-  (let ((tags (mapcar #'parley-session-tag
-                      (list (parley-switch-test--session 2)
-                            (parley-switch-test--session 4)
-                            (parley-switch-test--session 5)
-                            (parley-switch-test--session 6)))))
-    (should (equal tags (mapcar #'parley-switch-test--tag '(2 4 5 6))))
-    (should (equal (length (delete-dups (copy-sequence tags))) 4))))
+Two of them share a working directory as well, one lives outside
+tmux and has no pane to be told apart by, and one has a pane tmux
+reports no location for, so what every tag ends in is the session
+id -- the one thing two records cannot share.
+
+And no tag carries a `%': the pane id is what the record keeps
+for `tmux send-keys -t' and not what a row shows."
+  (parley-switch-test--with-locations
+    (let ((tags (mapcar #'parley-session-tag
+                        (list (parley-switch-test--session 2)
+                              (parley-switch-test--session 4)
+                              (parley-switch-test--session 5)
+                              (parley-switch-test--session 6)))))
+      (should (equal tags (mapcar #'parley-switch-test--tag '(2 4 5 6))))
+      (should (equal (length (delete-dups (copy-sequence tags))) 4))
+      (dolist (session parley-switch-test--sessions)
+        (should-not (string-match-p "%" (parley-session-tag session)))))))
 
 (ert-deftest parley-switch-test-row-begins-with-the-name ()
   "Every row begins with the session name and carries every field."
-  (dolist (session parley-switch-test--sessions)
-    (let* ((fields (parley-session-fields session))
-           (row (parley-session-row fields)))
-      (should (string-prefix-p (aref fields 0) row))
-      (dolist (field (append fields nil))
-        (should (string-match-p (regexp-quote field) row))))))
+  (parley-switch-test--with-locations
+    (dolist (session parley-switch-test--sessions)
+      (let* ((fields (parley-session-fields session))
+             (row (parley-session-row fields)))
+        (should (string-prefix-p (aref fields 0) row))
+        (dolist (field (append fields nil))
+          (should (string-match-p (regexp-quote field) row)))))))
 
 (ert-deftest parley-switch-test-rows-are-unique ()
   "No two sessions produce the same row, name sharing or not."
-  (let ((rows (mapcar (lambda (session)
-                        (parley-session-row (parley-session-fields session)))
-                      parley-switch-test--sessions)))
-    (should (equal (length (delete-dups (copy-sequence rows)))
-                   (length parley-switch-test--sessions)))))
+  (parley-switch-test--with-locations
+    (let ((rows (mapcar (lambda (session)
+                          (parley-session-row
+                           (parley-session-fields session)))
+                        parley-switch-test--sessions)))
+      (should (equal (length (delete-dups (copy-sequence rows)))
+                     (length parley-switch-test--sessions))))))
 
 
 ;;; The order
@@ -207,6 +247,7 @@ already in it is still there and no second pipeline was started."
                         :status "idle" :cwd temporary-file-directory
                         :session-id "4444ffff-0000-4000-8000-000000000004"
                         :pane "%64" :transcript file))
+         (parley--pane-locations parley-switch-test--pane-locations)
          (buffer nil))
     (unwind-protect
         ;; The fallback frontend, picking this one session: the sallet
@@ -338,18 +379,27 @@ candidate, so nothing has to find it again by a name it shares."
         (should (equal (tags "orc-w1")
                        (mapcar #'parley-switch-test--tag '(2 4 6 5))))
         (should (equal (tags "/worker-2") (list (parley-switch-test--tag 4))))
-        ;; The pane is still what a % token finds, though the tag it
-        ;; sits in carries the session id after it.
-        (should (equal (tags "%61") (list (parley-switch-test--tag 2))))
+        ;; An @ token matches the tag, so a window finds the session
+        ;; running in it and a tmux session all of its windows --
+        ;; though the tag it matches carries the session id too.
+        (should (equal (tags "@orc-b3743fe3:2.0")
+                       (list (parley-switch-test--tag 2))))
+        (should (equal (tags "@orc-b3743fe3")
+                       (mapcar #'parley-switch-test--tag '(2 4))))
+        (should (equal (tags "@2222ffff")
+                       (list (parley-switch-test--tag 4))))
+        ;; And a pane id finds nothing at all: no column carries one,
+        ;; so a % token is matched against the name like any other.
+        (should (equal (tags "%61") nil))
         (should (equal (tags ":busy")
                        (mapcar #'parley-switch-test--tag '(1 5))))
         (should (equal (tags ":idle")
                        (mapcar #'parley-switch-test--tag '(2 4 6))))
         (should (equal (tags "orc-w1 /worker-1")
                        (mapcar #'parley-switch-test--tag '(2 6))))
-        (should (equal (tags "/worker-1 %63")
-                       (list (parley-switch-test--tag 6))))
-        (should (equal (tags "orc-w1 %23") nil))
+        (should (equal (tags "/worker-1 @orc-b3743fe3:2")
+                       (list (parley-switch-test--tag 2))))
+        (should (equal (tags "orc-w1 @app-8e") nil))
         (should (equal (tags "nothing") nil))))))
 
 (provide 'parley-switch-test)

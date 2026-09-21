@@ -6,6 +6,13 @@
 ;; agents --json' printed for it, what its standard input resolves to
 ;; and its environment block.  All three are text, so all three come
 ;; from fixtures here and no test needs a live session.
+;;
+;; The fourth thing it reads is tmux, for where a pane is, and that is
+;; a fixture map bound over `parley--pane-locations' -- so no test
+;; here is answered by the panes of whatever server the machine
+;; happens to be running.  The one test that does ask a real tmux
+;; starts a server of its own, because the shape of a location is what
+;; it is asserting.
 
 ;;; Code:
 
@@ -164,6 +171,128 @@
                    '("%61" nil "%238")))))
 
 
+;;; Where the pane is
+
+(defconst parley-test--pane-locations
+  '(("%61" . "orc-orc-b3743fe3:3.1")
+    ("%238" . "home:0.0"))
+  "Where the fixture sessions' panes are, as tmux reports them.
+The two panes the fixture records carry, and nothing for the pane
+`%627' of the headless lane -- which is no record at all.")
+
+(defun parley-test--tmux (&rest arguments)
+  "Run tmux with ARGUMENTS and return what it printed, trimmed."
+  (with-temp-buffer
+    (apply #'call-process "tmux" nil t nil arguments)
+    (string-trim (buffer-string))))
+
+(ert-deftest parley-test-tag-is-the-location-and-the-id ()
+  "A tag is where the session's pane is and then its session id.
+And the id alone in the two cases there is no location: a session
+with no pane, which is a background agent or one started outside
+tmux, and a session whose pane tmux does not report -- a window
+closed under a session that outlived it.
+
+No `%' survives in any of them.  The pane id is what
+`tmux send-keys -t' takes and the record keeps it; it is not what
+a switcher row or a buffer name shows."
+  (let ((parley--pane-locations parley-test--pane-locations))
+    (should (equal (parley-session-tag
+                    (list :pane "%61" :session-id "1111ffff-0001"))
+                   "orc-orc-b3743fe3:3.1 1111ffff-0001"))
+    (should (equal (parley-session-tag
+                    (list :pane nil :session-id "2222ffff-0002"))
+                   "2222ffff-0002"))
+    (should (equal (parley-session-tag
+                    (list :pane "%999" :session-id "3333ffff-0003"))
+                   "3333ffff-0003"))
+    (dolist (session (list (list :pane "%61" :session-id "1111ffff-0001")
+                           (list :pane nil :session-id "2222ffff-0002")
+                           (list :pane "%999" :session-id "3333ffff-0003")))
+      (should-not (string-match-p "%" (parley-session-tag session))))))
+
+(ert-deftest parley-test-asks-tmux-once-for-a-whole-list ()
+  "The locations of a whole session list cost one tmux call, not one each.
+`list-panes -a' prints every pane on the server, so the first tag
+that needs a location resolves every session's; a
+`display-message' per session would cost a subprocess per row.
+
+And the next list asks again: a pane moved to another window is
+somewhere else now, so the map is dropped by `parley-sessions'
+and not kept for the rest of the Emacs session."
+  (parley-test--with-fixtures
+    (let ((calls nil)
+          (parley--pane-locations 'unasked))
+      (cl-letf (((symbol-function 'call-process)
+                 (lambda (program &rest arguments)
+                   (push (cons program (nthcdr 3 arguments)) calls)
+                   (insert "%61 orc-orc-b3743fe3:3.1\n%238 home:0.0\n")
+                   0)))
+        (let ((sessions (parley-sessions)))
+          (should (equal (mapcar #'parley-session-tag sessions)
+                         (list (concat "orc-orc-b3743fe3:3.1 "
+                                       "9a5a5635-26c3-4705-b06e-4dc108d75439")
+                               "eb6ab7cd-21e6-434f-9bf6-f561b5852de2"
+                               (concat "home:0.0 "
+                                       "7c1d0f9a-0000-4000-8000-000000000003"))))
+          (should (equal (length calls) 1))
+          (should (equal (car calls)
+                         '("tmux" "list-panes" "-a" "-F"
+                           "#{pane_id} #{session_name}:#{window_index}.#{pane_index}"))))
+        (mapc #'parley-session-tag (parley-sessions))
+        (should (equal (length calls) 2))))))
+
+(ert-deftest parley-test-a-location-is-the-session-the-window-and-the-pane ()
+  "A location is the tmux session, window index and pane index of a pane.
+Only tmux knows, so this asks a real one -- a server of its own
+under a `TMUX_TMPDIR' of its own, so the operator's server is
+neither read nor written.  Started with `-f /dev/null' because a
+`base-index' or a `pane-base-index' in a configuration file moves
+every index this asserts.
+
+The session is named with a space in it, which tmux allows and
+`list-panes' prints as it is: a location is everything after the
+first space of a line and not the second field of it.
+
+A pane the server does not report resolves to no location and to
+no error either, which is the third tag shape."
+  (skip-unless (executable-find "tmux"))
+  (let* ((directory (make-temp-file "parley-tmux-" t))
+         (process-environment
+          (cons (concat "TMUX_TMPDIR=" directory)
+                (seq-remove (lambda (variable)
+                              (string-prefix-p "TMUX=" variable))
+                            process-environment)))
+         (parley--pane-locations 'unasked))
+    (unwind-protect
+        (progn
+          (parley-test--tmux "-f" "/dev/null" "new-session" "-d"
+                             "-s" "parley test")
+          (let ((split (parley-test--tmux "split-window" "-d" "-P"
+                                          "-F" "#{pane_id}"
+                                          "-t" "parley test:"))
+                (window (parley-test--tmux "new-window" "-d" "-P"
+                                           "-F" "#{pane_id}"
+                                           "-t" "parley test:")))
+            (should (string-prefix-p "%" split))
+            (should (string-prefix-p "%" window))
+            (let ((locations (parley--tmux-pane-locations)))
+              (should (equal (cdr (assoc split locations)) "parley test:0.1"))
+              (should (equal (cdr (assoc window locations)) "parley test:1.0"))
+              (should (equal (sort (mapcar #'cdr locations) #'string<)
+                             '("parley test:0.0" "parley test:0.1"
+                               "parley test:1.0"))))
+            (should (equal (parley-session-tag
+                            (list :pane window :session-id "abc"))
+                           "parley test:1.0 abc"))
+            (should-not (parley--pane-location "%999"))
+            (should (equal (parley-session-tag
+                            (list :pane "%999" :session-id "abc"))
+                           "abc"))))
+      (parley-test--tmux "kill-server")
+      (delete-directory directory t))))
+
+
 ;;; The transcript
 
 (ert-deftest parley-test-slugs-the-working-directory-into-the-transcript-path ()
@@ -212,15 +341,17 @@ them and the operator would land in the other one's conversation.
 `claude agents' really can report two live sessions with one
 name, one status and one working directory, and a session
 suspended in a pane with another started there gives them one
-pane as well: all that is left to tell them apart is the session
-id, and the whole of it -- these two agree on its first eight
-characters, which is all a head of it would carry."
+pane, and so one location, as well: all that is left to tell them
+apart is the session id, and the whole of it -- these two agree
+on its first eight characters, which is all a head of it would
+carry."
   (let* ((one (list :pid 11 :name "orc-w1" :status "idle"
                     :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
                     :session-id "11111111-0000-4000-8000-000000000001"))
          (two (list :pid 12 :name "orc-w1" :status "idle"
                     :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
                     :session-id "11111111-ffff-4000-8000-000000000002"))
+         (parley--pane-locations parley-test--pane-locations)
          (row (parley-session-row (parley-session-fields two))))
     (should-not (equal row (parley-session-row (parley-session-fields one))))
     (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
