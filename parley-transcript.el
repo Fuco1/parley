@@ -1325,7 +1325,11 @@ and never the objects."
   ;; comint has just moved that mark past what it inserted, so the
   ;; overlay that marks the zone is put back after every output.
   (add-hook 'comint-output-filter-functions
-            #'parley-transcript--mark-input-zone nil t))
+            #'parley-transcript--mark-input-zone nil t)
+  ;; Nothing announces what the session is doing, so the buffer reads
+  ;; its file on a tick of its own -- see the section that starts at
+  ;; `parley-transcript--status-interval'.
+  (parley-transcript--watch-status))
 
 (defun parley-transcript-buffer-name (session)
   "Return the name of the buffer that follows SESSION.
@@ -1427,6 +1431,69 @@ and history and all."
     ;; session goes stale.
     (with-current-buffer buffer (setq parley-transcript-session session))
     (pop-to-buffer buffer)))
+
+
+;;; The session's live status
+
+;; The record the buffer was opened with carries the status `claude
+;; agents' reported then, and a conversation is read for minutes.  What
+;; the session is doing now is in the session's own file, so the buffer
+;; reads that file itself, on a tick.
+;;
+;; A tick and not a watch, and no read at all while no window is
+;; showing the buffer -- see the discovery page for why that is the
+;; whole of what a watch would have bought.  The tick is the buffer's
+;; own, so killing the buffer is the whole of stopping it.
+
+(defconst parley-transcript--status-interval 1
+  "Seconds between two reads of the session's own file.
+About a second, which is the rate a status is read at and well
+under the time the operator would otherwise spend looking at a
+stale one.")
+
+(defvar-local parley-transcript-status 'unknown
+  "What the session this buffer follows is doing, as of the last tick.
+One of `working', `waiting', `idle' and `unknown' -- see
+`parley-session-status', which is what puts it here.
+
+This is the one place on the buffer the status is held, so
+everything that draws it draws the same value and the file is
+read once a tick however many of them there are.  `unknown' until
+the first tick has run, which is what a buffer nothing is showing
+stays at.")
+
+(defvar-local parley-transcript--status-timer nil
+  "The timer reading this buffer's status, nil in a buffer with none.")
+
+(defun parley-transcript--read-status (buffer)
+  "Put what BUFFER's session is doing on its `parley-transcript-status'.
+Nothing is read for a buffer no window is showing: a status is
+for whoever is looking at the conversation, and one nobody has on
+screen is one nothing will draw.
+
+The session is asked about whole, so a session that has ended
+under a buffer still open reads as `unknown' on this same tick --
+nothing announces that, and the file it left behind still says
+what it was doing when it died."
+  (when (and (buffer-live-p buffer) (get-buffer-window buffer t))
+    (with-current-buffer buffer
+      (setq parley-transcript-status
+            (parley-session-status parley-transcript-session)))))
+
+(defun parley-transcript--watch-status ()
+  "Read this buffer's status on a tick, until the buffer is killed."
+  (setq parley-transcript--status-timer
+        (run-with-timer parley-transcript--status-interval
+                        parley-transcript--status-interval
+                        #'parley-transcript--read-status
+                        (current-buffer)))
+  (add-hook 'kill-buffer-hook #'parley-transcript--unwatch-status nil t))
+
+(defun parley-transcript--unwatch-status ()
+  "Stop reading this buffer's status."
+  (when parley-transcript--status-timer
+    (cancel-timer parley-transcript--status-timer)
+    (setq parley-transcript--status-timer nil)))
 
 
 ;;; Typing into the pane
