@@ -94,10 +94,10 @@ the operator's speech, a skill load is a thousand lines of instructions behind a
 
 **`isMeta` is what marks one, and it is the whole of the test.** The transcript
 puts that field on every turn the harness injected and on nothing the operator
-typed — so the `<command-name>` turn Claude Code writes when he invokes a skill
-by typing its slash command carries no mark, and is quoted, marked and indexed
-as any turn of his is. A pattern in the text would decide the opposite, and
-would be deciding it about his own words.
+typed — so the turn Claude Code writes when he invokes a skill by typing its
+slash command carries no mark, and is quoted, marked and indexed as any turn of
+his is. A pattern in the text would decide the opposite, and would be deciding
+it about his own words.
 
 **A skill load is the one injection the buffer shows, and it is worth one
 line.** Both ways into a skill — the `Skill` tool and the slash command typed
@@ -116,6 +116,39 @@ so such an injection is no break in a run of tool calls either.
 
 **An injected turn is not a prompt, so it takes no imenu entry** however it
 renders — the operator jumping through that index is looking for what he typed.
+
+### Two `user` records are a wrapper the harness wrote, not speech
+
+Neither carries `isMeta`, so neither is an injection, and quoted as it stands
+each puts tags in front of the operator as his own words. **The wrapper comes
+off before the record is read for anything.**
+
+**A slash command reaches the transcript as three tags, and renders to the one
+line he typed** — the `<command-name>` and the `<command-args>` on one line, and
+the name alone when the argument is empty, as it is under `/plugin`.
+`<command-message>` is the name a second time without its slash and says nothing
+`<command-name>` does not. An argument he pasted over several lines keeps them,
+each quoted as the first is.
+
+**A local command's own output renders nothing at all.** A
+`<local-command-stdout>` record is the terminal answering a command rather than
+a turn of the conversation, and his own turn invoking that command stands right
+above it saying what he did. It is also the one place an escape byte could enter
+this buffer — a compaction notice arrives inside a real `ESC[2m`, and nothing
+strips one out here — so rendering nothing settles that as well.
+
+**The unwrapping has to happen before the echo guard and before the index.**
+The guard [typing.md](typing.md) describes recognises parley's own copy of a
+message by the text that was sent, so a slash command submitted at parley's
+prompt matches nothing while it is still three tags, and stands in the buffer
+twice. The imenu entry is recorded from the record's text in the render pass, so
+a turn indexed before it is unwrapped is labelled
+`<command-message>one</command-message>` — one label for every slash command of
+that name, and two of them told apart by a number rather than by what he asked.
+
+**What the tags decide is what a record renders to, and never whose turn it
+is.** Whose it is stays `isMeta`'s, above: the mark says the harness wrote the
+record, and the tags say only what shape it wrote it in.
 
 ### Fontification happens in another buffer, twice over
 
