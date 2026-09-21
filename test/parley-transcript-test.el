@@ -1580,7 +1580,10 @@ either way, and this one is empty.
 What the overlay shows is shown and is not in the buffer, which
 is what the two strings assert: the mark stands before the zone
 and the space that carries the band across its last line stands
-after it."
+after it.  The mark is named rather than built again from the
+code that put it there, which would agree with it whatever either
+of them showed.  Nothing has been read about this session yet, so
+it stands at `unknown' and its cell is a blank."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -1588,9 +1591,10 @@ after it."
       (should overlay)
       (should (equal "" (parley-transcript-test--zone buffer)))
       (should (= (overlay-start overlay) (overlay-end overlay)))
+      (should (eq 'unknown (parley-transcript-test--status buffer)))
       (should (equal (overlay-get overlay 'before-string)
-                     (with-current-buffer buffer
-                       (parley-transcript--input-marker))))
+                     (concat parley-transcript--input-rule-above "\n"
+                             " " parley-transcript--quote-marker)))
       (should (equal (overlay-get overlay 'after-string)
                      parley-transcript--input-fill)))))
 
@@ -1744,8 +1748,13 @@ a spinner stopped on its last frame cannot be read for a session
 asking him something.
 
 The cell stands between the rule that opens the zone and the
-prompt mark, on the prompt's own line, which is what the whole
-marker is compared against."
+prompt mark, on the prompt's own line, and it is the whole marker
+that is compared in every one of the four states: the cell on its
+own leaves the state where the marker is put together free to
+show something else.  The frames are the operator's here, so what
+a working session's marker has to be is a string this test names
+rather than one it works out the way the code does -- and the
+second of them says the counter is what chooses between them."
   (with-temp-buffer
     (setq-local parley-transcript-status 'working)
     (should (member (substring-no-properties (parley-transcript--status-cell))
@@ -1754,18 +1763,26 @@ marker is compared against."
                 (1+ parley-transcript--spinner-frame))
     (should (member (substring-no-properties (parley-transcript--status-cell))
                     parley-input-spinner-frames))
-    (setq-local parley-transcript-status 'waiting)
-    (should (equal parley-transcript--input-waiting-mark
-                   (parley-transcript--status-cell)))
     (should-not (member parley-transcript--input-waiting-mark
                         parley-input-spinner-frames))
-    (should (equal (parley-transcript--input-marker)
-                   (concat parley-transcript--input-rule-above "\n"
-                           parley-transcript--input-waiting-mark
-                           parley-transcript--quote-marker)))
-    (dolist (status '(idle unknown))
-      (setq-local parley-transcript-status status)
-      (should (equal " " (parley-transcript--status-cell))))))
+    (let ((parley-input-spinner-frames '("1" "2")))
+      (setq-local parley-transcript--spinner-frame 0)
+      (pcase-dolist (`(,status . ,cell)
+                     `((working . "1")
+                       (waiting . ,parley-transcript--input-waiting-mark)
+                       (idle . " ")
+                       (unknown . " ")))
+        (setq-local parley-transcript-status status)
+        (should (equal cell (substring-no-properties
+                             (parley-transcript--status-cell))))
+        (should (equal (parley-transcript--input-marker)
+                       (concat parley-transcript--input-rule-above "\n"
+                               cell parley-transcript--quote-marker))))
+      (setq-local parley-transcript-status 'working)
+      (setq-local parley-transcript--spinner-frame 1)
+      (should (equal (parley-transcript--input-marker)
+                     (concat parley-transcript--input-rule-above "\n"
+                             "2" parley-transcript--quote-marker))))))
 
 (ert-deftest parley-transcript-test-keeps-the-prompt-mark-in-one-column ()
   "Every cell the prompt can be headed by is one column, so the mark never moves.
