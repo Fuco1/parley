@@ -40,7 +40,9 @@
 ;; What arrives is one object per line, and the render pass turns each
 ;; into buffer text: markdown for what the agent said, a quote for what
 ;; the operator said, and a single line for a run of tool calls however
-;; many calls went into it.
+;; many calls went into it.  A turn the harness injected under the
+;; operator's role is marked as such in the transcript, and of those
+;; only a skill load reaches the buffer -- as one line naming the skill.
 ;;
 ;; comint requires a live process, since `comint-send-input' errors
 ;; without one, and this pipeline is it.  Nothing is ever written to
@@ -60,6 +62,7 @@
   (concat
    "select(.type == \"user\" or .type == \"assistant\")"
    " | { role: .type,"
+   "     meta: (.isMeta == true),"
    "     text: ((.message.content // \"\")"
    "            | if type == \"string\" then ."
    "              else [.[] | select(.type == \"text\") | .text] | join(\"\\n\") end),"
@@ -70,11 +73,18 @@
    " | select(.text != \"\" or .tools > 0)")
   "The jq program every line of a transcript is passed through.
 
-It emits what parley renders and no more: the role, the text and
-how many tool calls the message made.  A tool result never
+It emits what parley renders and no more: the role, whether the
+harness wrote the turn rather than whoever holds the role, the
+text and how many tool calls the message made.  A tool result never
 reaches Emacs, because the object is built from scratch rather
 than pruned -- the payload lives in a `tool_result' block and in
 a top-level `toolUseResult' field, and neither is read.
+
+`meta' is the transcript's own `isMeta', which every turn the
+harness injected carries and no turn the operator typed does.  It
+is compared against true rather than taken as it stands, because
+the field is absent from most records and false on many of the
+rest, and the render pass wants one answer for both.
 
 A message that renders to nothing is dropped rather than emitted
 empty, which is what becomes of a `tool_result' turn and of an
@@ -137,7 +147,9 @@ operator's, and the two are worth telling apart."
   :group 'parley)
 
 (defface parley-tool-run '((t :inherit shadow))
-  "Face for the one line a run of tool calls collapses to."
+  "Face for a line the renderer wrote rather than anyone in the conversation.
+The one line a run of tool calls collapses to, and the one a
+skill load collapses to."
   :group 'parley)
 
 (defvar parley-transcript--markdown-buffer nil
@@ -278,9 +290,15 @@ this is the one buffer that knows where they are."
   "Return the projected object LINE holds, nil if it holds none.
 A line in this buffer is not always JSON: `tail -F' reports a
 transcript that does not exist yet on stderr, which shares the
-buffer, and a pipeline that died mid-object left half of one."
+buffer, and a pipeline that died mid-object left half of one.
+
+JSON false is read as nil and not as the `:false' the default
+would give, because `:false' is a symbol and every symbol but nil
+is true here -- so a `meta' of false would say the opposite of
+what it says."
   (and (string-prefix-p "{" line)
-       (ignore-errors (json-parse-string line :object-type 'alist))))
+       (ignore-errors
+         (json-parse-string line :object-type 'alist :false-object nil))))
 
 (defun parley-transcript--block (string)
   "Return STRING as one block of buffer text, or nothing if it says nothing.
@@ -341,15 +359,61 @@ the operator's own is quoted by `parley-transcript--quote'."
       (parley-transcript--block (parley-transcript--fontify text)))
      (t (parley-transcript--quote text)))))
 
+(defun parley-transcript--renderer-line (text)
+  "Return the block of buffer text the renderer's own line TEXT renders to.
+The bullet heads every line in this buffer that nobody in the
+conversation wrote, so a line the renderer is telling the
+operator something on cannot be read as one an agent typed, and
+`parley-tool-run' is the face all of them are in."
+  (parley-transcript--block
+   (propertize (concat "● " text) 'font-lock-face 'parley-tool-run)))
+
 (defun parley-transcript--tool-run (count)
   "Return the block of buffer text a run of COUNT tool calls collapses to.
 The operator wants the conversation, so the calls an agent made
 on its way to an answer are worth exactly one line however many
 of them there were.  The pane is still there for anyone who wants
 to watch the work."
-  (parley-transcript--block
-   (propertize (format "%d tool call%s" count (if (= count 1) "" "s"))
-               'font-lock-face 'parley-tool-run)))
+  (parley-transcript--renderer-line
+   (format "%d tool call%s" count (if (= count 1) "" "s"))))
+
+(defconst parley-transcript--skill-base-rx
+  "\\`Base directory for this skill: \\(.*\\)"
+  "What a skill load opens with, around the directory the skill was read from.
+Anchored at the start of the text, because this is the first line
+of a skill load and nothing else -- a body that merely mentions
+the phrase further down is a skill quoting one.")
+
+(defun parley-transcript--injection (text)
+  "Return the block of buffer text the harness injection TEXT renders to.
+
+A skill load is the one injection worth a line, and it names
+itself.  Both ways into one -- the `Skill' tool and the slash
+command the operator types for it -- open with the line
+`parley-transcript--skill-base-rx' matches, and the skill's own
+first `# ' heading stands under it.  That heading is the name,
+because it is what the skill calls itself; a skill whose body
+opens with no heading is named by the last segment of the
+directory instead.  The name is quoted, so a heading of several
+words cannot read as prose an agent wrote.
+
+Every other injection renders nothing at all.  That is the empty
+string a turn which said nothing renders to, so such an injection
+is no break in a run of tool calls either.  A constant line
+saying an injection happened carries no information, and the ones
+there are -- the caveat a local command prepends, the expansion
+of a personal command, the notice the `Agent' tool writes about a
+fork -- each stand under a turn of the operator's that already
+says what he did."
+  (if (not (string-match parley-transcript--skill-base-rx text))
+      ""
+    (let ((directory (string-trim-right (match-string 1 text))))
+      (parley-transcript--renderer-line
+       (format "Loaded skill \"%s\""
+               (if (string-match "^# +\\(.*[^ \t\n]\\)" text)
+                   (match-string 1 text)
+                 (file-name-nondirectory
+                  (directory-file-name directory))))))))
 
 (defvar-local parley-transcript--partial ""
   "Output that has arrived without the newline that would end it.")
@@ -428,8 +492,16 @@ inserted and then rewritten in place."
           (setq run 0))
         (dolist (line complete)
           (let* ((record (parley-transcript--record line))
+                 ;; What the harness injected under the operator's
+                 ;; role, which the transcript marks and he never
+                 ;; does.  The mark is the whole of the test: a
+                 ;; pattern in the text would take the turn a slash
+                 ;; command writes for what the command pulled in.
+                 (meta (and record (alist-get 'meta record)))
                  (speech (cond
                           ((null record) (parley-transcript--block line))
+                          (meta (parley-transcript--injection
+                                 (or (alist-get 'text record) "")))
                           ;; comint has already put this one in the
                           ;; buffer; the transcript is only agreeing.
                           ((parley-transcript--echoed-p record) "")
@@ -446,9 +518,12 @@ inserted and then rewritten in place."
               ;; A prompt is an imenu entry, and here is where its
               ;; position is known: one character into the block it is
               ;; about to be, past the blank line every block opens
-              ;; with.  Nothing an agent said or did is indexed, so
-              ;; only this branch records anything.
-              (when (equal (alist-get 'role record) "user")
+              ;; with.  Nothing an agent said or did is indexed, and
+              ;; neither is an injection: it is not a prompt, so the
+              ;; operator jumping through the index cannot land on
+              ;; one.
+              (when (and (equal (alist-get 'role record) "user")
+                         (not meta))
                 (push (cons (alist-get 'text record) (1+ offset))
                       parley-transcript--pending))
               ;; A table is recorded here for the same reason, and the

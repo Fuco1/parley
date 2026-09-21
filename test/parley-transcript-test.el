@@ -78,7 +78,7 @@ a table or a fence in it is written here as itself."
 (defconst parley-transcript-test--rendered
   '("> what is here"
     "Let me look."
-    "2 tool calls"
+    "● 2 tool calls"
     "first line"
     "second line"
     "**done** now")
@@ -269,7 +269,7 @@ what the buffer shows."
     (parley-transcript-test--write
      file (list (parley-transcript-test--tool-turn 3)))
     (should (parley-transcript-test--wait
-             (lambda () (member "3 tool calls"
+             (lambda () (member "● 3 tool calls"
                                 (parley-transcript-test--shown buffer)))))
     (with-current-buffer buffer
       (goto-char (point-min))
@@ -430,14 +430,14 @@ its own line further up."
                     (lambda ()
                       (let ((runs (parley-transcript-test--runs buffer)))
                         (and (= 2 (length runs)) runs))))
-                   '("2 tool calls" "12 tool calls")))
+                   '("● 2 tool calls" "● 12 tool calls")))
     (parley-transcript-test--write
      file (list (parley-transcript-test--tool-turn 3)))
     (should (equal (parley-transcript-test--wait
                     (lambda ()
                       (let ((runs (parley-transcript-test--runs buffer)))
-                        (and (member "15 tool calls" runs) runs))))
-                   '("2 tool calls" "15 tool calls")))
+                        (and (member "● 15 tool calls" runs) runs))))
+                   '("● 2 tool calls" "● 15 tool calls")))
     (parley-transcript-test--write
      file (list (parley-transcript-test--text-turn "and here it is")))
     (should (equal (parley-transcript-test--wait
@@ -445,9 +445,9 @@ its own line further up."
                       (let ((shown (parley-transcript-test--shown buffer)))
                         (and (equal "and here it is" (car (last shown)))
                              (last shown 2)))))
-                   '("15 tool calls" "and here it is")))
+                   '("● 15 tool calls" "and here it is")))
     (should (equal (parley-transcript-test--runs buffer)
-                   '("2 tool calls" "15 tool calls")))))
+                   '("● 2 tool calls" "● 15 tool calls")))))
 
 (ert-deftest parley-transcript-test-backs-a-turn-to-the-window-edge ()
   "The background on a turn of the operator's runs to the window edge.
@@ -1219,7 +1219,7 @@ it."
     (parley-transcript-test--pane buffer "%7")
     (let ((before (parley-transcript-test--shown buffer)))
       (parley-transcript-test--with-tmux
-        (dolist (line '("Let me look." "2 tool calls"))
+        (dolist (line '("Let me look." "● 2 tool calls"))
           (let ((signalled (should-error
                             (parley-transcript-test--resubmit
                              buffer (parley-transcript-test--after buffer line))
@@ -2307,13 +2307,13 @@ off it."
     (parley-transcript-test--write
      file (list (parley-transcript-test--tool-turn 2)))
     (should (parley-transcript-test--wait
-             (lambda () (member "2 tool calls"
+             (lambda () (member "● 2 tool calls"
                                 (parley-transcript-test--shown buffer)))))
     (parley-transcript-test--write
      file (list (parley-transcript-test--user-turn "after the run")
                 (parley-transcript-test--tool-turn 3)))
     (should (parley-transcript-test--wait
-             (lambda () (member "3 tool calls"
+             (lambda () (member "● 3 tool calls"
                                 (parley-transcript-test--shown buffer)))))
     (let ((index (parley-transcript-test--index buffer)))
       (should (equal (mapcar #'car index)
