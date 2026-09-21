@@ -1467,6 +1467,13 @@ stays at.")
 (defvar-local parley-transcript--status-timer nil
   "The timer reading this buffer's status, nil in a buffer with none.")
 
+;; Permanent, and it has to be.  Reentering the major mode clears every
+;; buffer-local binding that is not, and the timer this one names goes
+;; on running with nothing left holding it: it is not the buffer's to
+;; cancel any more, and killing the buffer would stop only whichever
+;; timer was started last.
+(put 'parley-transcript--status-timer 'permanent-local t)
+
 (defun parley-transcript--read-status (buffer)
   "Put what BUFFER's session is doing on its `parley-transcript-status'.
 Nothing is read for a buffer no window is showing: a status is
@@ -1483,7 +1490,11 @@ what it was doing when it died."
             (parley-session-status parley-transcript-session)))))
 
 (defun parley-transcript--watch-status ()
-  "Read this buffer's status on a tick, until the buffer is killed."
+  "Read this buffer's status on a tick, until the buffer is killed.
+Whatever was reading it before is stopped first: the major mode
+runs this, and a mode reentered over a buffer that already has a
+tick would otherwise leave that one running for good."
+  (parley-transcript--unwatch-status)
   (setq parley-transcript--status-timer
         (run-with-timer parley-transcript--status-interval
                         parley-transcript--status-interval

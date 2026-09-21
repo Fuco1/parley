@@ -955,14 +955,25 @@ file beside it saying otherwise."
                  (eq (parley-transcript-test--status buffer) 'waiting)))))))
 
 (ert-deftest parley-transcript-test-kill-stops-the-status-tick ()
-  "Killing the buffer cancels the timer reading its status.
-The tick is the buffer's own, so there is nothing else to stop."
+  "Killing the buffer cancels every timer that has read its status.
+The tick is the buffer's own, so there is nothing else to stop.
+
+Reentering the major mode is where one gets left behind: the mode
+is what starts a tick, and every buffer-local binding it does not
+keep is cleared on the way in -- so the second tick would be
+started with nothing left naming the first, and killing the
+buffer would cancel the second alone."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
-    (let ((timer (buffer-local-value 'parley-transcript--status-timer buffer)))
-      (should (memq timer timer-list))
-      (kill-buffer buffer)
-      (should-not (memq timer timer-list)))))
+    (let ((first (buffer-local-value 'parley-transcript--status-timer buffer)))
+      (should (memq first timer-list))
+      (with-current-buffer buffer (parley-transcript-mode))
+      (let ((second (buffer-local-value 'parley-transcript--status-timer buffer)))
+        (should-not (eq first second))
+        (should (memq second timer-list))
+        (kill-buffer buffer)
+        (should-not (memq first timer-list))
+        (should-not (memq second timer-list))))))
 
 
 ;;; Typing into the pane
