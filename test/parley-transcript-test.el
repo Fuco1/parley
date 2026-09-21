@@ -317,20 +317,33 @@ group would have left that check with it."
 `claude agents' names a session after the directory it was
 started in, so sessions in sibling worktrees come back under the
 same name and the name alone cannot say which buffer is whose.
-Nor can the pane on its own: two live sessions share one when the
-session running in it is suspended and another is started there,
-which is `same' and `sharing' below.  What ends every name is
-therefore the session id, the one thing two records cannot both
-carry -- and a session outside tmux, which has no pane at all, is
-named by that alone.
+Nor can where a session's pane is on its own: two live sessions
+share a pane, and so a location, when the session running in it
+is suspended and another is started there, which is `same' and
+`sharing' below.  What ends every name is therefore the session
+id, the one thing two records cannot both carry -- and a session
+with no location is named by that alone.  Two have none: `gone',
+whose pane tmux no longer reports because the window closed under
+it, and `outside', which was started outside tmux and never had a
+pane at all.
 
 Whole, and not a head of it: `same' and `sharing' agree on their
-name, their pane and the first eight characters of their id, so a
-name built from a prefix is one name for two live sessions.
+name, their location and the first eight characters of their id,
+so a name built from a prefix is one name for two live sessions.
+
+No name carries the pane id its location was resolved from.  That
+is what `tmux send-keys -t' takes, the record keeps it for that,
+and a buffer name with one in it reads as a name with a stray
+format directive in it.  `app%8e' is not one: a tmux session name
+may carry a `%' -- tmux 3.2a sanitises `:' and `.' in one and
+nothing else -- and the location is printed as tmux prints it.
 
 This needs no session to be running, which is why it is the one
 test here that does not start a pipeline."
-  (let* ((one (list :name "orc-w1" :pane "%61"
+  (let* ((parley--pane-locations '(("%61" . "orc-b3:2.0")
+                                   ("%62" . "orc-b3:3.0")
+                                   ("%1" . "app%8e:1.0")))
+         (one (list :name "orc-w1" :pane "%61"
                     :session-id "1111ffff-0000-4000-8000-000000000001"))
          (two (list :name "orc-w1" :pane "%62"
                     :session-id "2222ffff-0000-4000-8000-000000000002"))
@@ -338,20 +351,29 @@ test here that does not start a pipeline."
                      :session-id "44444444-0000-4000-8000-000000000004"))
          (sharing (list :name "shared" :pane "%1"
                         :session-id "44444444-ffff-4000-8000-000000000005"))
+         (gone (list :name "orc-w1" :pane "%99"
+                     :session-id "5555ffff-0000-4000-8000-000000000006"))
          (outside (list :name "orc-w1" :pane nil
                         :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
          (unnamed (list :name nil :pane nil
                         :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
          (names (mapcar #'parley-transcript-buffer-name
-                        (list one two same sharing outside unnamed))))
+                        (list one two same sharing gone outside unnamed))))
     (should (equal names
-                   '("*parley: orc-w1 %61 1111ffff-0000-4000-8000-000000000001*"
-                     "*parley: orc-w1 %62 2222ffff-0000-4000-8000-000000000002*"
-                     "*parley: shared %1 44444444-0000-4000-8000-000000000004*"
-                     "*parley: shared %1 44444444-ffff-4000-8000-000000000005*"
+                   '("*parley: orc-w1 orc-b3:2.0 1111ffff-0000-4000-8000-000000000001*"
+                     "*parley: orc-w1 orc-b3:3.0 2222ffff-0000-4000-8000-000000000002*"
+                     "*parley: shared app%8e:1.0 44444444-0000-4000-8000-000000000004*"
+                     "*parley: shared app%8e:1.0 44444444-ffff-4000-8000-000000000005*"
+                     "*parley: orc-w1 5555ffff-0000-4000-8000-000000000006*"
                      "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
                      "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
-    (should (equal (length (delete-dups (copy-sequence names))) 6))))
+    (dolist (session (list one two same sharing gone outside unnamed))
+      (let ((pane (plist-get session :pane)))
+        (should-not
+         (and pane (string-match-p
+                    (regexp-quote pane)
+                    (parley-transcript-buffer-name session))))))
+    (should (equal (length (delete-dups (copy-sequence names))) 7))))
 
 (ert-deftest parley-transcript-test-one-buffer-per-session ()
   "A session gets one buffer however often the command is called.
