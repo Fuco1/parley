@@ -1347,7 +1347,8 @@ else."
           "| bbbbbb | a much longer cell |")
   "A table as an agent writes one, whose columns do not line up.
 Its aligned form is 31 columns wide and the text itself is 30, so
-a window of 20 has room for neither.")
+a window of 20 has room for neither and the cells have to be
+wrapped to fit one.")
 
 (defun parley-transcript-test--tables (buffer)
   "Return the overlays over a table in BUFFER, in buffer order."
@@ -1376,6 +1377,15 @@ line."
                 (setq position (1+ position)))
               (nreverse columns)))
           (split-string text "\n")))
+
+(defun parley-transcript-test--cells (line)
+  "Return the cells LINE holds, trimmed, one for each column of the table.
+What stands between two bars, less the two outer ones, which are
+the edges of the grid and not cells.  A line of a wrapped row
+answers this with as many cells as any other line of the table,
+and with an empty one wherever that row's cell has run out of
+words before its neighbours have."
+  (mapcar #'string-trim (butlast (cdr (split-string line "|")))))
 
 (ert-deftest parley-transcript-test-aligns-a-table-over-the-text-as-written ()
   "A table is shown with its columns aligned, over the text the transcript delivered.
@@ -1441,12 +1451,15 @@ the rest of the table does not hold."
 (ert-deftest parley-transcript-test-aligns-again-when-the-window-changes-width ()
   "What is shown over a table follows the width of the window, and the text does not.
 
-Alignment only ever adds padding, so a table whose aligned form
-is wider than the window is one the padding pushed past the edge:
-the text the agent wrote is shown instead, and the alignment
-comes back when there is room for it again.  That the rendering
-can answer a resize at all is why it is an overlay and not text
-written once on the way in.
+Wide enough and the table is aligned; too narrow for the aligned
+form and its cells are wrapped into the window instead, over as
+many lines as they need.  Widened again it comes back to exactly
+the form it had before, because both are computed from the text
+under the overlay and nothing else -- so a wrap is never
+something a later render has to unpick.  That the rendering can
+answer a resize at all is why it is an overlay and not text
+written once on the way in, and the text under it is asserted
+unchanged through all three widths.
 
 Batch Emacs never redisplays and this hook runs during redisplay,
 so it is run here by hand.  What is under test is what the hook
@@ -1472,7 +1485,17 @@ value is what makes it the hook Emacs will call."
               (set-frame-width (selected-frame) 20)
               (with-current-buffer buffer
                 (run-hooks 'window-configuration-change-hook))
-              (should-not (overlay-get overlay 'display))
+              (let ((wrapped (overlay-get overlay 'display))
+                    (narrow (window-body-width (selected-window))))
+                (should (stringp wrapped))
+                (should (> (parley-transcript--columns aligned) narrow))
+                (should (<= (parley-transcript--columns wrapped) narrow))
+                (should (< (length (split-string aligned "\n"))
+                           (length (split-string wrapped "\n"))))
+                (should (= 1 (length (seq-uniq
+                                      (parley-transcript-test--bars wrapped)))))
+                (should (equal parley-transcript-test--table
+                               (parley-transcript-test--under overlay))))
               (set-frame-width (selected-frame) 100)
               (with-current-buffer buffer
                 (run-hooks 'window-configuration-change-hook))
@@ -1480,6 +1503,205 @@ value is what makes it the hook Emacs will call."
             (should (equal parley-transcript-test--table
                            (parley-transcript-test--under overlay)))))
       (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-wraps-a-cell-of-prose-into-the-width ()
+  "A table a cell of prose takes past the width is wrapped into it.
+
+Aligning a wide table makes it wider: the cell of prose sets its
+column's width and the table runs off the window.  Wrapping that
+cell over several lines and growing the row to match is what
+makes it fit, and the aligned form is measured here too so that a
+rendering which merely stopped aligning would fail rather than
+pass by having done nothing.
+
+Every line of the wrapped row stands in the same columns as the
+rest of the table, which is asserted three ways: the bars of
+every line are in one place, the row of short cells is still one
+line with each cell in its own column, and the lines the prose
+wrapped over carry an empty first cell rather than stopping
+short.
+
+The prose is read back out of the column it was wrapped in and
+joined, because a wrap that dropped a word or put one in the
+wrong column would leave the grid as square as ever.
+
+The table is written with its first column marked left and its
+second right, because the marks are the agent's and the wrapped
+form has to carry them: a column he marked is one he meant to be
+read that way."
+  (let* ((prose "a cell of prose long enough to run past the edge of the window")
+         (text (concat "| step | what it does |\n"
+                       "|:---|---:|\n"
+                       "| one | " prose " |\n"
+                       "| two | short |"))
+         (width 40)
+         (form (parley-transcript--aligned text width))
+         (rows (mapcar #'parley-transcript-test--cells (split-string form "\n"))))
+    (should form)
+    (should (> (parley-transcript--columns (parley-transcript--alignment text))
+               width))
+    (should (<= (parley-transcript--columns form) width))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+    (should (member '("step" "what it does") rows))
+    (should (member '("two" "short") rows))
+    (let ((delimiter (seq-find #'markdown--is-delimiter-row
+                               (split-string form "\n"))))
+      (should (string-prefix-p "|:" delimiter))
+      (should (string-suffix-p ":|" delimiter)))
+    (let ((wrapped (seq-take-while
+                    (lambda (row) (member (car row) '("one" "")))
+                    (seq-drop-while (lambda (row) (not (equal (car row) "one")))
+                                    rows))))
+      (should (< 1 (length wrapped)))
+      (should (equal "one" (car (car wrapped))))
+      (should (seq-every-p (lambda (row) (equal "" (car row))) (cdr wrapped)))
+      (should (equal prose (string-join (mapcar #'cadr wrapped) " "))))))
+
+(ert-deftest parley-transcript-test-leaves-a-table-nothing-narrows-too-wide ()
+  "A table holding a word longer than the window stays wider than the window.
+
+Wrapping packs words and never breaks one, so a column holding a
+word that will not fit gives nothing and the table settles wider
+than the width it was rendered for.  That is the honest outcome:
+a table past the edge is one the operator can still read back,
+where a word broken across two lines costs him the word.
+
+The width it settles at is what this pins, and 45 is that width
+by arithmetic: 34 columns for the word, 4 for `step', and 7 for
+the bars and the spaces a grid of two columns spends.  The floor
+under the incompressible column is what puts it there -- without
+one the packing would narrow both columns to nothing, the word
+would stand past its column's edge anyway, and the bars of the
+line it stands on would land nowhere near the bars of the rest.
+Both assertions fail then, which is the case the floor is for:
+the word stands whole at any width and asserting that alone would
+pass however the columns were computed.
+
+The packing is then asked directly for a cell at a width the
+floor would never hand it, because the floor is exactly what
+keeps it from being asked: a packing that broke a word is
+unreachable through the table and is pinned here instead."
+  (let* ((word "supercalifragilisticexpialidocious")
+         (text (concat "| step | note |\n"
+                       "|---|---|\n"
+                       "| one | " word " |\n"
+                       "| two | a cell of prose that wrapping can narrow |"))
+         (form (parley-transcript--aligned text 20))
+         (rows (mapcar #'parley-transcript-test--cells (split-string form "\n"))))
+    (should form)
+    (should (member (list "one" word) rows))
+    (should (= 45 (parley-transcript--columns form)))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+    (should (equal (list word "and")
+                   (parley-transcript--wrapped-cell (concat word " and") 5)))))
+
+(ert-deftest parley-transcript-test-wraps-a-cell-of-cjk-by-the-columns-it-takes ()
+  "A table of CJK text is wrapped by the columns it displays in, not its characters.
+
+A CJK character is one character and two columns, so a grid
+padded to the character is a grid that lines up in none: every
+line would carry the same number of characters and each a
+different number of columns.  What that costs is the grid
+itself, which is the whole of what a table is for.
+
+The lines are measured in columns for that reason, and against
+each other rather than against the width alone -- padding by the
+character leaves a line short of the width rather than past it,
+so a table that merely fits says nothing about it.
+
+Two widths, because the column is measured twice over and each
+measurement binds at one of them.  At 30 it is the packing that
+decides, which fills a column it is given; at 14 there is no
+width left to give and it is the floor under the column, which is
+the widest word standing in it.  A floor counted in characters
+sits under a CJK column at half the height it needs, the word it
+was meant to keep room for stands past the edge of its column,
+and the grid the other width asserts goes with it."
+  (let* ((text (concat "| id | note |\n"
+                       "|---|---|\n"
+                       "| 1 | 日本語 の テキスト が ここ に あります |\n"
+                       "| 22 | short |"))
+         (wide (parley-transcript--aligned text 30))
+         (narrow (parley-transcript--aligned text 14)))
+    (should (> (parley-transcript--columns (parley-transcript--alignment text))
+               30))
+    (should (<= (parley-transcript--columns wide) 30))
+    (dolist (form (list wide narrow))
+      (should form)
+      (should (= 1 (length (seq-uniq (mapcar #'string-width
+                                             (split-string form "\n")))))))))
+
+(ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
+  "A bar standing inside a cell is not a column boundary, and a wrap leaves it none.
+
+The bar inside a wiki link is one markdown-mode reads over, so
+`[[target|link words]]' is one cell and not two -- and it is read
+over only while the link is whole.  A wrap that broke the link at
+its space would leave `[[target|link' standing on a line of its
+own, where that bar is a boundary again: the row reads as three
+columns where the table has two, and the line the wrap produced
+is the one line of the table whose grid is gone.
+
+So the link is one piece of the wrap, and every line of the
+wrapped form is read back here with markdown-mode's own
+`markdown--table-line-to-columns' -- the reader
+`markdown-table-align' measures the cells with, and the one whose
+answer decides whether a bar is a boundary at all.  Every line
+has to hold the two columns the table has, and the link has to
+come back whole in one of them.
+
+A word stands before the link in that cell, and it is what makes
+the packing the thing under test rather than the width: a wrap
+which packed words would fit `[[target|link' onto the line that
+word begins and break the link there, where one packing the link
+whole starts a line for it.  Without that word the link begins
+its column's first line either way and no packing can be told
+from another.
+
+That the table was wrapped at all is asserted beside it, because
+a rendering which stopped wrapping this table would keep its
+columns too: the link and the prose after it each stand on a line
+of their own, in the column they were written in, under a first
+cell left empty.
+
+At 25 the link is a piece nothing can narrow, exactly as a long
+word is, and the table settles at 30: 21 columns for the link, 2
+for `id', and 7 for the bars and the spaces a grid of two columns
+spends.  Wider than the window is the honest outcome -- the other
+way out is a bar put where the grid has none.
+
+The floor under that column is what puts it there, and what says
+so is the grid asserted at 25 beside the width: narrow the column
+past the link and the link stands over the edge of it, so the
+line it is on comes out longer than every other line of the table
+and the widest line is 30 either way.
+
+Wiki links are markdown-mode's own and off by default, so they
+are turned on here: with them off that bar is a boundary, what
+stands either side of it is a cell of its own, and there is
+nothing here to hold together."
+  (let* ((markdown-enable-wiki-links t)
+         (link "[[target|link words]]")
+         (text (concat "| id | note |\n"
+                       "|---|---|\n"
+                       "| 1 | first " link " more prose all fit |"))
+         (form (parley-transcript--aligned text 34))
+         (rows (mapcar #'markdown--table-line-to-columns
+                       (split-string form "\n"))))
+    (should form)
+    (should (<= (parley-transcript--columns form) 34))
+    (should (= 1 (length (seq-uniq (mapcar #'string-width
+                                           (split-string form "\n"))))))
+    (should (seq-every-p (lambda (row) (= 2 (length row))) rows))
+    (should (member (list "1" "first") rows))
+    (should (member (list "" link) rows))
+    (should (member (list "" "more prose all fit") rows))
+    (let* ((tight (parley-transcript--aligned text 25))
+           (lines (split-string tight "\n")))
+      (should (= 30 (parley-transcript--columns tight)))
+      (should (= 1 (length (seq-uniq (mapcar #'string-width lines)))))
+      (should (member (list "" link)
+                      (mapcar #'markdown--table-line-to-columns lines))))))
 
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
   "A table of nothing but delimiter rows is shown as the agent wrote it.
