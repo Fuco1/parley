@@ -99,3 +99,28 @@ one location.
 sessions sharing a name, a location and a prefix would be two the tag could not
 tell apart at all — which is the one thing it exists to do. A long tag is the
 price, and it is the last column of a row and the tail of a buffer name.
+
+## A row is coloured where it is built, and the status by its value
+
+**The faces go on the row itself, beside the columns.** Both frontends draw
+that one string — sallet renders it, and `completing-read` completes over it —
+and `completing-read` displays a face on a candidate as readily as a sallet
+buffer does. A face the picker owned would leave the minibuffer fallback plain,
+which is the frontend a machine without sallet has.
+
+**The status is coloured by what it says**, and the three the operator scans a
+dozen rows for — idle, busy, waiting — are three colours rather than one. A
+single colour for "status" tells him a row has one, which he knew; picking the
+busy session out then costs him a read of every row, which is what colour was
+for.
+
+**The read only mark has no column of its own.** A column for it is blank on
+every session that has a pane, which is nearly all of them, and what it says is
+about the status: a session that cannot be typed into is idle in a way that
+matters. So it is drawn after the status, inside that column.
+
+**A name past its column's width is drawn whole.** It pushes the columns after
+it along that one row, and the alternative cuts the handle the operator picks a
+session by — two sessions in sibling worktrees come back under one name, and a
+background agent is named after its prompt, so the tail of a name is where the
+difference often is.
