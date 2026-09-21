@@ -482,7 +482,30 @@ to say about a process that is not there."
       (should (eq (parley-test--status pid) 'unknown)))))
 
 
-;;; Reading a session
+;;; Listing a session, and reading one
+
+(ert-deftest parley-test-lists-waiting-first-then-idle-then-busy ()
+  "Sessions are listed by what their status asks of the operator.
+A waiting session is stopped until he answers it and leads; an
+idle one merely reads him next and follows; a busy one needs
+nothing from him and comes last.  A status neither the order nor
+`parley--statuses' names sorts after every status they do, and so
+does the nil `claude agents' reports for a session it knows no
+status for.
+
+The records are handed over in an order none of that would
+produce, and two share a status: `sort' is stable, so those two
+come out in the order discovery returned them in."
+  (let ((sessions (list (list :pid 1 :status "busy")
+                        (list :pid 2 :status "compacting")
+                        (list :pid 3 :status "idle")
+                        (list :pid 4 :status nil)
+                        (list :pid 5 :status "waiting")
+                        (list :pid 6 :status "busy"))))
+    (cl-letf (((symbol-function 'parley-sessions) (lambda () sessions)))
+      (should (equal (mapcar (lambda (session) (plist-get session :pid))
+                             (parley-sessions-by-status))
+                     '(5 3 1 6 2 4))))))
 
 (ert-deftest parley-test-resolves-the-row-picked-to-its-own-record ()
   "Two sessions alike in every column but their id are still two rows.

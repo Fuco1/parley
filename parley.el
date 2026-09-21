@@ -210,7 +210,8 @@ A record is a plist with these keys:
   :kind        \"interactive\" or \"background\" as reported; a headless
                lane says \"interactive\" too, so this is passed on and
                not believed
-  :status      \"idle\" or \"busy\" as reported, or nil
+  :status      the status it reports, as `parley--statuses' spells
+               one, or nil
   :cwd         its working directory
   :session-id  its session id
   :pane        the tmux pane it lives in, or nil if it is outside tmux
@@ -364,18 +365,33 @@ worse than no indicator at all."
 ;; a `require' does not survive a cycle -- so the list, the columns and
 ;; the one `completing-read' over them are here, below both.
 
-(defconst parley-status-order '("idle" "busy")
+(defconst parley-status-order '(waiting idle working)
   "The statuses sessions are listed in, first to last.
-An idle session is the one that will read what you type now, so
-it comes first.  A status this list does not name sorts after
-every status it does.")
+Each is a value `parley--statuses' reads a status as, so the
+strings a session writes are spelled in one place.
+
+A waiting session is stopped and cannot go on until the operator
+answers it, where an idle one is not stopped: it has finished,
+and it will read what he types next.  Both are open to him and
+only one of them is blocked on him, so waiting leads and idle
+follows.  A busy session needs nothing from him at all and comes
+last.  A status this list does not name sorts after every status
+it does.")
 
 (defun parley--status-rank (session)
   "Return the rank of SESSION in `parley-status-order'.
-A status the order does not name -- including the nil `claude
-agents' reports for a session it knows no status for -- ranks
-after every status it does."
-  (or (seq-position parley-status-order (plist-get session :status))
+SESSION's status is mapped through `parley--statuses' and the
+value it maps to is what the order is over: `claude agents'
+reports a status out of the session's own file, which is the file
+that table reads, so the two spell one status alike.
+
+A status neither the order nor that table names -- including the
+nil `claude agents' reports for a session it knows no status for
+-- maps to nothing, is in no order, and ranks after every status
+they do."
+  (or (seq-position parley-status-order
+                    (cdr (assoc (plist-get session :status)
+                                parley--statuses)))
       (length parley-status-order)))
 
 (defun parley-sessions-by-status ()

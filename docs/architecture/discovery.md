@@ -140,6 +140,26 @@ buffer reads the file itself, about once a second and only while a window is
 showing it, on a tick of its own — so killing the buffer is the whole of
 stopping it.
 
+## Sessions are listed waiting first, then idle, then busy
+
+**The order is what each status asks of the operator.** A waiting session is
+stopped and cannot go on until he answers it; an idle one is not stopped — it
+has finished and will read what he types next. Both are open to him and only
+one of them is blocked on him, so waiting leads and idle follows. A busy
+session needs nothing from him at all and comes last, and a status parley does
+not name sorts after every status it does — including the nil `claude agents`
+reports for a session it knows no status for.
+
+**The order is over the values a status is read as**, not over a second list of
+the strings a session writes. `claude agents` reports the status out of the
+same file the status reader reads, so a record's status is spelled the way that
+file spells it and is mapped through the reader's table before it is ranked —
+otherwise `waiting` is written in two places in one file that have to agree
+about how Claude Code spells it.
+
+**One sorted list is what both frontends list**, the switcher's rows and the
+minibuffer reader alike, so neither can put a session where the other does not.
+
 ## Nothing in a record is guaranteed
 
 `claude agents` reports a name for most sessions and not for all, and a status
