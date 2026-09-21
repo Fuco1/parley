@@ -419,7 +419,13 @@ tested there, so the command is stubbed here."
                          "unnamed")))
         (should (eq (alist-get 'display-sort-function
                                (cdr (completion-metadata "" collection nil)))
-                    #'identity))))))
+                    #'identity))
+        ;; And the colours reach the minibuffer: the faces are on the
+        ;; rows themselves, so what the completion machinery hands the
+        ;; frontend is faced the way the sallet source is.
+        (should (equal (get-text-property 0 'face (car (all-completions
+                                                        "" collection)))
+                       'parley-row-name))))))
 
 (ert-deftest parley-switch-test-fallback-with-nothing-running ()
   "Reading a session when none is running says so instead of picking one."
@@ -446,13 +452,18 @@ tested there, so the command is stubbed here."
                      '(2 4 6 1 5 3))))))
 
 (ert-deftest parley-switch-test-renderer-draws-every-field ()
-  "The rendered candidate begins with the name and shows all four fields."
+  "The rendered candidate begins with the name and shows all four fields.
+It is drawn coloured, because it is the row that carries the
+faces and the renderer hands that row over as it is."
   (parley-switch-test--with-sessions
     (let* ((candidate (nth 1 (parley-switch--candidates)))
            (rendered (parley-switch--renderer candidate nil nil)))
       (should (string-prefix-p "orc-w1" rendered))
       (dolist (field (append (car candidate) nil))
-        (should (string-match-p (regexp-quote field) rendered))))))
+        (should (string-match-p (regexp-quote field) rendered)))
+      (should (equal (get-text-property 0 'face rendered) 'parley-row-name))
+      (should (equal (get-text-property 52 'face rendered)
+                     'parley-row-status-idle)))))
 
 (ert-deftest parley-switch-test-action-opens-the-candidate-session ()
   "Acting on a candidate shows the record it carries and no other.
