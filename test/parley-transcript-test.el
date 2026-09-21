@@ -217,8 +217,14 @@ built here can share -- and which is what the buffers are told
 apart by."
   (let ((file (make-temp-file "parley-transcript-test-" nil ".jsonl")))
     (parley-transcript-test--write file lines)
-    (list :name name :cwd temporary-file-directory
-          :session-id file :transcript file)))
+    ;; Its pid is this Emacs, which is a process really running: what
+    ;; the status reader compares a session's file against is the start
+    ;; time /proc reports for that pid, and an invented pid has none.
+    ;; Its `:status' is what `claude agents' said when the record was
+    ;; built, and a buffer holding that instead of what the session's
+    ;; file says now is what the status tests are looking for.
+    (list :name name :cwd temporary-file-directory :pid (emacs-pid)
+          :status "idle" :session-id file :transcript file)))
 
 (defun parley-transcript-test--buffers ()
   "Return every buffer following a session."
@@ -882,6 +888,92 @@ nothing the name does not."
       (dolist (absent (list "<command" "</command" "one</" ">plugin<"))
         (goto-char (point-min))
         (should-not (search-forward absent nil t))))))
+
+
+;;; The session's live status
+
+;; The buffer reads the session's own file, so the fixture is that
+;; file: a directory of its own, and the pid in it this Emacs, whose
+;; start time /proc really reports.
+
+(defun parley-transcript-test--write-status (buffer status)
+  "Write STATUS as the file BUFFER's session writes about itself.
+The `procStart' is field 22 of `/proc/PID/stat' split on
+whitespace, read here and not by the reader under test: a fixture
+the reader built would agree with it whatever either of them
+did."
+  (let ((pid (emacs-pid)))
+    (with-temp-file (expand-file-name (format "%s.json" pid)
+                                      parley-sessions-directory)
+      (insert (json-serialize
+               `((pid . ,pid)
+                 (sessionId . ,(plist-get (buffer-local-value
+                                           'parley-transcript-session buffer)
+                                          :session-id))
+                 (procStart . ,(with-temp-buffer
+                                 (insert-file-contents
+                                  (format "/proc/%s/stat" pid))
+                                 (nth 21 (split-string (buffer-string)))))
+                 (status . ,status)))))))
+
+(defun parley-transcript-test--status (buffer)
+  "Return the status BUFFER holds."
+  (buffer-local-value 'parley-transcript-status buffer))
+
+(defmacro parley-transcript-test--with-sessions-directory (&rest body)
+  "Run BODY with `parley-sessions-directory' a directory of its own."
+  (declare (indent 0))
+  `(let ((parley-sessions-directory
+          (make-temp-file "parley-transcript-test-sessions-" t)))
+     (unwind-protect (progn ,@body)
+       (delete-directory parley-sessions-directory t))))
+
+(ert-deftest parley-transcript-test-holds-what-the-session-file-says ()
+  "The buffer holds the status its session's file gives it, and follows it.
+Nothing announces a change, so what the buffer holds after the
+file has been written again is what the tick found there.  The
+record the buffer was opened with says `idle' throughout and the
+file never does, so a buffer holding the record's status would
+hold `idle' at both of the reads below.
+
+And nothing is read at all for a buffer no window is showing:
+before the buffer is put in a window it stays at `unknown' with a
+file beside it saying otherwise."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (parley-transcript-test--write-status buffer "busy")
+      (parley-transcript--read-status buffer)
+      (should (eq (parley-transcript-test--status buffer) 'unknown))
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (eq (parley-transcript-test--status buffer) 'working))))
+      (parley-transcript-test--write-status buffer "waiting")
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (eq (parley-transcript-test--status buffer) 'waiting)))))))
+
+(ert-deftest parley-transcript-test-kill-stops-the-status-tick ()
+  "Killing the buffer cancels every timer that has read its status.
+The tick is the buffer's own, so there is nothing else to stop.
+
+Reentering the major mode is where one gets left behind: the mode
+is what starts a tick, and every buffer-local binding it does not
+keep is cleared on the way in -- so the second tick would be
+started with nothing left naming the first, and killing the
+buffer would cancel the second alone."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (let ((first (buffer-local-value 'parley-transcript--status-timer buffer)))
+      (should (memq first timer-list))
+      (with-current-buffer buffer (parley-transcript-mode))
+      (let ((second (buffer-local-value 'parley-transcript--status-timer buffer)))
+        (should-not (eq first second))
+        (should (memq second timer-list))
+        (kill-buffer buffer)
+        (should-not (memq first timer-list))
+        (should-not (memq second timer-list))))))
 
 
 ;;; Typing into the pane

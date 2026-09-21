@@ -11,7 +11,7 @@ that fails and the one reason it fails.
 
 | Page | Owns |
 |---|---|
-| `discovery.md` | what a session is, how one is found, and why standard input is the discriminator |
+| `discovery.md` | what a session is, how one is found, why standard input is the discriminator, and where what it is doing now is read from |
 | `transcript.md` | the pipeline that reads a transcript, the projection it is filtered through, the render pass, and the index over the prompts |
 | `typing.md` | the pane as the only way into a session, the input zone and what marks it, the two send shapes, the echo, and sending a past turn again |
 
