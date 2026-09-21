@@ -1440,10 +1440,12 @@ and history and all."
 ;; the session is doing now is in the session's own file, so the buffer
 ;; reads that file itself, on a tick.
 ;;
-;; A tick and not a watch, and no read at all while no window is
-;; showing the buffer -- see the discovery page for why that is the
-;; whole of what a watch would have bought.  The tick is the buffer's
-;; own, so killing the buffer is the whole of stopping it.
+;; A tick and not a watch.  Nothing but a buffer someone is looking at
+;; consumes a status -- the switcher builds every row from the `claude
+;; agents --json' it has just run -- so the read is skipped while no
+;; window is showing the buffer, and the status of a buffer nobody can
+;; see is the whole of what a watch would have bought.  The tick is the
+;; buffer's own, so killing the buffer is the whole of stopping it.
 
 (defconst parley-transcript--status-interval 1
   "Seconds between two reads of the session's own file.
