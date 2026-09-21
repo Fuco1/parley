@@ -109,6 +109,65 @@ two lines before the process mark against the block last written and taking
 them back out only if they match ([transcript](transcript.md)); an overlay
 leaves the comparison reading what it read before.
 
+## One cell in front of the prompt says what the session is doing
+
+**A cell stands between the rule that opens the zone and the `❯`**, on the
+prompt's own line. That line is where the operator is looking when the question
+arises, because it is the line he is about to type on.
+
+**It is a spinner while the session is working, a steady mark while the session
+is waiting for him, and a blank while it is idle or nothing is known about it.**
+Waiting is the state that does not move, and that is the argument for the pair:
+motion says *wait*, and a mark that stays says *answer me*. The state that wants
+the operator is the one that is not busy, so it is the one that holds still.
+
+**Every cell is one column wide, so the `❯` stands in the same place in all four
+states.** A mark a character shorter the moment a turn ends moves the prompt
+under the operator's hands at exactly the moment he starts typing at it.
+
+**The frames are the operator's to set.** A braille spinner reads best where the
+font has the glyphs, and is drawn two columns wide where it does not — which
+moves the prompt. So they are a variable with a braille default, and the one
+column rule above is held over the set parley ships rather than over every
+string anyone could put in that variable.
+
+**The steady mark is no glyph of the spinner's block, and not the `●` a run of
+tool calls collapses to.** Otherwise a spinner stopped on its last frame, or a
+line of the conversation, could be read for a session asking a question.
+
+**The cell goes on the mark at the head of the zone and never on the mark the
+renderer quotes a turn with.** They are one string everywhere else, for the
+reason above: what the operator is typing is the turn it is about to be. But
+that one is written in front of every line of every turn he has already taken,
+and a past turn is sent again by stripping it with a `^` anchored regexp — so a
+cell added to it would put a spinner down the whole conversation and leave the
+strip taking the wrong number of characters off each line. The zone's mark is
+the one place the two differ.
+
+**No character of the cell is in the buffer**, for the reason no character of
+the rest of the mark is: it is part of the same `before-string`.
+
+**The animation runs while a window is showing the buffer and not otherwise.** A
+timer redrawing a `before-string` in every transcript ever opened in this Emacs
+buys nothing for the ones nobody has on screen. Reading the status is skipped
+for such a buffer too ([discovery](discovery.md)), so the status left on it
+still says working and the reader never reaches the value that would have
+stopped anything: the animation timer is what has to notice the window is gone,
+and it stops itself. The tick that reads the status starts it again when a
+window comes back.
+
+**Ten frames a second, and a frame costs less than the noise in a redisplay that
+has nothing to do.** Measured on Emacs 28.2 in an 80 column tmux pane, in a
+window 21 rows deep, over a buffer of 453,780 bytes and 6,000 lines rendered
+from a 3,000 record transcript: six rounds of 300 forced redisplays each, with
+the spinner advancing and redrawn, come to 0.044 ms a redisplay against 0.042 ms
+with nothing changed at all. The difference is 0.004 ms and the still
+measurement's own spread across those rounds is 0.037 to 0.045 ms, so a frame
+costs somewhere inside it. Advancing the frame counter without drawing it
+measures 0.041 ms, which is what says the difference is the drawing and not the
+arithmetic. At ten frames a second the animation is therefore under a twentieth
+of a millisecond of work a second, and the rate is chosen for how it reads.
+
 ## Two send shapes, and the newline is what chooses
 
 **A single line goes as one `send-keys -l`**, where `-l` is what stops tmux
