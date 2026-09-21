@@ -255,71 +255,7 @@ point of the last test -- is the pipeline."
        (delete-file file))))
 
 
-;;; The tests
-
-(ert-deftest parley-transcript-test-opens-a-comint-buffer ()
-  "The command opens a live comint buffer for a session record."
-  (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-session parley-transcript-test--lines
-    (with-current-buffer buffer
-      (should (derived-mode-p 'comint-mode))
-      (should (eq major-mode 'parley-transcript-mode))
-      (should (process-live-p (get-buffer-process buffer)))
-      (should (equal (plist-get parley-transcript-session :transcript) file))
-      ;; In the session's own directory, so that what the operator does
-      ;; here happens where the session he is reading is working.
-      (should (equal default-directory
-                     (file-name-as-directory temporary-file-directory))))))
-
-(ert-deftest parley-transcript-test-reads-a-session-when-called-with-none ()
-  "Called as a command with nothing in hand, it reads a session first.
-It reads it with `parley-read-session', which is the reader the
-switcher falls back to as well, so what the minibuffer offers is
-a row of that one's making -- the name, the status, the read only
-mark, the working directory and the tag.  The record that row
-resolves to is what the buffer ends up following."
-  (skip-unless (executable-find "jq"))
-  (let* ((session (parley-transcript-test--session
-                   "test" parley-transcript-test--lines))
-         (file (plist-get session :transcript))
-         (offered nil)
-         (buffer nil))
-    (unwind-protect
-        (progn
-          (cl-letf (((symbol-function 'parley-sessions) (lambda () (list session)))
-                    ((symbol-function 'completing-read)
-                     (lambda (_prompt collection &rest _)
-                       (setq offered (all-completions "" collection))
-                       (car offered))))
-            (save-window-excursion (call-interactively #'parley-transcript)))
-          (should (equal offered
-                         (list (parley-session-row
-                                (parley-session-fields session)))))
-          (should (= 1 (length (parley-transcript-test--buffers))))
-          (setq buffer (car (parley-transcript-test--buffers)))
-          (should (eq (buffer-local-value 'parley-transcript-session buffer)
-                      session)))
-      (when (buffer-live-p buffer) (kill-buffer buffer))
-      (delete-file file))))
-
-(ert-deftest parley-transcript-test-renders-the-conversation ()
-  "The whole history reaches the buffer as a conversation and nothing else.
-The turn that was only thinking and the `tool_result' turn
-produce no buffer text whatever -- there is no line for either in
-what the buffer shows."
-  (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-session parley-transcript-test--lines
-    (should (equal (parley-transcript-test--wait
-                    (lambda ()
-                      (let ((shown (parley-transcript-test--shown buffer)))
-                        (and (= (length shown)
-                                (length parley-transcript-test--rendered))
-                             shown))))
-                   parley-transcript-test--rendered))
-    ;; The markdown faces in that text came from somewhere else: this
-    ;; buffer has comint's own font lock and no markdown rules in it.
-    (with-current-buffer buffer
-      (should (equal '(nil t) font-lock-defaults)))))
+;;; The pipeline
 
 (ert-deftest parley-transcript-test-drops-the-tool-payloads ()
   "Nothing a tool sent or received reaches the Emacs process."
@@ -371,103 +307,67 @@ group would have left that check with it."
                (lambda () (null (parley-transcript-test--group pgid)))))
       (should-not (parley-transcript-test--naming file)))))
 
-(ert-deftest parley-transcript-test-names-two-sessions-of-one-name-apart ()
-  "Two live sessions reported under one name get two buffer names.
-
-`claude agents' names a session after the directory it was
-started in, so sessions in sibling worktrees come back under the
-same name and the name alone cannot say which buffer is whose.
-Nor can where a session's pane is on its own: two live sessions
-share a pane, and so a location, when the session running in it
-is suspended and another is started there, which is `same' and
-`sharing' below.  What ends every name is therefore the session
-id, the one thing two records cannot both carry -- and a session
-with no location is named by that alone.  Two have none: `gone',
-whose pane tmux no longer reports because the window closed under
-it, and `outside', which was started outside tmux and never had a
-pane at all.
-
-Whole, and not a head of it: `same' and `sharing' agree on their
-name, their location and the first eight characters of their id,
-so a name built from a prefix is one name for two live sessions.
-
-No name carries the pane id its location was resolved from.  That
-is what `tmux send-keys -t' takes, the record keeps it for that,
-and a buffer name with one in it reads as a name with a stray
-format directive in it.  `app%8e' is not one: a tmux session name
-may carry a `%' -- tmux 3.2a sanitises `:' and `.' in one and
-nothing else -- and the location is printed as tmux prints it.
-
-This needs no session to be running, which is why it is the one
-test here that does not start a pipeline."
-  (let* ((parley--pane-locations '(("%61" . "orc-b3:2.0")
-                                   ("%62" . "orc-b3:3.0")
-                                   ("%1" . "app%8e:1.0")))
-         (one (list :name "orc-w1" :pane "%61"
-                    :session-id "1111ffff-0000-4000-8000-000000000001"))
-         (two (list :name "orc-w1" :pane "%62"
-                    :session-id "2222ffff-0000-4000-8000-000000000002"))
-         (same (list :name "shared" :pane "%1"
-                     :session-id "44444444-0000-4000-8000-000000000004"))
-         (sharing (list :name "shared" :pane "%1"
-                        :session-id "44444444-ffff-4000-8000-000000000005"))
-         (gone (list :name "orc-w1" :pane "%99"
-                     :session-id "5555ffff-0000-4000-8000-000000000006"))
-         (outside (list :name "orc-w1" :pane nil
-                        :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
-         (unnamed (list :name nil :pane nil
-                        :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
-         (names (mapcar #'parley-transcript--buffer-name
-                        (list one two same sharing gone outside unnamed))))
-    (should (equal names
-                   '("*parley: orc-w1 orc-b3:2.0 1111ffff-0000-4000-8000-000000000001*"
-                     "*parley: orc-w1 orc-b3:3.0 2222ffff-0000-4000-8000-000000000002*"
-                     "*parley: shared app%8e:1.0 44444444-0000-4000-8000-000000000004*"
-                     "*parley: shared app%8e:1.0 44444444-ffff-4000-8000-000000000005*"
-                     "*parley: orc-w1 5555ffff-0000-4000-8000-000000000006*"
-                     "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
-                     "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
-    (dolist (session (list one two same sharing gone outside unnamed))
-      (let ((pane (plist-get session :pane)))
-        (should-not
-         (and pane (string-match-p
-                    (regexp-quote pane)
-                    (parley-transcript--buffer-name session))))))
-    (should (equal (length (delete-dups (copy-sequence names))) 7))))
-
-(ert-deftest parley-transcript-test-one-buffer-per-session ()
-  "A session gets one buffer however often the command is called.
-Two sessions get one each even when they share a name, which two
-in sibling worktrees do: what tells the buffers apart is the
-session id each records, and looking them up by name would give
-the second session the first one's buffer -- or, since the name
-is then taken, a fresh buffer and a fresh pipeline every time it
-was asked for."
+(ert-deftest parley-transcript-test-holds-back-a-split-line ()
+  "A message too big for one chunk of output still renders once, and whole.
+Emacs reads at most `read-process-output-max' bytes of process
+output at a time and a projected object is one line however long
+the message was, so any answer over that -- which is an ordinary
+answer -- arrives split down the middle.  The half a line is held
+back until the rest of it comes: what a chunk boundary must never
+do is leave JSON in the buffer."
   (skip-unless (executable-find "jq"))
-  (let ((one (parley-transcript-test--session
-              "shared" parley-transcript-test--lines))
-        (two (parley-transcript-test--session
-              "shared" parley-transcript-test--lines))
-        (buffers nil))
+  (let ((text (mapconcat #'identity (make-list 1000 "a long answer") " ")))
+    (should (> (length text) read-process-output-max))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--text-turn text))
+      (should (equal (parley-transcript-test--wait
+                      (lambda () (car (parley-transcript-test--shown buffer))))
+                     text))
+      (should (= 1 (length (parley-transcript-test--shown buffer)))))))
+
+(ert-deftest parley-transcript-test-shows-what-tail-says ()
+  "A line that is not JSON is shown as it stands.
+A session that has not spoken yet has no transcript to open and
+`tail -F' says so on stderr, which shares this buffer.  Dropping
+what cannot be parsed would leave the operator watching an empty
+buffer with no idea why."
+  (skip-unless (executable-find "jq"))
+  (let* ((file (make-temp-file "parley-transcript-test-" nil ".jsonl"))
+         (session (list :name "unspoken" :session-id file :transcript file))
+         (buffer nil))
+    (delete-file file)
     (unwind-protect
         (progn
-          (dolist (session (list one two two one two))
-            (save-window-excursion (parley-transcript session)))
-          (setq buffers (parley-transcript-test--buffers))
-          (should (= 2 (length buffers)))
-          (should (equal (sort (mapcar
-                                (lambda (buffer)
-                                  (plist-get (buffer-local-value
-                                              'parley-transcript-session buffer)
-                                             :session-id))
-                                buffers)
-                               #'string<)
-                         (sort (list (plist-get one :session-id)
-                                     (plist-get two :session-id))
-                               #'string<))))
-      (mapc #'kill-buffer buffers)
-      (delete-file (plist-get one :transcript))
-      (delete-file (plist-get two :transcript)))))
+          (save-window-excursion (parley-transcript session))
+          (setq buffer (car (parley-transcript-test--buffers)))
+          (should (parley-transcript-test--wait
+                   (lambda ()
+                     (seq-find (lambda (line)
+                                 (string-match-p (regexp-quote file) line))
+                               (parley-transcript-test--shown buffer))))))
+      (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
+
+;;; Rendering
+
+(ert-deftest parley-transcript-test-renders-the-conversation ()
+  "The whole history reaches the buffer as a conversation and nothing else.
+The turn that was only thinking and the `tool_result' turn
+produce no buffer text whatever -- there is no line for either in
+what the buffer shows."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= (length shown)
+                                (length parley-transcript-test--rendered))
+                             shown))))
+                   parley-transcript-test--rendered))
+    ;; The markdown faces in that text came from somewhere else: this
+    ;; buffer has comint's own font lock and no markdown rules in it.
+    (with-current-buffer buffer
+      (should (equal '(nil t) font-lock-defaults)))))
 
 (ert-deftest parley-transcript-test-collapses-a-run-of-tool-calls ()
   "A run of tool calls is one line, however many messages it spans.
@@ -709,46 +609,6 @@ and font lock is the only thing here that can take one away."
         (should (eq 'markdown-markup (get-text-property asterisk 'invisible)))
         (should (get-text-property marker 'display))))))
 
-(ert-deftest parley-transcript-test-holds-back-a-split-line ()
-  "A message too big for one chunk of output still renders once, and whole.
-Emacs reads at most `read-process-output-max' bytes of process
-output at a time and a projected object is one line however long
-the message was, so any answer over that -- which is an ordinary
-answer -- arrives split down the middle.  The half a line is held
-back until the rest of it comes: what a chunk boundary must never
-do is leave JSON in the buffer."
-  (skip-unless (executable-find "jq"))
-  (let ((text (mapconcat #'identity (make-list 1000 "a long answer") " ")))
-    (should (> (length text) read-process-output-max))
-    (parley-transcript-test--with-session
-        (list (parley-transcript-test--text-turn text))
-      (should (equal (parley-transcript-test--wait
-                      (lambda () (car (parley-transcript-test--shown buffer))))
-                     text))
-      (should (= 1 (length (parley-transcript-test--shown buffer)))))))
-
-(ert-deftest parley-transcript-test-shows-what-tail-says ()
-  "A line that is not JSON is shown as it stands.
-A session that has not spoken yet has no transcript to open and
-`tail -F' says so on stderr, which shares this buffer.  Dropping
-what cannot be parsed would leave the operator watching an empty
-buffer with no idea why."
-  (skip-unless (executable-find "jq"))
-  (let* ((file (make-temp-file "parley-transcript-test-" nil ".jsonl"))
-         (session (list :name "unspoken" :session-id file :transcript file))
-         (buffer nil))
-    (delete-file file)
-    (unwind-protect
-        (progn
-          (save-window-excursion (parley-transcript session))
-          (setq buffer (car (parley-transcript-test--buffers)))
-          (should (parley-transcript-test--wait
-                   (lambda ()
-                     (seq-find (lambda (line)
-                                 (string-match-p (regexp-quote file) line))
-                               (parley-transcript-test--shown buffer))))))
-      (when (buffer-live-p buffer) (kill-buffer buffer)))))
-
 (ert-deftest parley-transcript-test-collapses-a-skill-load-to-one-line ()
   "A skill load is one line naming the skill, and no other injection is shown.
 
@@ -888,6 +748,152 @@ nothing the name does not."
       (dolist (absent (list "<command" "</command" "one</" ">plugin<"))
         (goto-char (point-min))
         (should-not (search-forward absent nil t))))))
+
+
+;;; The buffer
+
+(ert-deftest parley-transcript-test-opens-a-comint-buffer ()
+  "The command opens a live comint buffer for a session record."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (with-current-buffer buffer
+      (should (derived-mode-p 'comint-mode))
+      (should (eq major-mode 'parley-transcript-mode))
+      (should (process-live-p (get-buffer-process buffer)))
+      (should (equal (plist-get parley-transcript-session :transcript) file))
+      ;; In the session's own directory, so that what the operator does
+      ;; here happens where the session he is reading is working.
+      (should (equal default-directory
+                     (file-name-as-directory temporary-file-directory))))))
+
+(ert-deftest parley-transcript-test-reads-a-session-when-called-with-none ()
+  "Called as a command with nothing in hand, it reads a session first.
+It reads it with `parley-read-session', which is the reader the
+switcher falls back to as well, so what the minibuffer offers is
+a row of that one's making -- the name, the status, the read only
+mark, the working directory and the tag.  The record that row
+resolves to is what the buffer ends up following."
+  (skip-unless (executable-find "jq"))
+  (let* ((session (parley-transcript-test--session
+                   "test" parley-transcript-test--lines))
+         (file (plist-get session :transcript))
+         (offered nil)
+         (buffer nil))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'parley-sessions) (lambda () (list session)))
+                    ((symbol-function 'completing-read)
+                     (lambda (_prompt collection &rest _)
+                       (setq offered (all-completions "" collection))
+                       (car offered))))
+            (save-window-excursion (call-interactively #'parley-transcript)))
+          (should (equal offered
+                         (list (parley-session-row
+                                (parley-session-fields session)))))
+          (should (= 1 (length (parley-transcript-test--buffers))))
+          (setq buffer (car (parley-transcript-test--buffers)))
+          (should (eq (buffer-local-value 'parley-transcript-session buffer)
+                      session)))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (delete-file file))))
+
+(ert-deftest parley-transcript-test-names-two-sessions-of-one-name-apart ()
+  "Two live sessions reported under one name get two buffer names.
+
+`claude agents' names a session after the directory it was
+started in, so sessions in sibling worktrees come back under the
+same name and the name alone cannot say which buffer is whose.
+Nor can where a session's pane is on its own: two live sessions
+share a pane, and so a location, when the session running in it
+is suspended and another is started there, which is `same' and
+`sharing' below.  What ends every name is therefore the session
+id, the one thing two records cannot both carry -- and a session
+with no location is named by that alone.  Two have none: `gone',
+whose pane tmux no longer reports because the window closed under
+it, and `outside', which was started outside tmux and never had a
+pane at all.
+
+Whole, and not a head of it: `same' and `sharing' agree on their
+name, their location and the first eight characters of their id,
+so a name built from a prefix is one name for two live sessions.
+
+No name carries the pane id its location was resolved from.  That
+is what `tmux send-keys -t' takes, the record keeps it for that,
+and a buffer name with one in it reads as a name with a stray
+format directive in it.  `app%8e' is not one: a tmux session name
+may carry a `%' -- tmux 3.2a sanitises `:' and `.' in one and
+nothing else -- and the location is printed as tmux prints it.
+
+This needs no session to be running, which is why it is the one
+test here that does not start a pipeline."
+  (let* ((parley--pane-locations '(("%61" . "orc-b3:2.0")
+                                   ("%62" . "orc-b3:3.0")
+                                   ("%1" . "app%8e:1.0")))
+         (one (list :name "orc-w1" :pane "%61"
+                    :session-id "1111ffff-0000-4000-8000-000000000001"))
+         (two (list :name "orc-w1" :pane "%62"
+                    :session-id "2222ffff-0000-4000-8000-000000000002"))
+         (same (list :name "shared" :pane "%1"
+                     :session-id "44444444-0000-4000-8000-000000000004"))
+         (sharing (list :name "shared" :pane "%1"
+                        :session-id "44444444-ffff-4000-8000-000000000005"))
+         (gone (list :name "orc-w1" :pane "%99"
+                     :session-id "5555ffff-0000-4000-8000-000000000006"))
+         (outside (list :name "orc-w1" :pane nil
+                        :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
+         (unnamed (list :name nil :pane nil
+                        :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
+         (names (mapcar #'parley-transcript--buffer-name
+                        (list one two same sharing gone outside unnamed))))
+    (should (equal names
+                   '("*parley: orc-w1 orc-b3:2.0 1111ffff-0000-4000-8000-000000000001*"
+                     "*parley: orc-w1 orc-b3:3.0 2222ffff-0000-4000-8000-000000000002*"
+                     "*parley: shared app%8e:1.0 44444444-0000-4000-8000-000000000004*"
+                     "*parley: shared app%8e:1.0 44444444-ffff-4000-8000-000000000005*"
+                     "*parley: orc-w1 5555ffff-0000-4000-8000-000000000006*"
+                     "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
+                     "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
+    (dolist (session (list one two same sharing gone outside unnamed))
+      (let ((pane (plist-get session :pane)))
+        (should-not
+         (and pane (string-match-p
+                    (regexp-quote pane)
+                    (parley-transcript--buffer-name session))))))
+    (should (equal (length (delete-dups (copy-sequence names))) 7))))
+
+(ert-deftest parley-transcript-test-one-buffer-per-session ()
+  "A session gets one buffer however often the command is called.
+Two sessions get one each even when they share a name, which two
+in sibling worktrees do: what tells the buffers apart is the
+session id each records, and looking them up by name would give
+the second session the first one's buffer -- or, since the name
+is then taken, a fresh buffer and a fresh pipeline every time it
+was asked for."
+  (skip-unless (executable-find "jq"))
+  (let ((one (parley-transcript-test--session
+              "shared" parley-transcript-test--lines))
+        (two (parley-transcript-test--session
+              "shared" parley-transcript-test--lines))
+        (buffers nil))
+    (unwind-protect
+        (progn
+          (dolist (session (list one two two one two))
+            (save-window-excursion (parley-transcript session)))
+          (setq buffers (parley-transcript-test--buffers))
+          (should (= 2 (length buffers)))
+          (should (equal (sort (mapcar
+                                (lambda (buffer)
+                                  (plist-get (buffer-local-value
+                                              'parley-transcript-session buffer)
+                                             :session-id))
+                                buffers)
+                               #'string<)
+                         (sort (list (plist-get one :session-id)
+                                     (plist-get two :session-id))
+                               #'string<))))
+      (mapc #'kill-buffer buffers)
+      (delete-file (plist-get one :transcript))
+      (delete-file (plist-get two :transcript)))))
 
 
 ;;; The session's live status

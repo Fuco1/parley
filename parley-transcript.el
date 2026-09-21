@@ -58,6 +58,9 @@
 (require 'markdown-mode)
 (require 'parley)
 
+
+;;; The pipeline
+
 (defconst parley-transcript--projection
   (concat
    "select(.type == \"user\" or .type == \"assistant\")"
