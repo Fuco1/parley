@@ -1718,6 +1718,22 @@ ends with."
          (end (- (length marker) (length parley-transcript--quote-marker))))
     (substring-no-properties marker (1- end) end)))
 
+(defun parley-transcript-test--cell-changes (buffer seconds)
+  "Return how many times the cell BUFFER draws changes over SECONDS.
+Sampled far faster than anything that redraws it, so what this
+counts is how often a frame really reached the overlay and not
+how often this looked."
+  (let ((last (parley-transcript-test--cell buffer))
+        (changes 0)
+        (deadline (+ (float-time) seconds)))
+    (while (< (float-time) deadline)
+      (accept-process-output nil 0.01)
+      (let ((now (parley-transcript-test--cell buffer)))
+        (unless (equal now last)
+          (setq changes (1+ changes)
+                last now))))
+    changes))
+
 (ert-deftest parley-transcript-test-shows-the-status-in-front-of-the-prompt ()
   "The cell before the prompt mark shows what the session is doing, in four states.
 A frame of the spinner while it is working, a steady mark while
@@ -1795,16 +1811,28 @@ has stopped too, and not a spinner turning over nothing."
       (should (parley-transcript-test--wait
                (lambda () (timerp (buffer-local-value
                                    'parley-transcript--spinner-timer buffer)))))
-      (let ((frame (parley-transcript-test--cell buffer)))
-        (should (member frame parley-input-spinner-frames))
-        (should (parley-transcript-test--wait
-                 (lambda ()
-                   (not (equal frame (parley-transcript-test--cell buffer)))))))
+      (should (member (parley-transcript-test--cell buffer)
+                      parley-input-spinner-frames))
+      ;; Counted and not merely waited for, so that the tick reading the
+      ;; status cannot stand in for the animation: that one runs once a
+      ;; second and redraws the whole marker, which changes the cell
+      ;; about twice over the window below where the animation changes
+      ;; it about fifteen times.
+      (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
       (parley-transcript-test--write-status buffer "idle")
       (should (parley-transcript-test--wait
                (lambda () (null (buffer-local-value
                                  'parley-transcript--spinner-timer buffer)))))
-      (should (equal " " (parley-transcript-test--cell buffer))))))
+      (should (equal " " (parley-transcript-test--cell buffer)))
+      ;; And it stays stopped across the status ticks that follow.  A
+      ;; tick that started one over a session doing nothing would leave
+      ;; a timer that cancels itself on its own first fire, which polling
+      ;; for a nil finds stopped nine times out of ten.
+      (let ((deadline (+ (float-time) 2.5)))
+        (while (< (float-time) deadline)
+          (accept-process-output nil 0.05)
+          (should-not (buffer-local-value 'parley-transcript--spinner-timer
+                                          buffer)))))))
 
 (ert-deftest parley-transcript-test-animates-only-where-it-can-be-seen ()
   "A buffer no window is showing animates nothing.
