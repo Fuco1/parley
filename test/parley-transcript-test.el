@@ -1345,17 +1345,20 @@ shown and are not in the buffer: one is a line of the overlay's
 `before-string' and the other a line of its `after-string', for
 the reason the mark itself is neither.
 
-The line runs the width of the window because it is drawn by
-`:underline' under a space stretched to the right edge, so
-nothing has to redraw it when the window changes size."
-  (should (equal '(space :align-to right)
-                 (get-text-property 0 'display parley-transcript--input-rule)))
-  (should (eq 'parley-input-rule
-              (get-text-property 0 'face parley-transcript--input-rule)))
-  (should (face-attribute 'parley-input-rule :underline nil t))
-  (should (string-prefix-p (concat parley-transcript--input-rule "\n")
+Each line runs the width of the window because it is drawn on a
+space stretched to the right edge, so nothing has to redraw it
+when the window changes size -- and each is drawn at the edge of
+its own row nearest the zone, which is what `:underline' above
+and `:overline' below come to."
+  (dolist (rule (list parley-transcript--input-rule-above
+                      parley-transcript--input-rule-below))
+    (should (equal '(space :align-to right)
+                   (get-text-property 0 'display rule))))
+  (should (face-attribute 'parley-input-rule-above :underline nil t))
+  (should (face-attribute 'parley-input-rule-below :overline nil t))
+  (should (string-prefix-p (concat parley-transcript--input-rule-above "\n")
                            parley-transcript--input-marker))
-  (should (string-suffix-p (concat "\n" parley-transcript--input-rule)
+  (should (string-suffix-p (concat "\n" parley-transcript--input-rule-below)
                            parley-transcript--input-fill)))
 
 

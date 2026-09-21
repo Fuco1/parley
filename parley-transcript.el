@@ -1322,27 +1322,53 @@ band as the zone it marks, and takes only what that face leaves
 unspecified -- the foreground -- from `shadow'."
   :group 'parley)
 
-(defface parley-input-rule '((t :inherit shadow :underline t))
-  "Face for the rules that close the input zone above and below.
-It does not inherit `parley-input': a rule stands outside the
-zone it bounds, and one carrying the band would read as a line of
+(defface parley-input-rule-above '((t :inherit shadow :underline t))
+  "Face for the rule that closes the input zone from above.
+`:underline' draws at the foot of the row the rule is on, which
+is the edge of that row nearest the zone.
+
+Neither rule inherits `parley-input': a rule stands outside the
+zone it closes, and one carrying the band would read as a line of
 the zone rather than its edge."
   :group 'parley)
 
-(defconst parley-transcript--input-rule
-  (propertize " " 'display '(space :align-to right) 'face 'parley-input-rule)
-  "One rule across the window, as the zone's overlay shows it.
+(defface parley-input-rule-below '((t :inherit shadow :overline t))
+  "Face for the rule that closes the input zone from below.
+`:overline' draws at the head of the row the rule is on, which is
+the edge of that row nearest the zone -- so both rules stand
+against the zone and the zone is closed evenly.  Underlining this
+one instead leaves the whole of its row between the last line
+typed and the line closing it.
 
-A space stretched to the right edge and underlined, which is what
-makes the line run the width of the window whatever that is:
-measured on Emacs 28.2 in a 60 column tmux pane, `capture-pane
--e' shows the underline SGR over every column of that row.  A
-line of `---' characters instead would be a string as wide as the
-window, and nothing rewrites this buffer after an insertion, so
-it would still be the old width after a resize.")
+A terminal draws no rule here: measured on Emacs 28.2 in a 40
+column tmux pane, `capture-pane -e' over an overlined stretch of
+space shows no SGR at all where the underlined one shows
+`ESC[4m'.  Emacs emits `smul' for an underline and has nothing to
+emit for an overline."
+  :group 'parley)
+
+(defconst parley-transcript--input-rule-above
+  (propertize " " 'display '(space :align-to right)
+              'face 'parley-input-rule-above)
+  "The rule that closes the input zone from above.
+
+A space stretched to the right edge, which is what makes the line
+run the width of the window whatever that is: measured on Emacs
+28.2 in a 60 column tmux pane, `capture-pane -e' shows the
+underline SGR over every column of that row.  A line of `---'
+characters instead would be a string as wide as the window, and
+nothing rewrites this buffer after an insertion, so it would
+still be the old width after a resize.")
+
+(defconst parley-transcript--input-rule-below
+  (propertize " " 'display '(space :align-to right)
+              'face 'parley-input-rule-below)
+  "The rule that closes the input zone from below.
+The stretched space of `parley-transcript--input-rule-above', in
+the face that draws the line at the other edge of its row.")
 
 (defconst parley-transcript--input-marker
-  (concat parley-transcript--input-rule "\n"
+  (concat parley-transcript--input-rule-above "\n"
           (propertize parley-transcript--quote-marker
                       'face 'parley-input-marker))
   "What stands at the head of the input zone.
@@ -1361,7 +1387,7 @@ with the other of the pair.")
 (defconst parley-transcript--input-fill
   (concat (propertize " " 'display '(space :align-to right)
                       'face 'parley-input 'cursor t)
-          "\n" parley-transcript--input-rule)
+          "\n" parley-transcript--input-rule-below)
   "What carries the band across the last line of the input zone, and closes it.
 The zone's overlay shows it as its `after-string'.  `:extend'
 paints from the newline that ends a line, and the last line of

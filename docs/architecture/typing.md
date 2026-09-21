@@ -79,12 +79,21 @@ conversation. One rule is a line of the `before-string`, above the mark; the
 other a line of the `after-string`, below the band. Neither is buffer text, for
 the reason the mark is not.
 
-**The rule is drawn by `:underline` under a space stretched to the right edge**,
-which is what makes it run the width of the window whatever that is — measured
-on Emacs 28.2 in a 60 column tmux pane, `capture-pane -e` shows the underline
-SGR over every column of the row. A line built from `─` would be a string as
-wide as the window when it was built, and nothing rewrites this buffer after an
-insertion, so it would still be that wide after a resize.
+**Each rule is a line drawn on a space stretched to the right edge**, which is
+what makes it run the width of the window whatever that is — measured on Emacs
+28.2 in a 60 column tmux pane, `capture-pane -e` shows the underline SGR over
+every column of the row. A line built from `─` would be a string as wide as the
+window when it was built, and nothing rewrites this buffer after an insertion,
+so it would still be that wide after a resize.
+
+**The rule above is drawn by `:underline` and the one below by `:overline`**,
+so each stands at the edge of its own row nearest the zone and the zone is
+closed evenly. Underlining both puts the whole of the lower row between the
+last line typed and the line closing it, which reads as a row the band forgot.
+The cost is a terminal, where the lower rule is not drawn at all: measured the
+same way, an overlined stretch of space emits no SGR where an underlined one
+emits `ESC[4m`, because Emacs has `smul` for an underline and nothing to emit
+for an overline.
 
 **The overlay is put back after every output**, since the mark it starts at has
 just moved; `comint-output-filter-functions` is where that is known, and
