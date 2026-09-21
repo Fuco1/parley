@@ -148,7 +148,7 @@ tag is a session name's and never a pane id.")
     ;; A name and a status `claude agents' did not report still leave
     ;; five fields, and the tag column falls back to the session id.
     (should (equal (parley-session-fields (parley-switch-test--session 3))
-                   (vector "unnamed" "unknown" "read only" "/srv/matus"
+                   (vector "unnamed" "unknown" "[RO]" "/srv/matus"
                            (parley-switch-test--tag 3))))))
 
 (ert-deftest parley-switch-test-marks-a-session-with-no-pane-read-only ()
@@ -170,14 +170,14 @@ its session id alone, and `send-keys -t' still takes that pane."
       (let ((fields (parley-session-fields (parley-switch-test--session pid))))
         (should (equal (plist-get (parley-switch-test--session pid) :kind)
                        "interactive"))
-        (should (equal (aref fields 2) "read only"))
-        (should (string-match-p "read only" (parley-session-row fields)))))
+        (should (equal (aref fields 2) "[RO]"))
+        (should (string-match-p "\\[RO\\]" (parley-session-row fields)))))
     ;; And a session with a pane carries no mark, so the row says
     ;; something about this session rather than about every session.
     (dolist (pid '(1 2 4 6))
       (let ((fields (parley-session-fields (parley-switch-test--session pid))))
         (should (equal (aref fields 2) ""))
-        (should-not (string-match-p "read only"
+        (should-not (string-match-p "\\[RO\\]"
                                     (parley-session-row fields)))))))
 
 (ert-deftest parley-switch-test-tag-tells-one-name-apart ()
@@ -223,6 +223,104 @@ what a row shows."
                         parley-switch-test--sessions)))
       (should (equal (length (delete-dups (copy-sequence rows)))
                      (length parley-switch-test--sessions))))))
+
+;; The offsets below are the columns themselves: the name is 50 wide
+;; and the status 12, the working directory 40, and two spaces stand
+;; between one column and the next.  So a row begins its name at 0,
+;; its status at 52, its working directory at 66 and its tag at 108,
+;; and a test that reads a face at one of those is reading the column
+;; the width puts there.
+
+(ert-deftest parley-switch-test-every-column-is-faced-apart ()
+  "Each of the four columns of a row carries a face of its own.
+The faces are on the row `parley-session-row' returns and not put
+there by whatever draws it, so the `completing-read' fallback
+shows what the sallet source shows.
+
+The gap between two columns carries none: a column face a theme
+gives a background to paints its value and stops there."
+  (parley-switch-test--with-locations
+    (let ((row (parley-session-row
+                (parley-session-fields (parley-switch-test--session 1)))))
+      (should (equal (get-text-property 0 'face row) 'parley-row-name))
+      (should (equal (get-text-property 52 'face row) 'parley-row-status-busy))
+      (should (equal (get-text-property 66 'face row) 'parley-row-directory))
+      (should (equal (get-text-property 108 'face row) 'parley-row-tag))
+      (dolist (gap '(48 50 64 106))
+        (should-not (get-text-property gap 'face row))))))
+
+(ert-deftest parley-switch-test-a-status-is-faced-by-its-value ()
+  "The status column is coloured by the status it holds.
+`idle', `busy' and `waiting' are the three the operator scans a
+list for and no two of them look alike; a status parley does not
+name is a fourth colour rather than one of theirs."
+  (let ((faces (mapcar (lambda (status)
+                         (get-text-property
+                          52 'face
+                          (parley-session-row
+                           (vector "orc-w1" status "" "/srv/orc" "tag"))))
+                       '("idle" "busy" "waiting" "unknown" "compacting"))))
+    (should (equal faces '(parley-row-status-idle
+                           parley-row-status-busy
+                           parley-row-status-waiting
+                           parley-row-status-other
+                           parley-row-status-other)))
+    (should (equal (length (delete-dups (copy-sequence faces))) 4))))
+
+(ert-deftest parley-switch-test-the-name-column-is-fifty-wide ()
+  "A short name puts the status where a fifty-character name does.
+Fifty is what the name is padded to, so the columns after it line
+up down the list whatever the sessions are called.
+
+A name longer than fifty is drawn whole and pushes the rest of
+its own row along: a background agent is named after its prompt,
+and cutting the name cuts the one handle the operator has on the
+session."
+  (let ((short (parley-session-row
+                (vector "orc-w1" "idle" "" "/srv/orc" "tag")))
+        (fifty (parley-session-row
+                (vector (make-string 50 ?n) "idle" "" "/srv/orc" "tag")))
+        (long (parley-session-row
+               (vector (make-string 62 ?n) "idle" "" "/srv/orc" "tag"))))
+    (should (equal (substring short 52 56) "idle"))
+    (should (equal (substring fifty 52 56) "idle"))
+    (should (equal (get-text-property 52 'face short) 'parley-row-status-idle))
+    (should (string-prefix-p (make-string 62 ?n) long))
+    (should (equal (substring long 64 68) "idle"))))
+
+(ert-deftest parley-switch-test-the-read-only-mark-shares-the-status-column ()
+  "The mark is drawn after the status, in the status column.
+No column is kept for it: one would be blank on every session
+that has a pane.  `waiting [RO]' is the longest the two come to
+together and is what twelve characters leave room for, so the
+working directory begins at the same offset marked or not."
+  (let ((marked (parley-session-row
+                 (vector "orc-w1" "waiting" "[RO]" "/srv/orc" "tag")))
+        (plain (parley-session-row
+                (vector "orc-w1" "waiting" "" "/srv/orc" "tag"))))
+    (should (equal (substring marked 52 64) "waiting [RO]"))
+    (should (equal (get-text-property 60 'face marked) 'parley-row-read-only))
+    (should (equal (substring marked 66 74) "/srv/orc"))
+    (should (equal (substring plain 66 74) "/srv/orc"))
+    (should-not (string-match-p "\\[RO\\]" plain))))
+
+(ert-deftest parley-switch-test-the-placeholders-are-faced-like-a-value ()
+  "A session reported with no name and no status is coloured too.
+Its `unnamed' and `unknown' stand in the same columns as any
+other session's name and status and carry the same faces: a row
+drawn in the default face is the row the operator cannot pick out
+of a dozen, and the session nothing is known about is not the one
+to hide."
+  (parley-switch-test--with-locations
+    (let ((row (parley-session-row
+                (parley-session-fields (parley-switch-test--session 3)))))
+      (should (string-prefix-p "unnamed" row))
+      (should (equal (get-text-property 0 'face row) 'parley-row-name))
+      (should (equal (substring row 52 64) "unknown [RO]"))
+      (should (equal (get-text-property 52 'face row)
+                     'parley-row-status-other))
+      (should (equal (get-text-property 60 'face row)
+                     'parley-row-read-only)))))
 
 
 ;;; The order

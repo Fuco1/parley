@@ -314,22 +314,91 @@ placeholders for a name and a status `claude agents' did not
 report are chosen once here rather than by each frontend."
   (vector (or (plist-get session :name) "unnamed")
           (or (plist-get session :status) "unknown")
-          (if (plist-get session :pane) "" "read only")
+          (if (plist-get session :pane) "" "[RO]")
           (abbreviate-file-name (plist-get session :cwd))
           (parley-session-tag session)))
 
+;; Both frontends draw this row, so the faces go on it:
+;; `completing-read' displays a face on a candidate as readily as a
+;; sallet buffer does, and faces the picker owned would leave the
+;; minibuffer fallback plain.
+
+(defface parley-row-name '((t :inherit font-lock-function-name-face))
+  "Face for the name column of a session row.")
+
+(defface parley-row-status-idle '((t :inherit success))
+  "Face for the status column of a session that is idle.")
+
+(defface parley-row-status-busy '((t :inherit warning))
+  "Face for the status column of a session that is busy.")
+
+(defface parley-row-status-waiting '((t :inherit error))
+  "Face for the status column of a session that is waiting.")
+
+(defface parley-row-status-other '((t :inherit shadow))
+  "Face for a status column holding a status parley does not name.")
+
+(defface parley-row-read-only '((t :inherit font-lock-constant-face))
+  "Face for the mark saying a session cannot be typed into.")
+
+(defface parley-row-directory '((t :inherit font-lock-string-face))
+  "Face for the working directory column of a session row.")
+
+(defface parley-row-tag '((t :inherit font-lock-comment-face))
+  "Face for the tag column of a session row.")
+
+(defun parley--status-face (status)
+  "Return the face the status column draws STATUS in.
+\"idle\", \"busy\" and \"waiting\" are what the operator scans a
+list for, so each has a colour of its own.  Any other status --
+including the \"unknown\" placeholder for a session `claude
+agents' reports none for -- is drawn in
+`parley-row-status-other'."
+  (cond ((equal status "idle") 'parley-row-status-idle)
+        ((equal status "busy") 'parley-row-status-busy)
+        ((equal status "waiting") 'parley-row-status-waiting)
+        (t 'parley-row-status-other)))
+
+(defun parley--column (string width)
+  "Return STRING padded with unfaced spaces to WIDTH characters.
+The padding carries no face of its own, so a column face a theme
+gives a background to paints the value and not the gap after it.
+
+A string longer than WIDTH is returned whole and pushes the rest
+of its own row along: cutting the name is cutting the handle the
+operator has on the session."
+  (concat string (make-string (max 0 (- width (length string))) ?\s)))
+
 (defun parley-session-row (fields)
-  "Return FIELDS as one row of columns, the name first.
+  "Return FIELDS as one row of faced columns, the name first.
 FIELDS is a vector from `parley-session-fields'.  A row is what
 `completing-read' completes over, because it matches one flat
 string and the annotation has to be inside it; the sallet
-renderer draws the same row from the same fields.
+renderer draws the same row from the same fields.  The faces are
+on the string itself, so both frontends colour a session alike.
 
-The read only mark is early in the row and not after the tag,
-which is the longest column and the first thing a narrow window
-drops: a mark the operator has to scroll to see is one he types
-past."
-  (apply #'format "%-16s  %-7s  %-9s  %-40s  %s" (append fields nil)))
+The read only mark is drawn inside the status column, after the
+status, and has none of its own: a column of its own is blank on
+every session that has a pane, which is nearly all of them, and
+what it holds reads as something about the status anyway.  Twelve
+characters is what the two come to together at their longest,
+\"waiting [RO]\"."
+  (let ((name (aref fields 0))
+        (status (aref fields 1))
+        (mark (aref fields 2))
+        (directory (aref fields 3))
+        (tag (aref fields 4)))
+    (concat
+     (parley--column (propertize name 'face 'parley-row-name) 50) "  "
+     (parley--column
+      (concat (propertize status 'face (parley--status-face status))
+              (unless (equal mark "")
+                (concat " " (propertize mark 'face 'parley-row-read-only))))
+      12)
+     "  "
+     (parley--column (propertize directory 'face 'parley-row-directory) 40)
+     "  "
+     (propertize tag 'face 'parley-row-tag))))
 
 (defun parley-read-session ()
   "Read one of the live sessions in the minibuffer and return its record.
