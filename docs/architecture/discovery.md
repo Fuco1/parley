@@ -124,3 +124,17 @@ it along that one row, and the alternative cuts the handle the operator picks a
 session by — two sessions in sibling worktrees come back under one name, and a
 background agent is named after its prompt, so the tail of a name is where the
 difference often is.
+
+**The status is the one column cut to its width.** It holds one of a handful of
+values — parley names three and `claude agents` may report a fourth tomorrow —
+so a cut there loses nothing anyone picks a session by, while a status running
+long would carry every column after it out of line on that row. The name and
+the working directory are the handles, and neither is ever cut.
+
+**A column is measured as it is drawn.** A width in characters is not a width
+on screen: a name in a script drawn two columns to the glyph would put that
+row's status past every other row's, and the columns exist to be read down.
+
+**A column's face covers the column and not only the value in it**, so a face
+given a background colours a column rather than a stripe as long as whatever
+happens to be in it.
