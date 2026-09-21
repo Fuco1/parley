@@ -362,6 +362,126 @@ no error either, which is the third tag shape."
                                  "/7c1d0f9a-0000-4000-8000-000000000003.jsonl"))))))
 
 
+;;; What a session is doing
+
+;; The status reader is pointed at a directory of its own, and the pid
+;; in it is this Emacs: the reader compares the file's `procStart'
+;; against what /proc reports for that pid, so the fixture has to be
+;; about a process that is really running and no invented pid will do.
+;; The one test about a process that is gone picks a pid /proc has
+;; nothing under.
+
+(defconst parley-test--session-id "0b1b9b7c-1111-4000-8000-000000000001"
+  "The session the status fixtures are about.")
+
+(defun parley-test--proc-start (pid)
+  "Return field 22 of `/proc/PID/stat', split on whitespace.
+The reader finds that field another way -- from the closing paren
+of the process name, the name being the one field that can hold a
+space -- and a fixture it built itself would agree with it
+whatever either of them did.  This Emacs is called `emacs', so
+splitting the line works here and says so independently."
+  (with-temp-buffer
+    (insert-file-contents (format "/proc/%s/stat" pid))
+    (nth 21 (split-string (buffer-string)))))
+
+(defun parley-test--dead-pid ()
+  "Return a pid no process on this machine has."
+  (let ((pid 999999))
+    (while (file-exists-p (format "/proc/%d" pid))
+      (setq pid (1+ pid)))
+    pid))
+
+(cl-defun parley-test--write-session-file
+    (pid &key (status "busy") (session-id parley-test--session-id)
+         (proc-start nil proc-start-p))
+  "Write the file session PID writes about itself.
+What is not named is what a live session's file really holds: the
+session the tests ask about, and the start time /proc reports for
+PID.  A test names the one field it is about."
+  (with-temp-file (expand-file-name (format "%s.json" pid)
+                                    parley-sessions-directory)
+    (insert (json-serialize
+             `((pid . ,pid)
+               (sessionId . ,session-id)
+               (procStart . ,(if proc-start-p
+                                 proc-start
+                               (parley-test--proc-start pid)))
+               (status . ,status)
+               (updatedAt . 1790018687378))))))
+
+(defmacro parley-test--with-sessions-directory (&rest body)
+  "Run BODY with `parley-sessions-directory' an empty directory of its own."
+  (declare (indent 0))
+  `(let ((parley-sessions-directory
+          (make-temp-file "parley-test-sessions-" t)))
+     (unwind-protect (progn ,@body)
+       (delete-directory parley-sessions-directory t))))
+
+(defun parley-test--status (&optional pid)
+  "Return what the reader says the fixture session is doing.
+PID defaults to this Emacs, which is the process the fixtures are
+written about."
+  (parley-session-status (list :pid (or pid (emacs-pid))
+                               :session-id parley-test--session-id)))
+
+(ert-deftest parley-test-reads-the-three-statuses-a-session-reports ()
+  "Each status a live session writes about itself reads as its own value.
+Waiting is its own value and not a kind of idle: an idle session
+will read what is typed at it next and a waiting one is going
+nowhere until the operator answers it."
+  (dolist (pair '(("busy" . working) ("waiting" . waiting) ("idle" . idle)))
+    (parley-test--with-sessions-directory
+      (parley-test--write-session-file (emacs-pid) :status (car pair))
+      (should (eq (parley-test--status) (cdr pair))))))
+
+(ert-deftest parley-test-a-status-the-reader-does-not-know-is-unknown ()
+  "A status nobody here has a value for is unknown and never working."
+  (dolist (status '("compacting" "busy " "BUSY" ""))
+    (parley-test--with-sessions-directory
+      (parley-test--write-session-file (emacs-pid) :status status)
+      (should (eq (parley-test--status) 'unknown)))))
+
+(ert-deftest parley-test-another-sessions-file-is-unknown ()
+  "A file about another session says nothing about this one.
+A pane is reused, and the session started in it next is another
+conversation with the same pid in front of it."
+  (parley-test--with-sessions-directory
+    (parley-test--write-session-file
+     (emacs-pid) :status "busy"
+     :session-id "0b1b9b7c-2222-4000-8000-000000000002")
+    (should (eq (parley-test--status) 'unknown))))
+
+(ert-deftest parley-test-a-missing-file-is-unknown ()
+  "A session with no file at all is unknown and not an error."
+  (parley-test--with-sessions-directory
+    (should (eq (parley-test--status) 'unknown))))
+
+(ert-deftest parley-test-a-reused-pid-is-unknown ()
+  "A file whose `procStart' is not the running process's is unknown.
+A pid is handed on, and /proc having something under it says only
+that some process has it -- without this a session would read as
+working for as long as whatever inherited its pid lives."
+  (parley-test--with-sessions-directory
+    (parley-test--write-session-file (emacs-pid) :status "busy"
+                                     :proc-start "1613841")
+    (should (eq (parley-test--status) 'unknown))))
+
+(ert-deftest parley-test-a-session-whose-process-is-gone-is-unknown ()
+  "A session that died leaves a file still saying what it was doing.
+Nothing in the file says otherwise, so what says so is the pid:
+/proc has nothing under it.  A file carrying no start time at all
+is the same answer and not a match against the nothing /proc has
+to say about a process that is not there."
+  (parley-test--with-sessions-directory
+    (let ((pid (parley-test--dead-pid)))
+      (parley-test--write-session-file pid :status "busy"
+                                       :proc-start "1613841")
+      (should (eq (parley-test--status pid) 'unknown))
+      (parley-test--write-session-file pid :status "busy" :proc-start :null)
+      (should (eq (parley-test--status pid) 'unknown)))))
+
+
 ;;; Reading a session
 
 (ert-deftest parley-test-resolves-the-row-picked-to-its-own-record ()

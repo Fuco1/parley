@@ -57,6 +57,13 @@ Each session's transcript is SESSION-ID.jsonl in the
 subdirectory named after the session's working directory."
   :type 'directory)
 
+(defcustom parley-sessions-directory "~/.claude/sessions"
+  "Directory Claude Code keeps one file per session under.
+Each session's file is PID.json and holds that session's own
+account of itself: its `status', the `sessionId' it is running
+and the `procStart' of the process writing it."
+  :type 'directory)
+
 
 ;;; Discovery
 
@@ -255,6 +262,97 @@ transcript buffer is named with it."
          (pane (plist-get session :pane))
          (location (and pane (parley--pane-location pane))))
     (if location (concat location " " id) id)))
+
+
+;;; What a session is doing
+
+;; A session writes what it is doing to `PID.json' under
+;; `parley-sessions-directory', and that file is where this is read
+;; from: `claude agents --json' reads the same files and costs 0.38 s a
+;; call, which is 0.38 s of the one thread Emacs has, and all it adds
+;; is the liveness filter that the two comparisons below make anyway.
+;;
+;; There is no heartbeat in the file -- it is written in place when the
+;; session changes what it is doing and not otherwise, so a `busy' with
+;; a `statusUpdatedAt' hours old is a session still working -- and
+;; nothing in it says the session died.  What says that is the pid: the
+;; `sessionId' has to be the one being asked about, because a pane is
+;; reused and the next session in it is another conversation, and the
+;; `procStart' has to be the one /proc reports, because a pid that has
+;; been handed to an unrelated process would otherwise read as that
+;; session forever.
+
+(defconst parley--statuses
+  '(("busy" . working) ("waiting" . waiting) ("idle" . idle))
+  "What each status a session writes about itself is read as.
+A status not named here is read as `unknown'.")
+
+(defun parley--status-file (pid)
+  "Return what session PID says about itself, nil if it says nothing.
+The contents of `PID.json' under `parley-sessions-directory' as
+an alist, and nil if there is no such file or it does not parse:
+a session that says nothing about itself is not an error, it is a
+session nothing can be said about."
+  (ignore-errors
+    (with-temp-buffer
+      (insert-file-contents
+       (expand-file-name (format "%s.json" pid) parley-sessions-directory))
+      (json-parse-buffer :object-type 'alist :null-object nil))))
+
+(defun parley--process-start (pid)
+  "Return the start time /proc reports for PID, nil if PID is not running.
+Field 22 of `/proc/PID/stat', counted from the closing paren of
+the process name: the name is field 2 and is printed in parens,
+it may hold spaces and parens of its own, and so nothing up to
+that paren can be split on whitespace.  The process state is
+field 3 and the first field after it, which puts the start time
+twentieth."
+  (ignore-errors
+    (with-temp-buffer
+      (insert-file-contents (format "/proc/%s/stat" pid))
+      (goto-char (point-max))
+      (when (search-backward ")" nil t)
+        (nth 19 (split-string (buffer-substring (1+ (point)) (point-max))))))))
+
+(defun parley-session-status (session)
+  "Return what SESSION is doing now, as one of four symbols.
+
+`working' for a session that is going, `waiting' for one that has
+stopped on something only the operator can answer, `idle' for one
+that has finished and will read what is typed at it next, and
+`unknown' for a session none of that can be said about.
+
+Waiting is not a slower kind of idle, which is why it is its own
+value: an idle session needs nothing, and a waiting one needs the
+operator and is going nowhere until it has him.  A session's file
+carries a `waitingFor' beside the status saying what it is
+waiting for, and nothing here reads it -- one sample of that
+field is no vocabulary to read it against.
+
+It is read from the session's own file and costs no subprocess.
+Two comparisons stand in for the liveness `claude agents' would
+have filtered by, and both are needed: the file's `sessionId' has
+to be the one SESSION is following, a pane being reused and the
+next session in it being another conversation, and its
+`procStart' has to be the start time /proc reports for that pid,
+a pid handed on to an unrelated process otherwise reading as this
+session for as long as that process lives.
+
+A status this does not know, a file that is not there, a file
+about another session and a process that is gone all return
+`unknown', and none of them ever returns `working': what draws a
+status draws working as motion, and motion that never stops is
+worse than no indicator at all."
+  (let* ((pid (plist-get session :pid))
+         (id (plist-get session :session-id))
+         (fields (and pid (parley--status-file pid)))
+         (start (and fields (parley--process-start pid))))
+    (or (and start
+             (stringp id)
+             (equal (alist-get 'sessionId fields) id)
+             (equal (alist-get 'procStart fields) start)
+             (cdr (assoc (alist-get 'status fields) parley--statuses)))
+        'unknown)))
 
 
 ;;; Listing a session, and reading one
