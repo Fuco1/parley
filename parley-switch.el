@@ -90,14 +90,16 @@ is what makes the columns matchable one at a time."
 (defun parley-switch--matcher (candidates state)
   "Match session CANDIDATES against the prompt of STATE, column by column.
 A token is matched against the session name, unless it begins
-with / for the working directory or % for the pane, in which case
-the prefix is part of the pattern -- a path and a pane id really
-do begin with those.  A token beginning with : matches the status
-without it.  Tokens are matched in sequence, so `orc /worker-2'
-is the session named orc in that worktree."
+with / for the working directory, @ for the tag or : for the
+status.  The / is part of the pattern, because a path really does
+begin with one; the @ and the : are not, because nothing in
+either column carries them -- a tag begins with the tmux session
+its pane is in.  Tokens are matched in sequence, so
+`orc /worker-2' is the session named orc in that worktree, and
+`orc @orc-b3:3' the one of that name in that window."
   (sallet-compose-filters-by-pattern
    `(("\\`/.*" ,(parley-switch--field-filter 3))
-     ("\\`%.*" ,(parley-switch--field-filter 4))
+     ("\\`@\\(.*\\)" 1 ,(parley-switch--field-filter 4))
      ("\\`:\\(.*\\)" 1 ,(parley-switch--field-filter 1))
      (t ,(parley-switch--field-filter 0)))
    candidates

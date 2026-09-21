@@ -116,6 +116,58 @@ value is there whoever started the session -- in the `%N' form
          (pane (and entry (substring entry (length "TMUX_PANE=")))))
     (unless (equal pane "") pane)))
 
+;; A pane id is what `tmux send-keys -t' takes and nothing the operator
+;; can act on: `%15' says nothing about where that pane is, and its `%'
+;; reads as a stray format directive wherever it is displayed.  What
+;; locates a session is its tmux session, window and pane index, and
+;; `tmux list-panes -a' maps every pane id on the server to exactly
+;; that -- the whole list in one call, so a dozen sessions cost one
+;; subprocess and not a dozen.
+
+(defvar parley--pane-locations 'unasked
+  "Where every tmux pane on this machine is, keyed by pane id.
+An alist of (PANE-ID . LOCATION), or `unasked' before tmux has
+been asked.  Nil is an answer and not the absence of one -- it is
+what a machine with no tmux server says -- so the two are
+distinct states: asking again for every session is the one thing
+the single call exists to avoid.
+
+`parley-sessions' puts this back to `unasked', so the locations
+shown beside a list are no older than the list itself.  A pane
+the operator moved to another window is somewhere else now.")
+
+(defun parley--tmux-pane-locations ()
+  "Return where every tmux pane is, as an alist of (PANE-ID . LOCATION).
+LOCATION is the pane's SESSION:WINDOW.PANE.
+
+Nil if tmux is not installed or has no server running, which is a
+machine nothing has a pane on anyway.
+
+The location is everything after the first space of a line and
+not the second field of it: a tmux session name may contain
+spaces and `list-panes' prints it as it is -- measured against
+tmux 3.2a, a session named `parley test' prints its first pane as
+`%0 parley test:0.0'."
+  (with-temp-buffer
+    (when (eq 0 (ignore-error file-error
+                  (call-process
+                   "tmux" nil t nil "list-panes" "-a" "-F"
+                   "#{pane_id} #{session_name}:#{window_index}.#{pane_index}")))
+      (delq nil
+            (mapcar (lambda (line)
+                      (when (string-match "\\`\\([^ ]+\\) \\(.+\\)\\'" line)
+                        (cons (match-string 1 line) (match-string 2 line))))
+                    (split-string (buffer-string) "\n" t))))))
+
+(defun parley--pane-location (pane)
+  "Return where tmux pane PANE is, nil if tmux reports no such pane.
+Nil rather than an error: a pane can be closed while the session
+started in it outlives it, and a session that can no longer be
+typed into is still one to read."
+  (when (eq parley--pane-locations 'unasked)
+    (setq parley--pane-locations (parley--tmux-pane-locations)))
+  (cdr (assoc pane parley--pane-locations)))
+
 (defun parley--transcript-file (cwd session-id)
   "Return the absolute path of the transcript of SESSION-ID run in CWD.
 Claude Code names the directory after CWD with every character
@@ -160,6 +212,10 @@ A record is a plist with these keys:
 
 Sessions whose standard input is not a terminal are headless
 children -- a lane running `claude -p' -- and are left out."
+  ;; The pane locations go back to unasked and are not resolved here:
+  ;; what needs one is the tag, and a list nothing tags asks tmux
+  ;; nothing at all.
+  (setq parley--pane-locations 'unasked)
   (delq nil (mapcar #'parley--session (parley--agents))))
 
 (defun parley-session-tag (session)
@@ -169,25 +225,35 @@ under one name, and a switcher row or a buffer name that cannot
 tell them apart lands in the wrong conversation.
 
 Its session id, which is the only thing a record carries that
-another record cannot also carry, and the pane it lives in before
-that when it has one.  The pane is what the operator recognises a
-session by and what he searches the switcher with, but it is not
-enough on its own: suspend the session running in a pane, start
-another there, and `claude agents' reports two live sessions in
-one pane.
+another record cannot also carry, and where its pane is before
+that when it has one: the SESSION:WINDOW.PANE that
+`parley--pane-location' resolves the record's `:pane' to.  The
+location is what the operator recognises a session by and what he
+searches the switcher with, but it is not enough on its own:
+suspend the session running in a pane, start another there, and
+`claude agents' reports two live sessions in one location.
+
+The pane id is in neither the tag nor anything built from it.  It
+is what `tmux send-keys -t' takes, typing is the only thing that
+needs it, and `:pane' is where it stays.
+
+A session outside tmux has no pane and so no location, and
+neither has one whose pane tmux no longer reports: the tag of
+each is its session id alone.
 
 The id whole, and not a head of it: a head is a prefix, two ids
-can share one, and two sessions that share a name, a pane and a
-prefix are then two the tag cannot tell apart at all -- which is
-the one thing it exists to do.  A long tag is the price, and it
-is the last column of a row and the tail of a buffer name.
+can share one, and two sessions that share a name, a location and
+a prefix are then two the tag cannot tell apart at all -- which
+is the one thing it exists to do.  A long tag is the price, and
+it is the last column of a row and the tail of a buffer name.
 
 It is here rather than in either of the files that need it,
 because both do: the switcher lists it as a column and the
 transcript buffer is named with it."
-  (let ((id (or (plist-get session :session-id) ""))
-        (pane (plist-get session :pane)))
-    (if pane (concat pane " " id) id)))
+  (let* ((id (or (plist-get session :session-id) ""))
+         (pane (plist-get session :pane))
+         (location (and pane (parley--pane-location pane))))
+    (if location (concat location " " id) id)))
 
 
 ;;; Listing a session, and reading one
@@ -226,10 +292,10 @@ stay in the order `parley-sessions' discovered them in."
 (defun parley-session-fields (session)
   "Return the columns SESSION is listed and matched by.
 A vector of five strings: its name, its status, the mark saying
-it cannot be typed into, its working directory and its tag -- the
-pane it lives in and its session id, see `parley-session-tag'.
-The tag is matched as one string, so a token beginning with %
-still finds the pane in it.
+it cannot be typed into, its working directory and its tag --
+where its pane is and its session id, see `parley-session-tag'.
+The tag is matched as one string, so a token naming a tmux window
+finds the session running in it.
 
 The mark is what says a session cannot be typed into while the
 operator is still choosing which one to open; without it the
