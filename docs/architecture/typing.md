@@ -46,17 +46,14 @@ An overlay has a position whether or not there is text under it.
 
 **Nothing the overlay shows may be buffer text.** `comint-send-input` sends
 `(buffer-substring (process-mark proc) (field-end))`, so a mark written into the
-buffer after that mark is a mark typed into the session. The `> ` at the head of
-the zone is the overlay's `before-string`: shown at a position where the buffer
-holds nothing, and it is the `> ` every turn of his is quoted with because what
-he is typing is the turn it is about to be. It opens with the blank line every
-block of conversation opens with, so the zone stands apart from the turn above
-it the way two turns do, and that line is bare because it belongs to neither.
-The band under it is a face of the zone's own, so his next turn stands apart
-from the turns it will join — and the
-run of lines a past turn is found by reads the face on buffer text at the head
-of a line, which this mark is not, so no line of the zone is taken for a turn
-already sent.
+buffer after that mark is a mark typed into the session. The `❯ ` at the head
+of the zone is the overlay's `before-string`: shown at a position where the
+buffer holds nothing, and it is the `❯ ` every turn of his is quoted with,
+because what he is typing is the turn it is about to be. The band under it is a
+face of the zone's own, so his next turn stands apart from the turns it will
+join — and the run of lines a past turn is found by reads the face on buffer
+text at the head of a line, which this mark is not, so no line of the zone is
+taken for a turn already sent.
 
 **`line-prefix` is not what shows it**, though it is the right shape — it puts
 text at the head of a line on screen without putting it in the buffer. It is
@@ -75,6 +72,28 @@ the last character typed. That line is painted by a space carrying
 Its `cursor` property is what keeps point drawn at the head of that space
 rather than at the far end of it, where the operator would be watching his
 cursor stand at the window edge as he typed.
+
+**A rule closes the zone above and below**, so what he is writing is bounded on
+both sides rather than trailing off the end of a buffer whose tail is otherwise
+conversation. One rule is a line of the `before-string`, above the mark; the
+other a line of the `after-string`, below the band. Neither is buffer text, for
+the reason the mark is not.
+
+**Each rule is a line drawn on a space stretched to the right edge**, which is
+what makes it run the width of the window whatever that is — measured on Emacs
+28.2 in a 60 column tmux pane, `capture-pane -e` shows the underline SGR over
+every column of the row. A line built from `─` would be a string as wide as the
+window when it was built, and nothing rewrites this buffer after an insertion,
+so it would still be that wide after a resize.
+
+**The rule above is drawn by `:underline` and the one below by `:overline`**,
+so each stands at the edge of its own row nearest the zone and the zone is
+closed evenly. Underlining both puts the whole of the lower row between the
+last line typed and the line closing it, which reads as a row the band forgot.
+The cost is a terminal, where the lower rule is not drawn at all: measured the
+same way, an overlined stretch of space emits no SGR where an underlined one
+emits `ESC[4m`, because Emacs has `smul` for an underline and nothing to emit
+for an overline.
 
 **The overlay is put back after every output**, since the mark it starts at has
 just moved; `comint-output-filter-functions` is where that is known, and
@@ -184,23 +203,23 @@ taken for it and dropped.
 ## A past turn is sent again as it was written
 
 **`RET` with point on a turn the operator took sends that turn to the pane**,
-with the `> ` the renderer put on each of its lines taken off, and all of it: a
+with the `❯ ` the renderer put on each of its lines taken off, and all of it: a
 prompt of four lines goes back as four lines and not as the line point stood
 on.
 
 **A turn is the run of lines whose head carries `parley-user-marker`.** One
 function quotes every turn of his whichever door it reached the buffer by, so
-the marked `> ` heads a turn the transcript delivered and one submitted here
+the marked `❯ ` heads a turn the transcript delivered and one submitted here
 alike — where `field`, which `comint-get-old-input-default` branches on, is
 `output` on the first and absent on the second, and each branch gives its own
 wrong answer. Measured against Emacs 28.2 over the test fixture with point in
-the rendered turn `what is here`, the default returns `> what is here` on the
-delivered one and `"\n> what is here\n"` on the one submitted here.
+the rendered turn `what is here`, the default returns `❯ what is here` on the
+delivered one and `"\n❯ what is here\n"` on the one submitted here.
 
-**The face and not the `> ` itself is what says whose turn it is.** An
-assistant turn quoting something is markdown with `> ` at the front of a line
-too, and that quote is markdown-mode's to hide rather than the renderer's to
-strip.
+**The face and not the mark itself is what says whose turn it is.** Any line
+may open with the characters the renderer writes — a turn of the operator's
+that quoted something does — and what tells a mark the renderer added from text
+that merely looks like one is the face it carries.
 
 **Anything that is not such a run is refused with a message.** An assistant
 turn and the one line a run of tool calls collapsed to are what reach that

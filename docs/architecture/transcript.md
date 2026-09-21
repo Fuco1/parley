@@ -79,7 +79,7 @@ colour then stops at the last character of each line; what it is painted from
 past that character is the newline ending the line, so the newline that closes
 a turn's block carries the face as well as the text before it.
 
-**The `> ` at the head of each line takes a face of its own**, so a theme can
+**The `❯ ` at the head of each line takes a face of its own**, so a theme can
 dim the mark the renderer added without dimming the words the operator wrote.
 It inherits the turn's face before anything else, so the band under it is
 unbroken.
