@@ -76,6 +76,70 @@ and needs no directory scan.
 Nothing here reads the file. What the path is for belongs to
 [transcript](transcript.md).
 
+## A live status is read from the session's own file
+
+**Every session writes what it is doing to `~/.claude/sessions/<pid>.json`**,
+beside the `sessionId` it is running, its `cwd` and a `procStart`. The pid is
+what a record already carries, so nothing has to be searched for, and one read
+of some 600 bytes answers every question parley asks about that session.
+
+**The status is four-valued: working, waiting, idle and unknown.** The file says
+`busy`, `waiting` or `idle`, and **waiting is not a slower kind of idle**: an
+idle session has finished and will read what is typed at it next, a waiting one
+has stopped and cannot go on until the operator answers it. Collapsing the two
+would draw the state that most needs him as the state that needs nothing from
+him. A waiting session's file carries a `waitingFor` as well, and the one
+observed on this machine reads `input needed`; one sample is no vocabulary, so
+that field is not read and the state is the whole of what is held.
+
+**Unknown is never working.** A status parley does not know, a file that is not
+there, a file whose `sessionId` is not the one being asked about and a session
+whose process is gone all read as unknown. Everything downstream draws working
+as motion, and motion that never stops is worse than no indicator at all.
+
+**The file alone does not say the session died**, and a session killed while
+busy leaves one saying `busy` with nothing in it to say otherwise. Two
+comparisons settle it on the same read, and both are needed. The `sessionId` has
+to be the one being asked about, a pane being reused and the next session in it
+being a different conversation. And the `procStart` has to equal the start time
+`/proc` reports for that pid — field 22 of `/proc/<pid>/stat`, equal on all 14
+of the live pids the directory held when it was checked — because `/proc/<pid>`
+existing on its own reads `busy` forever the moment an unrelated process
+inherits the pid. A stale file is not hypothetical: a session with no process
+left sat on disk saying `idle`.
+
+### The file rather than `claude agents --json`
+
+`claude agents --json` reads these same files, and the liveness filter is the
+whole of what it adds. Measured on this machine on 2026-09-21, over a directory
+of 14 session files: it costs **0.38 s a call** over three calls, and it
+reported **13 live sessions** against those 14 files. Emacs has one thread, so a
+second of reading a conversation that shelled out for a status would be a third
+of a second not drawing anything — for a filter the two comparisons above make
+anyway.
+
+### A tick, and no watch
+
+**The file carries no heartbeat.** It is written in place when a session changes
+what it is doing and not otherwise: `inotifywait` over the directory for 75 s
+saw six `MODIFY` events across two of its fourteen files, each an
+`OPEN`/`MODIFY`/`CLOSE_WRITE` on the file itself, and no create, no rename and
+no replacement. One session sat at `busy` with a status **2.5 hours** old while
+its transcript had been appended to 8 minutes earlier, and another with one
+452 s old while its transcript was being appended to as the measurement was
+taken. **So the file is what a session says about itself until it says
+otherwise**, and a reader of it is never behind the session by more than its own
+interval.
+
+**Nothing but a buffer someone is looking at consumes a status.** The switcher
+is current by construction — `parley-sessions` runs `claude agents --json` on
+every invocation and every row is built from what it returned — and nothing else
+in the package reads one. So what a file watch would buy over a tick is the
+status of a buffer no window is showing, which is worth nothing to anybody. The
+buffer reads the file itself, about once a second and only while a window is
+showing it, on a tick of its own — so killing the buffer is the whole of
+stopping it.
+
 ## Nothing in a record is guaranteed
 
 `claude agents` reports a name for most sessions and not for all, and a status
