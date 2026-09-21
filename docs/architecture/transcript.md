@@ -148,24 +148,31 @@ the thing the rendering is recomputed on. It costs nothing to undo — the colum
 are recomputed from the text under the overlay every time, so a wrap is never
 something a later render has to unpick.
 
-**The wrapped grid is written from the cells, not handed back to the aligner.**
-A cell can hold a bar that is not a column boundary — the one inside a wiki
-link, which markdown-mode's own cell reader passes over — and a wrapped line of
-such a cell is a markdown construct left open. Written back out as a table and
-parsed again, that bar is read as a boundary and the row gains a column; the
-table that was wrapped to fit then comes back wider than the window and with the
-wrong number of columns. So the cells are read once, from the table as the agent
-wrote it, where every construct in them is whole, and what is written out of
-them is the layout the aligner would have written.
+**A wrap never breaks a construct a bar stands in.** A cell can hold a bar that
+is no column boundary — the one inside a wiki link, which markdown-mode's own
+cell reader passes over — and it is read over only while the link is whole. A
+line carrying `[[target|link` alone is that construct left open, and its bar is
+a boundary again: the row reads as a column more than the table has, to anything
+parsing the wrapped form back and to the operator, whose grid goes with it. So a
+link holding a bar is one piece of the wrap however many spaces stand inside it,
+and the column it is in is floored by it exactly as a long word floors one.
 
-**A cell nothing can narrow sets a floor under its column.** Wrapping packs
-words, and a word is never broken across two lines — a table past the edge of
-the window is one the operator can still read back, where a broken word costs
-him the word. So a column holding a word longer than the room the grid leaves it
-gives nothing, and the table settles wider than the window. That is the honest
-outcome. The floor is not what keeps the word whole, which the packing does at
-any width; it is what stops the columns beside an incompressible one being
-packed tighter than the table they share will ever be.
+**The wrapped grid is written from the cells, not handed back to the aligner.**
+The widths are settled by the wrap and the padding follows from them, so a
+second pass through the aligner would only read back text just written. The
+cells are read once, from the table as the agent wrote it, where every construct
+in them is whole, and what is written out of them is the layout the aligner
+would have written.
+
+**A cell nothing can narrow sets a floor under its column.** Wrapping packs the
+pieces of a cell — its words, and a wiki link holding a bar entire — and breaks
+none of them across two lines: a table past the edge of the window is one the
+operator can still read back, where a broken word costs him the word and a
+broken link costs him the grid. So a column holding a piece longer than the room
+the grid leaves it gives nothing, and the table settles wider than the window.
+That is the honest outcome. The floor is not what keeps a piece whole, which the
+packing does at any width; it is what stops the columns beside an incompressible
+one being packed tighter than the table they share will ever be.
 
 **The aligned form closes a row the agent left open.** The outer bar at the end
 of a row is optional, and a table written by hand leaves it off; the aligned
@@ -204,11 +211,11 @@ markup inside a cell stands in the aligned form as the agent wrote it.
 **What a realignment costs.** Measured on Emacs 28.2 in batch, byte-compiled,
 counted in CPU time and taken as the best of twenty runs of two hundred
 alignments, over a table of seven rows and four columns whose aligned form is 73
-columns wide: 3.6 ms for one that fits, of which markdown-mode's own aligner is
-3.5 ms, and 8.7 ms for one wrapped into 40 columns — the aligner is run first
+columns wide: 2.8 ms for one that fits, nearly all of it markdown-mode's own
+aligner, and 5.0 ms for one wrapped into 50 columns — the aligner is run first
 either way, because whether the aligned form fits is what says a wrap is needed
-at all. A conversation holding forty tables therefore costs 0.14 s of blocked
-redisplay on a resize, and 0.35 s if every one of them has to be wrapped. The
+at all. A conversation holding forty tables therefore costs 0.11 s of blocked
+redisplay on a resize, and 0.20 s if every one of them has to be wrapped. The
 hook this runs on is called for a window added, deleted or given another buffer
 as well, and the width the tables were last aligned to is what tells a resize
 from the rest — 3.3 µs when it has not changed, which is what keeps every other
