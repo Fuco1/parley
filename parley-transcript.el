@@ -1614,7 +1614,7 @@ leaves point at the end of a line still on it."
       'parley-user-marker))
 
 (defun parley-transcript--old-input ()
-  "Return the turn point stands in, with the quote the renderer put on it taken off.
+  "Return the turn point stands in, with the renderer's mark taken off.
 
 This is the buffer's `comint-get-old-input', which is what RET on
 a past turn resubmits.  comint's default reads the `field'
