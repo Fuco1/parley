@@ -74,17 +74,19 @@
   "The jq program every line of a transcript is passed through.
 
 It emits what parley renders and no more: the role, whether the
-harness wrote the turn rather than whoever holds the role, the
-text and how many tool calls the message made.  A tool result never
-reaches Emacs, because the object is built from scratch rather
-than pruned -- the payload lives in a `tool_result' block and in
+harness injected the turn, the text and how many tool calls the
+message made.  A tool result never reaches Emacs, because the
+object is built from scratch rather than pruned -- the payload lives in a `tool_result' block and in
 a top-level `toolUseResult' field, and neither is read.
 
 `meta' is the transcript's own `isMeta', which every turn the
 harness injected carries and no turn the operator typed does.  It
-is compared against true rather than taken as it stands, because
-the field is absent from most records and false on many of the
-rest, and the render pass wants one answer for both.
+is compared against true rather than emitted as it stands,
+because the field is absent far more often than it is written and
+an absent one would come through as null: measured over the 917
+transcripts on this machine, `isMeta' is true on 929 `user'
+records, absent from the other 215405 messages, and written false
+only on `system' lines, which this projection drops.
 
 A message that renders to nothing is dropped rather than emitted
 empty, which is what becomes of a `tool_result' turn and of an
@@ -293,9 +295,10 @@ transcript that does not exist yet on stderr, which shares the
 buffer, and a pipeline that died mid-object left half of one.
 
 JSON false is read as nil and not as the `:false' the default
-would give, because `:false' is a symbol and every symbol but nil
-is true here -- so a `meta' of false would say the opposite of
-what it says."
+would give, because every symbol but nil is true in Emacs Lisp.
+The projection writes `meta' false on every record that is no
+harness injection, which is nearly all of them, and `:false'
+would make each of those say it is one."
   (and (string-prefix-p "{" line)
        (ignore-errors
          (json-parse-string line :object-type 'alist :false-object nil))))
@@ -1653,11 +1656,10 @@ operator's whichever door it came in by.  The face rather than the
 markdown with `> ' at the front of a line too, and that quote is
 markdown-mode's to hide rather than this one's to strip.
 
-Anything else -- an assistant turn, the line a run of tool calls
-collapsed to, a blank line between two blocks -- is nobody's turn
-for the operator to send again, and a `user-error' naming that
-beats typing a line of somebody else's markdown into a live
-session."
+Anything else -- an assistant turn, a line the renderer wrote, a
+blank line between two blocks -- is nobody's turn for the
+operator to send again, and a `user-error' naming that beats
+typing a line of somebody else's markdown into a live session."
   (unless (parley-transcript--turn-line-p)
     (user-error "Only a turn of yours can be sent again, and point is not on one"))
   (save-excursion
