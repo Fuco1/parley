@@ -79,8 +79,9 @@
 It emits what parley renders and no more: the role, whether the
 harness injected the turn, the text and how many tool calls the
 message made.  A tool result never reaches Emacs, because the
-object is built from scratch rather than pruned -- the payload lives in a `tool_result' block and in
-a top-level `toolUseResult' field, and neither is read.
+object is built from scratch rather than pruned -- the payload
+lives in a `tool_result' block and in a top-level
+`toolUseResult' field, and neither is read.
 
 `meta' is the transcript's own `isMeta', which every turn the
 harness injected carries and no turn the operator typed does.  It
