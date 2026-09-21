@@ -516,10 +516,12 @@ it.
 Alignment only ever adds padding, so a table it takes past WIDTH
 is laid out again by `parley-transcript--wrapped', which wraps
 each cell over as many lines as it needs and grows the row to
-match.  A column no wrapping can narrow -- one holding a word
-longer than the room the rest of the grid leaves it -- keeps the
-table wider than WIDTH, which is the honest outcome: a word
-broken across two lines is one the operator cannot read back.
+match.  A column no wrapping can narrow -- one holding a piece
+longer than the room the rest of the grid leaves it, a word or a
+wiki link a bar stands in -- keeps the table wider than WIDTH,
+which is the honest outcome: a word broken across two lines is
+one the operator cannot read back, and a link broken across two
+puts a bar in the grid where the table has no column.
 
 Nil when `parley-transcript--alignment' will not take TEXT, which
 is the only thing either form is refused for: what the operator
