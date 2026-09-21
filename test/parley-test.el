@@ -193,9 +193,11 @@ with no pane, which is a background agent or one started outside
 tmux, and a session whose pane tmux does not report -- a window
 closed under a session that outlived it.
 
-No `%' survives in any of them.  The pane id is what
+The pane id survives in none of them.  It is what
 `tmux send-keys -t' takes and the record keeps it; it is not what
-a switcher row or a buffer name shows."
+a switcher row or a buffer name shows.  A `%' in a location is
+not one: it came from the tmux session name, which tmux prints as
+it is."
   (let ((parley--pane-locations parley-test--pane-locations))
     (should (equal (parley-session-tag
                     (list :pane "%61" :session-id "1111ffff-0001"))
@@ -209,7 +211,10 @@ a switcher row or a buffer name shows."
     (dolist (session (list (list :pane "%61" :session-id "1111ffff-0001")
                            (list :pane nil :session-id "2222ffff-0002")
                            (list :pane "%999" :session-id "3333ffff-0003")))
-      (should-not (string-match-p "%" (parley-session-tag session))))))
+      (let ((pane (plist-get session :pane)))
+        (should-not (and pane
+                         (string-match-p (regexp-quote pane)
+                                         (parley-session-tag session))))))))
 
 (ert-deftest parley-test-asks-tmux-once-for-a-whole-list ()
   "The locations of a whole session list cost one tmux call, not one each.
@@ -250,9 +255,13 @@ neither read nor written.  Started with `-f /dev/null' because a
 `base-index' or a `pane-base-index' in a configuration file moves
 every index this asserts.
 
-The session is named with a space in it, which tmux allows and
-`list-panes' prints as it is: a location is everything after the
-first space of a line and not the second field of it.
+The session is named `parley %test\', which tmux allows and
+`list-panes' prints as it is.  The space says a location is
+everything after the first space of a line and not the second
+field of it.  The `%' says a location may legally carry one --
+tmux 3.2a sanitises `:' and `.' in a session name and nothing
+else, measured here -- so what the tag is free of is the pane id
+and not the character it begins with.
 
 A pane the server does not report resolves to no location and to
 no error either, which is the third tag shape."
@@ -267,24 +276,28 @@ no error either, which is the third tag shape."
     (unwind-protect
         (progn
           (parley-test--tmux "-f" "/dev/null" "new-session" "-d"
-                             "-s" "parley test")
+                             "-s" "parley %test")
           (let ((split (parley-test--tmux "split-window" "-d" "-P"
                                           "-F" "#{pane_id}"
-                                          "-t" "parley test:"))
+                                          "-t" "parley %test:"))
                 (window (parley-test--tmux "new-window" "-d" "-P"
                                            "-F" "#{pane_id}"
-                                           "-t" "parley test:")))
+                                           "-t" "parley %test:")))
             (should (string-prefix-p "%" split))
             (should (string-prefix-p "%" window))
             (let ((locations (parley--tmux-pane-locations)))
-              (should (equal (cdr (assoc split locations)) "parley test:0.1"))
-              (should (equal (cdr (assoc window locations)) "parley test:1.0"))
+              (should (equal (cdr (assoc split locations)) "parley %test:0.1"))
+              (should (equal (cdr (assoc window locations)) "parley %test:1.0"))
               (should (equal (sort (mapcar #'cdr locations) #'string<)
-                             '("parley test:0.0" "parley test:0.1"
-                               "parley test:1.0"))))
+                             '("parley %test:0.0" "parley %test:0.1"
+                               "parley %test:1.0"))))
             (should (equal (parley-session-tag
                             (list :pane window :session-id "abc"))
-                           "parley test:1.0 abc"))
+                           "parley %test:1.0 abc"))
+            (should-not (string-match-p (regexp-quote window)
+                                        (parley-session-tag
+                                         (list :pane window
+                                               :session-id "abc"))))
             (should-not (parley--pane-location "%999"))
             (should (equal (parley-session-tag
                             (list :pane "%999" :session-id "abc"))

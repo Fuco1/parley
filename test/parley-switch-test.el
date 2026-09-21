@@ -67,7 +67,7 @@
               :pane "%63" :transcript "/tmp/3333ffff.jsonl")))
 
 (defconst parley-switch-test--pane-locations
-  '(("%23" . "app-8e:1.0")
+  '(("%23" . "app%8e:1.0")
     ("%61" . "orc-b3743fe3:2.0")
     ("%62" . "orc-b3743fe3:3.1")
     ("%64" . "orc-b3743fe3:4.0"))
@@ -108,7 +108,7 @@ opens one builds a session it can really follow."
               (buffer-list)))
 
 (defconst parley-switch-test--expected-tags
-  '((1 . "app-8e:1.0 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
+  '((1 . "app%8e:1.0 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
     (2 . "orc-b3743fe3:2.0 1111ffff-0000-4000-8000-000000000001")
     (3 . "7c1d0f9a-0000-4000-8000-000000000003")
     (4 . "orc-b3743fe3:3.1 2222ffff-0000-4000-8000-000000000002")
@@ -118,6 +118,9 @@ opens one builds a session it can really follow."
 A whole session id, and where the session's pane is before it
 when tmux reports one -- never the pane id itself, which is what
 `tmux send-keys -t' takes and nothing the operator can act on.
+One location carries a `%\' because a tmux session name may:
+tmux 3.2a sanitises `:\' and `.\' in one and nothing else, so a
+`%\' here is a session name's and never a pane id.
 These are written out rather than computed with
 `parley-session-tag', so that a test comparing a tag against one
 of them is comparing it against something a change to that
@@ -183,8 +186,9 @@ tmux and has no pane to be told apart by, and one has a pane tmux
 reports no location for, so what every tag ends in is the session
 id -- the one thing two records cannot share.
 
-And no tag carries a `%': the pane id is what the record keeps
-for `tmux send-keys -t' and not what a row shows."
+And no tag carries the pane id its location was resolved from:
+that is what the record keeps for `tmux send-keys -t' and not
+what a row shows."
   (parley-switch-test--with-locations
     (let ((tags (mapcar #'parley-session-tag
                         (list (parley-switch-test--session 2)
@@ -194,7 +198,10 @@ for `tmux send-keys -t' and not what a row shows."
       (should (equal tags (mapcar #'parley-switch-test--tag '(2 4 5 6))))
       (should (equal (length (delete-dups (copy-sequence tags))) 4))
       (dolist (session parley-switch-test--sessions)
-        (should-not (string-match-p "%" (parley-session-tag session)))))))
+        (let ((pane (plist-get session :pane)))
+          (should-not (and pane
+                           (string-match-p (regexp-quote pane)
+                                           (parley-session-tag session)))))))))
 
 (ert-deftest parley-switch-test-row-begins-with-the-name ()
   "Every row begins with the session name and carries every field."
@@ -388,6 +395,10 @@ candidate, so nothing has to find it again by a name it shares."
                        (mapcar #'parley-switch-test--tag '(2 4))))
         (should (equal (tags "@2222ffff")
                        (list (parley-switch-test--tag 4))))
+        ;; A `%' in a location is the tmux session name's, so the
+        ;; column carries it and the @ token finds it.
+        (should (equal (tags "@app%8e:1.0")
+                       (list (parley-switch-test--tag 1))))
         ;; And a pane id finds nothing at all: no column carries one,
         ;; so a % token is matched against the name like any other.
         (should (equal (tags "%61") nil))
