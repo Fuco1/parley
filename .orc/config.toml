@@ -14,13 +14,19 @@
 # defined it binds a LEXICAL variable -- and the `defcustom` that runs when
 # `byte-compile-file` then pulls bytecomp in refuses to redefine one as dynamic.
 # The compiler never runs and emacs exits 255.
+#
+# `byte-compile-file` does not signal when a file fails to compile: it prints
+# the error and returns nil. Under a bare `mapc` that is a pass -- emacs exits
+# 0 with a file uncompiled and the error scrolled past. `memq nil` over the
+# results is what turns it into an exit code. `mapcar` and not a short-circuit,
+# so one bad file does not hide the next one's errors.
 
 [repo]
 target = "master"
 
 [checks.compile]
 commands = [
-  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(let ((byte-compile-error-on-warn t)) (mapc (quote byte-compile-file) (directory-files-recursively default-directory "[.]el$")))' ''',
+  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(let ((byte-compile-error-on-warn t)) (when (memq nil (mapcar (quote byte-compile-file) (directory-files-recursively default-directory "[.]el$"))) (kill-emacs 1)))' ''',
 ]
 
 [checks.test]
