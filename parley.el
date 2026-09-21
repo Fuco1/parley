@@ -116,13 +116,10 @@ value is there whoever started the session -- in the `%N' form
          (pane (and entry (substring entry (length "TMUX_PANE=")))))
     (unless (equal pane "") pane)))
 
-;; A pane id is what `tmux send-keys -t' takes and nothing the operator
-;; can act on: `%15' says nothing about where that pane is, and its `%'
-;; reads as a stray format directive wherever it is displayed.  What
-;; locates a session is its tmux session, window and pane index, and
-;; `tmux list-panes -a' maps every pane id on the server to exactly
-;; that -- the whole list in one call, so a dozen sessions cost one
-;; subprocess and not a dozen.
+;; A pane id is what `tmux send-keys -t' takes; where the pane is is
+;; what a session is shown by, because `%15' locates nothing the
+;; operator can act on.  `tmux list-panes -a' maps the one to the
+;; other, and it maps the whole server in a single call.
 
 (defvar parley--pane-locations 'unasked
   "Where every tmux pane on this machine is, keyed by pane id.
