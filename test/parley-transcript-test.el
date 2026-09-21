@@ -70,6 +70,31 @@ a table or a fence in it is written here as itself."
                   "\"content\":[{\"type\":\"text\",\"text\":%s}]}}")
           (json-serialize text)))
 
+(defun parley-transcript-test--user-turn (text)
+  "Return a transcript line for a user turn that said TEXT."
+  (format (concat "{\"type\":\"user\",\"message\":"
+                  "{\"role\":\"user\",\"content\":\"%s\"}}")
+          text))
+
+(defun parley-transcript-test--command-turn (name args)
+  "Return a transcript line for the turn the slash command NAME with ARGS writes.
+Three tags and not one, and the name twice over: the harness
+writes it again without its slash in `<command-message>'.  ARGS
+is empty under a command the operator gave none, which is what
+`/plugin' is.  Nothing here carries `isMeta', because the
+transcript marks none of this."
+  (parley-transcript-test--user-turn
+   (format (concat "<command-message>%s</command-message>\\n"
+                   "<command-name>%s</command-name>\\n"
+                   "<command-args>%s</command-args>")
+           (string-remove-prefix "/" name) name args)))
+
+(defun parley-transcript-test--local-output (text)
+  "Return a transcript line for a local command printing TEXT at the terminal.
+Under the operator's role and unmarked, as the harness writes it."
+  (parley-transcript-test--user-turn
+   (concat "<local-command-stdout>" text "</local-command-stdout>")))
+
 (defun parley-transcript-test--meta-turn (text)
   "Return a transcript line for an injected turn carrying TEXT.
 A harness injection reaches a transcript under the operator's
@@ -727,10 +752,10 @@ because it is what the skill calls itself; one whose body opens
 with none is named by the last segment of the directory it was
 read from.  The caveat a local command prepends is shown nowhere
 at all, a constant line saying an injection happened carrying no
-information.  And a turn of the operator's holding the
-`<command-name>' a slash command writes is not marked, so it is
-quoted and indexed as any turn of his is -- the mark is the whole
-of the test, and no pattern in the text is consulted.
+information.  And the turn a slash command writes is not marked,
+so it is quoted and indexed as any turn of his is -- the mark is
+the whole of the test, and the tags in that turn's text decide
+nothing about which of the two it is.
 
 The instructions a load carries are the point of collapsing it:
 a skill body is a thousand lines of them, and none belongs in a
@@ -745,15 +770,14 @@ buffer whose subject is the conversation."
              (parley-transcript-test--skill-load
               "/home/x/.claude/plugins/cache/ydistri/3.2.0/skills/unslop" nil))
             (parley-transcript-test--meta-turn parley-transcript-test--caveat)
-            (parley-transcript-test--user-turn
-             "<command-name>/ydistri:unslop</command-name>"))
+            (parley-transcript-test--command-turn "/ydistri:unslop" ""))
     (should (equal (parley-transcript-test--wait
                     (lambda ()
                       (let ((shown (parley-transcript-test--shown buffer)))
                         (and (= 3 (length shown)) shown))))
                    (list "● Loaded skill \"Ponytail\""
                          "● Loaded skill \"unslop\""
-                         "❯ <command-name>/ydistri:unslop</command-name>")))
+                         "❯ /ydistri:unslop")))
     (with-current-buffer buffer
       (goto-char (point-min))
       (should-not (search-forward parley-transcript-test--skill-body nil t))
@@ -768,7 +792,7 @@ buffer whose subject is the conversation."
     ;; prompt like any other, and the two loads above it are in no
     ;; index however they render.
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
-                   (list "<command-name>/ydistri:unslop</command-name>")))))
+                   (list "/ydistri:unslop")))))
 
 (ert-deftest parley-transcript-test-keeps-a-run-unbroken-across-an-injection ()
   "An injection the buffer does not show is no break in a run of tool calls.
@@ -790,6 +814,74 @@ blank block where the caveat was."
     (with-current-buffer buffer
       (goto-char (point-min))
       (should-not (search-forward "\n\n\n" nil t)))))
+
+(ert-deftest parley-transcript-test-shows-nothing-for-a-local-commands-output ()
+  "The output a local command printed is no turn, and is shown nowhere.
+
+It renders the empty string a turn that said nothing renders to,
+so the run of tool calls it stands in is unbroken and there is no
+blank block where it was: two calls, two of these, three calls,
+and one line saying five.
+
+The escape bytes settle with it.  A compaction notice arrives
+wrapped in a real ESC[2m -- jq hands the byte through as the six
+characters of its JSON escape and `json-parse-string' turns them
+back into it -- and nothing strips one out of this buffer, which
+has `ansi-color-process-output' taken out of its filters."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--tool-turn 2)
+            (parley-transcript-test--local-output
+             "\\u2713 Installed orc. Plugin is now active.")
+            (parley-transcript-test--local-output
+             "\\u001b[2mCompacted (ctrl+o to see full summary)\\u001b[22m")
+            (parley-transcript-test--tool-turn 3))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (equal shown (list "● 5 tool calls")) shown))))
+                   (list "● 5 tool calls")))
+    (with-current-buffer buffer
+      (dolist (absent (list "\n\n\n" "Installed orc" "Compacted" "\e"
+                            "local-command-stdout"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t))))
+    ;; None of it is a prompt either, so the operator jumping through
+    ;; the index cannot land where one was.
+    (should-not (parley-transcript-test--index buffer))))
+
+(ert-deftest parley-transcript-test-renders-a-command-turn-as-the-line-typed ()
+  "A slash command's turn is the one line the operator typed, quoted.
+
+Three shapes of it.  A command with an argument is its name and
+that argument on one line, which is what he typed at the prompt;
+a command he gave no argument -- `/plugin' -- is the name alone,
+the space of the joining gone with the trim; and an argument he
+pasted over several lines keeps them, each quoted as the first
+is.
+
+No tag reaches the buffer and neither does `<command-message>',
+which is the name a second time without its slash and says
+nothing the name does not."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--command-turn
+             "/one" "so what's the actual fix then")
+            (parley-transcript-test--command-turn "/plugin" "")
+            (parley-transcript-test--command-turn
+             "/note" "write this down:\\nand this under it"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 4 (length shown)) shown))))
+                   (list "❯ /one so what's the actual fix then"
+                         "❯ /plugin"
+                         "❯ /note write this down:"
+                         "❯ and this under it")))
+    (with-current-buffer buffer
+      (dolist (absent (list "<command" "</command" "one</" ">plugin<"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t))))))
 
 
 ;;; Typing into the pane
@@ -843,12 +935,6 @@ BODY sees `tmux-log', the file every call appends a record to;
     (goto-char (point-max))
     (insert text)
     (comint-send-input)))
-
-(defun parley-transcript-test--user-turn (text)
-  "Return a transcript line for a user turn that said TEXT."
-  (format (concat "{\"type\":\"user\",\"message\":"
-                  "{\"role\":\"user\",\"content\":\"%s\"}}")
-          text))
 
 (defun parley-transcript-test--tail (buffer characters)
   "Return the last CHARACTERS characters of BUFFER, properties and all."
@@ -1115,6 +1201,42 @@ is a buffer that has seen the message too."
                                 (parley-transcript-test--shown buffer)))))
     (should (= 1 (seq-count (lambda (line) (equal line "❯ hello there"))
                             (parley-transcript-test--shown buffer))))))
+
+(ert-deftest parley-transcript-test-does-not-render-a-command-twice ()
+  "A slash command submitted at the prompt appears once and not twice.
+
+The transcript's copy of it is three tags around what he typed,
+and `parley-transcript--echoed-p' recognises a copy by comparing
+the text that was sent -- so the copy has to be unwrapped before
+it is compared or it matches nothing and the turn stands in the
+buffer a second time.
+
+The turn that follows it is what says the copy went by: it is
+behind the message in the file, so a buffer holding it is a
+buffer that has seen the copy too."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit
+       buffer "/one so what's the actual fix then"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--command-turn
+                 "/one" "so what's the actual fix then")
+                (parley-transcript-test--text-turn "of course")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "of course"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((shown (parley-transcript-test--shown buffer))
+          (quoted "❯ /one so what's the actual fix then"))
+      ;; Once, and as the line he typed.  The count on its own is
+      ;; satisfied by a copy rendered as its three tags, which is no
+      ;; line it looks at; the two lines on their own are satisfied by
+      ;; a second copy of the line, which is what stands above the
+      ;; answer when the guard misses it.
+      (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown)))
+      (should (equal (last shown 2) (list quoted "of course"))))))
 
 (ert-deftest parley-transcript-test-drops-an-echo-however-late-it-comes-back ()
   "Messages submitted at the prompt appear once each, however late they land.
@@ -2068,6 +2190,25 @@ was there before these two arrived still points at itself."
                      (list "❯ what is here"
                            "❯ first line of it"
                            (concat "❯ " (make-string 100 ?x))))))))
+
+(ert-deftest parley-transcript-test-labels-a-command-turn-by-what-is-shown ()
+  "A command turn is indexed under the line the buffer shows, not the wrapper.
+
+The index is recorded from the record's text in the render pass,
+so a turn indexed before it was unwrapped would be labelled
+`<command-message>one</command-message>' -- one label for every
+slash command of that name, and two of them told apart by a
+number rather than by what he asked."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--command-turn "/one" "what is here")
+            (parley-transcript-test--command-turn "/one" "and what is there")
+            (parley-transcript-test--command-turn "/plugin" ""))
+    (should (parley-transcript-test--wait
+             (lambda () (= 3 (length (parley-transcript-test--shown buffer))))))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "/one what is here" "/one and what is there"
+                         "/plugin")))))
 
 (ert-deftest parley-transcript-test-tells-two-prompts-of-one-line-apart ()
   "Two prompts with one first line get a name each, and both can be reached.
