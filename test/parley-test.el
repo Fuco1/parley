@@ -224,7 +224,13 @@ that needs a location resolves every session's; a
 
 And the next list asks again: a pane moved to another window is
 somewhere else now, so the map is dropped by `parley-sessions'
-and not kept for the rest of the Emacs session."
+and not kept for the rest of the Emacs session.
+
+A tmux that reports no pane at all still costs one call and not
+one per session, which is why `unasked' and nil are two states
+and not one: a server that died under the list answers nothing
+for every session in it, and asking it again per session is the
+dozen subprocesses the one call exists to avoid."
   (parley-test--with-fixtures
     (let ((calls nil)
           (parley--pane-locations 'unasked))
@@ -245,7 +251,19 @@ and not kept for the rest of the Emacs session."
                          '("tmux" "list-panes" "-a" "-F"
                            "#{pane_id} #{session_name}:#{window_index}.#{pane_index}"))))
         (mapc #'parley-session-tag (parley-sessions))
-        (should (equal (length calls) 2))))))
+        (should (equal (length calls) 2))))
+    (let ((calls nil)
+          (parley--pane-locations 'unasked))
+      (cl-letf (((symbol-function 'call-process)
+                 (lambda (program &rest arguments)
+                   (push (cons program (nthcdr 3 arguments)) calls)
+                   0)))
+        (let ((sessions (parley-sessions)))
+          (should (equal (mapcar #'parley-session-tag sessions)
+                         '("9a5a5635-26c3-4705-b06e-4dc108d75439"
+                           "eb6ab7cd-21e6-434f-9bf6-f561b5852de2"
+                           "7c1d0f9a-0000-4000-8000-000000000003")))
+          (should (equal (length calls) 1)))))))
 
 (ert-deftest parley-test-a-location-is-the-session-the-window-and-the-pane ()
   "A location is the tmux session, window index and pane index of a pane.
