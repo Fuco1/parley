@@ -753,7 +753,7 @@ buffer whose subject is the conversation."
                         (and (= 3 (length shown)) shown))))
                    (list "● Loaded skill \"Ponytail\""
                          "● Loaded skill \"unslop\""
-                         "> <command-name>/ydistri:unslop</command-name>")))
+                         "❯ <command-name>/ydistri:unslop</command-name>")))
     (with-current-buffer buffer
       (goto-char (point-min))
       (should-not (search-forward parley-transcript-test--skill-body nil t))
@@ -2026,7 +2026,7 @@ typed."
              (lambda ()
                (equal (parley-transcript-test--shown buffer)
                       (list "● Loaded skill \"A commit message is one line\""
-                            "> and now commit it")))))
+                            "❯ and now commit it")))))
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
                    (list "and now commit it")))))
 
