@@ -768,8 +768,7 @@ holding a piece longer than the room the rest of the grid leaves
 it, a word or a wiki link a bar stands in -- keeps the table
 wider than WIDTH, which is the honest outcome: a word broken
 across two lines is one the operator cannot read back, and a link
-broken across two puts a bar in the grid where the table has no
-column.
+broken across two is no longer a link at all.
 
 Nil for everything `parley-transcript--written' refuses, which is
 all that either is refused for: what the operator sees is then
@@ -906,9 +905,11 @@ them whatever any width does to the grid.
 
 A cell may hold a bar that is no column boundary -- the one
 inside a wiki link, which `markdown--table-line-to-columns' reads
-over -- and what keeps that bar out of the grid is
-`parley-transcript--cell-words', which hands the wrap such a link
-whole rather than as words it may break apart."
+over.  It reaches the buffer as the agent wrote it, inside its
+cell, because the boundaries are drawn where the writer knows
+they are and nothing scans a cell for a bar.
+`parley-transcript--cell-words' is what hands the wrap such a
+link whole rather than as words it may break apart."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
     (insert (parley-transcript--table-closed text))
@@ -977,11 +978,12 @@ cell together."
 The words, except that a wiki link holding a bar is one piece
 however many spaces stand inside it.  That bar is not a column
 boundary -- `markdown--table-line-to-columns' reads over it, so
-`[[target|link words]]' is one cell and not two -- but it is only
-read over while the link is whole.  A line carrying
-`[[target|link' alone is that construct left open, and its bar is
-a boundary again: to a reader of the wrapped form, and to the
-operator, for whom the row then has a column the table does not.
+`[[target|link words]]' is one cell and not two, and every
+boundary in the grid is a `│' the writer drew -- so it stands in
+the cell the agent put it in and the operator reads it there.
+What a break costs is the link: `[[target|link' on a line of its
+own is that construct left open, and nothing reading the form
+back has a link there any more.
 
 Whether a link is read at all is markdown-mode's own
 `markdown-enable-wiki-links', which is what
@@ -990,11 +992,11 @@ over a bar.  With links off that bar is a boundary, what stands
 either side of it is a cell of its own, and there is nothing here
 to hold together.
 
-A link carrying no bar is broken like any other run of words.
-What a wrap may not do is put a bar where the grid has none, and
-`[[Page Name]]' split over two lines puts none -- while a piece
-held together is a piece the column it stands in cannot be
-narrowed past, which is width the table pays for."
+A link carrying no bar is broken like any other run of words,
+because it is the bar that says where the target ends and the
+words begin.  A piece held together is a piece the column it
+stands in cannot be narrowed past, which is width the table pays
+for."
   (let ((links nil)
         (from 0))
     (while (and markdown-enable-wiki-links
@@ -1080,9 +1082,9 @@ Whole pieces only: one that will not fit starts the next line
 rather than being broken across two, and one wider than WIDTH
 stands alone and over the end of it.  Breaking one is the thing
 wrapping a table may not do -- what a broken word costs the
-operator is the word and what a broken link costs him is a bar
-the grid does not have, where a table over the edge of the window
-costs him only the grid, which he can still read back.
+operator is the word and what a broken link costs him is the
+link, where a table over the edge of the window costs him only
+the grid, which he can still read back.
 
 `parley-transcript--column-widths' is what keeps a table from
 asking for that overflow at all, by never narrowing a column past
@@ -1216,21 +1218,17 @@ Dropped as well when the table renders to nothing, which
 is no width to come back for.
 
 The region is written over unless it already holds this form with
-its properties, which is what tells the form from the table it
-was rendered from.  A table the agent had already aligned renders
-to the characters he wrote, and the text the render pass
-delivered carries markdown-mode's own properties over those
-characters -- the `display' over the digit of `x^2^' among them,
-which the grid does not take.  `equal' passes over a property, so
-it would leave that text standing as the table and that `display'
-in it.
+its properties.  A form is never the table it was rendered from,
+whatever the agent lined up himself: the grid is drawn and the
+table is his bars and his dashes, so the first render of one
+always writes.
 
 `equal-including-properties' compares two property values with
 `eq', and a face markdown-mode painted a cell with is a fresh
 list every fontification, so two computations of one form do not
-agree under it: what a width that changes the window without
-changing the grid costs is the write, and not the render, which
-has happened by then either way."
+agree under it either: what a width that changes the window
+without changing the grid costs is the write, and not the render,
+which has happened by then either way."
   (let ((form (and (equal (buffer-substring-no-properties (overlay-start overlay)
                                                           (overlay-end overlay))
                           (overlay-get overlay 'parley-table-form))
