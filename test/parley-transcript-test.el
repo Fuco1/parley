@@ -1921,10 +1921,15 @@ caught it, with a timer redrawing an overlay it can no longer
 name, and the next `parley-transcript--mark-input-zone' would
 hang a second overlay over the first instead of moving it.
 
-So the overlay afterwards is the one from before, it is still the
-only one drawing a marker, and what is counted is the cell really
-changing: a timer on `timer-list' is not the animation reaching
-the screen, which is the whole of what the binding decides."
+So the overlay afterwards is the one from before, and what is
+counted is the cell really changing: a timer on `timer-list' is
+not the animation reaching the screen, which is the whole of what
+the binding decides.
+
+Then the session says something, which is what puts the zone back
+over the end of the buffer: that is the one path that would make
+an overlay again, and after it there is still exactly one drawing
+a marker.  Two would draw the rule and the prompt twice."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
@@ -1950,6 +1955,13 @@ the screen, which is the whole of what the binding decides."
                  (lambda () (timerp (buffer-local-value
                                      'parley-transcript--spinner-timer buffer)))))
         (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
+        (parley-transcript-test--write
+         file (list (parley-transcript-test--text-turn "and one thing more")))
+        (should (parley-transcript-test--wait
+                 (lambda () (member "and one thing more"
+                                    (parley-transcript-test--shown buffer)))))
+        (should (eq overlay (buffer-local-value
+                             'parley-transcript--input-overlay buffer)))
         (should (equal (list overlay)
                        (with-current-buffer buffer
                          (seq-filter
