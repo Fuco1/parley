@@ -1378,7 +1378,7 @@ by such a leftover is not a name this session can have."
 
 ;;;###autoload
 (defun parley-transcript (session)
-  "Show the transcript of SESSION in a comint buffer.
+  "Show the transcript of SESSION in the selected window.
 SESSION is a record as `parley-sessions' returns them.
 Interactively, one is read in the minibuffer with
 `parley-read-session', which is the reader the switcher falls
@@ -1444,7 +1444,11 @@ and history and all."
     ;; session is following the record it was opened with, and what
     ;; `claude agents' says about a session goes stale.
     (with-current-buffer buffer (setq parley-transcript-session session))
-    (pop-to-buffer buffer)))
+    ;; The window the operator is already in, which is what every
+    ;; caller of this asked for: go to this session.  `pop-to-buffer'
+    ;; would hand the transcript to some other window and select that
+    ;; one, taking over a window he was reading something else in.
+    (switch-to-buffer buffer)))
 
 
 ;;; The session's live status
