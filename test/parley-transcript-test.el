@@ -2643,7 +2643,7 @@ character the rest of the table does not hold."
 There is no column to narrow and no cell to move, and the grid is
 drawn all the same: what he typed is the source and what stands
 in the buffer is the rendering of it, so the two are not the same
-text and his own bars are nowhere in the buffer.  The table is
+text and the table he typed is nowhere in the buffer.  It is
 still his, on the overlay, which is the only place it is now.
 
 The grid is pinned character for character first, so a writer
@@ -3112,15 +3112,14 @@ and ragged on screen."
     (should (< 1 (length (seq-uniq (mapcar #'length lines)))))))
 
 (ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
-  "A bar standing inside a cell is not a column boundary, and a wrap leaves it none.
+  "A bar standing inside a cell is the agent's, and the grid is drawn around it.
 
 The bar inside a wiki link is one markdown-mode reads over, so
 `[[target|link words]]' is one cell and not two -- and it is read
 over only while the link is whole.  A wrap that broke the link at
 its space would leave `[[target|link' standing on a line of its
-own, where that bar is a boundary again: the row reads as three
-columns where the table has two, and the line the wrap produced
-is the one line of the table whose grid is gone.
+own, which is that construct left open and no link to anything
+reading the form back.
 
 So the link is one piece of the wrap, and every line of the
 wrapped form is read back here by the boundaries the writer drew.
@@ -3150,9 +3149,9 @@ cell left empty.
 
 At 25 the link is a piece nothing can narrow, exactly as a long
 word is, and the table settles at 30: 21 columns for the link, 2
-for `id', and 7 for the bars and the spaces a grid of two columns
-spends.  Wider than the window is the honest outcome -- the other
-way out is a bar put where the grid has none.
+for `id', and 7 for the boundaries and the spaces a grid of two
+columns spends.  Wider than the window is the honest outcome --
+the other way out is a link broken in half.
 
 The floor under that column is what puts it there, and what says
 so is the grid asserted at 25 beside the width: narrow the column
