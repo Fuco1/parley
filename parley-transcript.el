@@ -809,9 +809,9 @@ writing a table by hand leaves it off, and
 `markdown--table-line-to-columns' counts the characters of a line
 against a position in a buffer, so it drops a last cell of one
 column when no bar closes it: measured against the repository's
-markdown-mode, `| a', `|---' and `| 1' come back as three rows of
-no cells at all and `| a | b |', `|---|---|', `| 1 | 2' loses the
-2.
+markdown-mode, `| a' and `| 1' come back with no cell at all, and
+the last row of `| a | b |', `|---|---|', `| 1 | 2' comes back as
+`(\"1\")'.
 
 It is the copy the grid is written from that is closed and never
 the table itself, so the row the agent left open is still open in
@@ -879,7 +879,7 @@ which has nothing in it to line up: the widths come from the
 cells, a delimiter row carries none, and a grid of no columns is
 a row of two bars.  Whether a row is a delimiter row is asked
 with markdown-mode's own `markdown--is-delimiter-row', because
-that is the predicate the cell reader is sorted by -- `| --- |
+that is the predicate the rows are sorted with here -- `| --- |
 --- |' is a delimiter row, and anything reading the character
 after the bar takes it for a row of data.
 
@@ -949,8 +949,8 @@ cell away -- so no search can land inside one.
 A cell the reader did not take verbatim off LINE comes back
 unpainted rather than signalling, because this runs in an output
 filter.  Whether such a table is written at all is
-`parley-transcript--aligned''s question, and it asks it of the
-whole grid."
+`parley-transcript--written''s question, and it asks it of every
+cell together."
   (let ((at 0))
     (mapcar (lambda (cell)
               (let ((from (string-search cell line at)))
