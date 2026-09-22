@@ -1580,7 +1580,10 @@ either way, and this one is empty.
 What the overlay shows is shown and is not in the buffer, which
 is what the two strings assert: the mark stands before the zone
 and the space that carries the band across its last line stands
-after it."
+after it.  The mark is named rather than built again from the
+code that put it there, which would agree with it whatever either
+of them showed.  Nothing has been read about this session yet, so
+it stands at `unknown' and its cell is a blank."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -1588,8 +1591,10 @@ after it."
       (should overlay)
       (should (equal "" (parley-transcript-test--zone buffer)))
       (should (= (overlay-start overlay) (overlay-end overlay)))
+      (should (eq 'unknown (parley-transcript-test--status buffer)))
       (should (equal (overlay-get overlay 'before-string)
-                     parley-transcript--input-marker))
+                     (concat parley-transcript--input-rule-above "\n"
+                             " " parley-transcript--quote-marker)))
       (should (equal (overlay-get overlay 'after-string)
                      parley-transcript--input-fill)))))
 
@@ -1701,9 +1706,353 @@ and `:overline' below come to."
   (should (face-attribute 'parley-input-rule-above :underline nil t))
   (should (face-attribute 'parley-input-rule-below :overline nil t))
   (should (string-prefix-p (concat parley-transcript--input-rule-above "\n")
-                           parley-transcript--input-marker))
+                           (parley-transcript--input-marker)))
   (should (string-suffix-p (concat "\n" parley-transcript--input-rule-below)
                            parley-transcript--input-fill)))
+
+(defun parley-transcript-test--cell (buffer)
+  "Return the cell BUFFER draws in front of its prompt mark.
+Read back off the overlay rather than built again, so what this
+returns is what is on screen: the character between the rule's
+line and `parley-transcript--quote-marker', which the marker
+ends with."
+  (let* ((marker (overlay-get (buffer-local-value
+                               'parley-transcript--input-overlay buffer)
+                              'before-string))
+         (end (- (length marker) (length parley-transcript--quote-marker))))
+    (substring-no-properties marker (1- end) end)))
+
+(defun parley-transcript-test--cell-changes (buffer seconds)
+  "Return how many times the cell BUFFER draws changes over SECONDS.
+Sampled far faster than anything that redraws it, so what this
+counts is how often a frame really reached the overlay and not
+how often this looked."
+  (let ((last (parley-transcript-test--cell buffer))
+        (changes 0)
+        (deadline (+ (float-time) seconds)))
+    (while (< (float-time) deadline)
+      (accept-process-output nil 0.01)
+      (let ((now (parley-transcript-test--cell buffer)))
+        (unless (equal now last)
+          (setq changes (1+ changes)
+                last now))))
+    changes))
+
+(ert-deftest parley-transcript-test-shows-the-status-in-front-of-the-prompt ()
+  "The cell before the prompt mark shows what the session is doing, in four states.
+A frame of the spinner while it is working, a steady mark while
+it waits for the operator, and a blank while it is idle or
+nothing is known about it.  The mark that wants him does not
+move, because motion says wait: it is no frame of the spinner, so
+a spinner stopped on its last frame cannot be read for a session
+asking him something.
+
+The cell stands between the rule that opens the zone and the
+prompt mark, on the prompt's own line, and it is the whole marker
+that is compared in every one of the four states: the cell on its
+own leaves the state where the marker is put together free to
+show something else.  The frames are the operator's here, so what
+a working session's marker has to be is a string this test names
+rather than one it works out the way the code does -- and the
+second of them says the counter is what chooses between them."
+  (with-temp-buffer
+    (setq-local parley-transcript-status 'working)
+    (should (member (substring-no-properties (parley-transcript--status-cell))
+                    parley-input-spinner-frames))
+    (setq-local parley-transcript--spinner-frame
+                (1+ parley-transcript--spinner-frame))
+    (should (member (substring-no-properties (parley-transcript--status-cell))
+                    parley-input-spinner-frames))
+    (should-not (member parley-transcript--input-waiting-mark
+                        parley-input-spinner-frames))
+    (let ((parley-input-spinner-frames '("1" "2")))
+      (setq-local parley-transcript--spinner-frame 0)
+      (pcase-dolist (`(,status . ,cell)
+                     `((working . "1")
+                       (waiting . ,parley-transcript--input-waiting-mark)
+                       (idle . " ")
+                       (unknown . " ")))
+        (setq-local parley-transcript-status status)
+        (should (equal cell (substring-no-properties
+                             (parley-transcript--status-cell))))
+        (should (equal (parley-transcript--input-marker)
+                       (concat parley-transcript--input-rule-above "\n"
+                               cell parley-transcript--quote-marker))))
+      (setq-local parley-transcript-status 'working)
+      (setq-local parley-transcript--spinner-frame 1)
+      (should (equal (parley-transcript--input-marker)
+                     (concat parley-transcript--input-rule-above "\n"
+                             "2" parley-transcript--quote-marker))))))
+
+(ert-deftest parley-transcript-test-keeps-the-prompt-mark-in-one-column ()
+  "Every cell the prompt can be headed by is one column, so the mark never moves.
+A marker that came out shorter when a turn ended would move the
+`❯' under the operator's hands at the moment he starts typing at
+it.
+
+Asserted over the frames `parley-input-spinner-frames' is
+declared with and not over whatever it holds now: the variable is
+the operator's to set, and what this pins is the set parley
+ships."
+  (let ((frames (eval (car (get 'parley-input-spinner-frames 'standard-value))
+                      t)))
+    (should frames)
+    (dolist (cell (append frames (list parley-transcript--input-waiting-mark)))
+      (should (= 1 (string-width cell))))
+    (let ((parley-input-spinner-frames frames)
+          (widths nil))
+      (with-temp-buffer
+        (dolist (status '(working waiting idle unknown))
+          (setq-local parley-transcript-status status)
+          (should (= 1 (string-width (parley-transcript--status-cell))))
+          (push (string-width (car (last (split-string
+                                          (parley-transcript--input-marker)
+                                          "\n"))))
+                widths)))
+      (should (equal widths (make-list 4 (1+ (string-width
+                                              parley-transcript--quote-marker))))))))
+
+(ert-deftest parley-transcript-test-animates-the-cell-while-the-session-works ()
+  "The spinner advances on its own while the session works, and stops when it does.
+Nothing redraws it: the cell is animated by a tick of the
+buffer's own, started on the status tick that finds the session
+working and cancelled on the one that finds it doing anything
+else.  A session that has stopped therefore leaves a mark that
+has stopped too, and not a spinner turning over nothing."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda () (timerp (buffer-local-value
+                                   'parley-transcript--spinner-timer buffer)))))
+      (should (member (parley-transcript-test--cell buffer)
+                      parley-input-spinner-frames))
+      ;; Counted and not merely waited for, so that the tick reading the
+      ;; status cannot stand in for the animation: that one runs once a
+      ;; second and redraws the whole marker, which changes the cell
+      ;; about twice over the window below where the animation changes
+      ;; it about fifteen times.
+      (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
+      (parley-transcript-test--write-status buffer "idle")
+      (should (parley-transcript-test--wait
+               (lambda () (null (buffer-local-value
+                                 'parley-transcript--spinner-timer buffer)))))
+      (should (equal " " (parley-transcript-test--cell buffer)))
+      ;; And it stays stopped across the status ticks that follow.  A
+      ;; tick that started one over a session doing nothing would leave
+      ;; a timer that cancels itself on its own first fire, which polling
+      ;; for a nil finds stopped nine times out of ten.
+      (let ((deadline (+ (float-time) 2.5)))
+        (while (< (float-time) deadline)
+          (accept-process-output nil 0.05)
+          (should-not (buffer-local-value 'parley-transcript--spinner-timer
+                                          buffer)))))))
+
+(ert-deftest parley-transcript-test-animates-only-where-it-can-be-seen ()
+  "A buffer no window is showing animates nothing.
+A frame redrawn where nobody is looking is a redisplay bought for
+no one, and a timer doing it in every transcript ever opened in
+this Emacs buys nothing at all.
+
+The status tick cannot be what stops it: it reads nothing for a
+buffer nobody is showing, so the status it left behind still says
+`working' after the window has gone."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda () (timerp (buffer-local-value
+                                   'parley-transcript--spinner-timer buffer)))))
+      (set-window-buffer (selected-window) (get-buffer-create "*scratch*"))
+      (should (parley-transcript-test--wait
+               (lambda () (null (buffer-local-value
+                                 'parley-transcript--spinner-timer buffer)))))
+      (should (eq (parley-transcript-test--status buffer) 'working)))))
+
+(ert-deftest parley-transcript-test-animates-only-on-a-frame-that-is-up ()
+  "A window on a frame that is not on screen is no window showing the buffer.
+A frame goes down without its windows going anywhere: it can be
+made invisible and it can be iconified, and either way
+`get-buffer-window' with t hands back the window it still holds.
+That is how a transcript nobody can see keeps a timer redrawing
+it, so the frame is asked whether it is up.
+
+Batch Emacs has one frame and nothing that puts it down --
+`make-frame' finds no terminal type it can use, and
+`make-frame-invisible' over a frame opened on a pty leaves
+`frame-visible-p' answering t (Emacs 28.2).  So the answer is
+stubbed, which is that same question and the only way this Emacs
+can be made to give it.
+
+The window stays on the buffer throughout and the session stays
+at work: what stops the animation is the frame, and the tick that
+reads the status is not what stopped it.  A window coming back up
+starts it again, which is what the second round waits for."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (dolist (down '(nil icon))
+        (should (parley-transcript-test--wait
+                 (lambda () (timerp (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+        (cl-letf (((symbol-function 'frame-visible-p) (lambda (_frame) down)))
+          (should (parley-transcript-test--wait
+                   (lambda () (null (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+          (should (get-buffer-window buffer t))
+          (should (eq (parley-transcript-test--status buffer) 'working)))))))
+
+(ert-deftest parley-transcript-test-animates-across-a-mode-reentry ()
+  "A major mode reentered over the buffer leaves the cell animating, with no gap.
+`kill-all-local-variables' clears every buffer-local binding whose
+symbol does not carry `permanent-local', and entering the mode
+again changes neither which session the buffer follows nor what
+that session is doing.  So nothing the animation stands on is
+lost -- not the record, not the status, not the frame the spinner
+has got to, not the timer, and not the overlay, which belongs to
+the buffer and would be left on screen with nothing naming it.
+Each of the five is what one of the assertions below comes to.
+
+What is asserted here is the animation and not any one of those.
+The frame after the reentry is drawn the way the timer draws it
+and before anything else can have run, because that is where a
+cleared binding shows: the animation fires 0.1 s after the
+reentry and the tick that would put a value back is a second
+away, so a frame that has to wait for that tick is a spinner
+stopped for most of a second under a session that never stopped
+working.  Then the status is read again, from the session's own
+file, which a buffer that has forgotten its session cannot do.
+Then the cell is counted really changing -- a timer on
+`timer-list' is not the animation reaching the screen.
+
+Then the session says something, which is what puts the zone back
+over the end of the buffer: that is the one path that would make
+an overlay again, and after it there is still exactly one drawing
+a marker.  Two would draw the rule and the prompt twice."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda () (timerp (buffer-local-value
+                                   'parley-transcript--spinner-timer buffer)))))
+      (with-current-buffer buffer
+        ;; On a frame of its own first, so that a spinner snapped back
+        ;; to the head of its list by the reentry cannot be read for one
+        ;; that carried on from where it was.
+        (setq parley-transcript--spinner-frame 5)
+        (parley-transcript--draw-input-marker))
+      (let ((overlay (buffer-local-value 'parley-transcript--input-overlay
+                                         buffer)))
+        (should (overlayp overlay))
+        (with-current-buffer buffer (parley-transcript-mode))
+        ;; Nothing has waited for anything since the reentry, so no
+        ;; timer has run: this is the next frame the animation's own
+        ;; timer would draw, drawn here instead.  It is the frame after
+        ;; the one that was up, and the animation goes on being a timer
+        ;; the buffer can still name.
+        (parley-transcript--advance-marker buffer)
+        (should (equal (parley-transcript-test--cell buffer)
+                       (nth 6 parley-input-spinner-frames)))
+        (should (timerp (buffer-local-value 'parley-transcript--spinner-timer
+                                            buffer)))
+        (should (eq overlay (buffer-local-value
+                             'parley-transcript--input-overlay buffer)))
+        ;; And the first read of the file after the reentry is a read of
+        ;; this buffer's own session.
+        (parley-transcript--read-status buffer)
+        (should (eq (parley-transcript-test--status buffer) 'working))
+        (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
+        (parley-transcript-test--write
+         file (list (parley-transcript-test--text-turn "and one thing more")))
+        (should (parley-transcript-test--wait
+                 (lambda () (member "and one thing more"
+                                    (parley-transcript-test--shown buffer)))))
+        (should (eq overlay (buffer-local-value
+                             'parley-transcript--input-overlay buffer)))
+        (should (equal (list overlay)
+                       (with-current-buffer buffer
+                         (seq-filter
+                          (lambda (o) (overlay-get o 'before-string))
+                          (overlays-in (point-min) (point-max))))))))))
+
+(ert-deftest parley-transcript-test-kill-stops-the-animation ()
+  "Killing the buffer cancels the timer animating its cell, reentered mode or not.
+The animation is stopped by a buffer-local `kill-buffer-hook',
+put on the buffer by whatever started the timer.  Both survive a
+major mode reentered over this buffer -- the timer because
+`parley-transcript--spinner-timer' is declared permanent, and the
+hook because `kill-buffer-hook' carries `permanent-local' itself
+(Emacs 28.2) -- so the kill reaches whichever timer is running by
+then.
+
+A reentry is where one would be left behind, so the buffer goes
+through one while the session works: the spinner has to be
+running again by the time the buffer is killed, and nothing of
+either generation may be left on `timer-list' afterwards."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda () (timerp (buffer-local-value
+                                   'parley-transcript--spinner-timer buffer)))))
+      (let ((first (buffer-local-value 'parley-transcript--spinner-timer buffer)))
+        (with-current-buffer buffer (parley-transcript-mode))
+        (should (parley-transcript-test--wait
+                 (lambda () (timerp (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+        (let ((second (buffer-local-value
+                       'parley-transcript--spinner-timer buffer)))
+          (kill-buffer buffer)
+          (should-not (memq first timer-list))
+          (should-not (memq second timer-list)))))))
+
+(ert-deftest parley-transcript-test-leaves-a-rendered-turn-without-a-cell ()
+  "No line of a turn already taken carries the cell, and none of it is buffer text.
+`parley-transcript--quote-marker' heads every line of every turn
+of the operator's and the input zone alike, and the cell is added
+to the mark at the head of the zone and not to that constant: a
+cell on the constant would put a spinner down the whole
+conversation, and `parley-transcript--old-input' strips it with a
+`^' anchored regexp to send a past turn again.
+
+Nothing the zone's mark draws is in the buffer either --
+`comint-send-input' sends the buffer text from the process mark
+on, so a cell written there is a cell typed into the session --
+which is what the buffer holding no frame of a running spinner
+comes to."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (should (equal "❯ " parley-transcript--quote-marker))
+    (with-current-buffer buffer
+      (setq parley-transcript-status 'working)
+      (parley-transcript--draw-input-marker)
+      (should (member (parley-transcript-test--cell buffer)
+                      parley-input-spinner-frames))
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        (dolist (cell (cons parley-transcript--input-waiting-mark
+                            parley-input-spinner-frames))
+          (should-not (string-search cell text))))
+      (should (member (concat parley-transcript--quote-marker "what is here")
+                      (parley-transcript-test--shown buffer)))
+      (goto-char (point-min))
+      (should (search-forward "what is here" nil t))
+      (should (equal "what is here" (parley-transcript--old-input))))))
 
 
 ;;; Aligning a table
