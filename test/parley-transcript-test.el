@@ -2725,6 +2725,25 @@ same columns."
         (should (equal (parley-transcript-test--column text column)
                        (parley-transcript-test--column form column)))))))
 
+(ert-deftest parley-transcript-test-keeps-the-spacing-of-a-cell-that-fits ()
+  "A cell inside its column stands as the agent typed it, spacing and all.
+
+Packing puts one space between two pieces, which is what a wrap
+has to do to a cell it spreads over lines.  A cell nothing has to
+be moved in is not packed at all, so two spaces he typed are two
+spaces the operator reads -- and that is every cell of every
+table that fits the window.
+
+The same table narrowed is asserted packed beside it, so a form
+that merely looked untouched could not pass this by being the
+only form this cell has."
+  (let ((text "| id | note |\n|---|---|\n| 1 | two  spaces here |"))
+    (should (string-search "two  spaces here"
+                           (parley-transcript-test--unnarrowed text)))
+    (let ((narrow (parley-transcript--aligned text 20)))
+      (should (string-search "two spaces" narrow))
+      (should-not (string-search "two  spaces" narrow)))))
+
 (ert-deftest parley-transcript-test-leaves-a-table-nothing-narrows-too-wide ()
   "A table holding a word longer than the window stays wider than the window.
 

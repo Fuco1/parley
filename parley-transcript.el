@@ -844,8 +844,13 @@ compare.
 A cell's own dashes and colons go with them, which can only make
 two readings agree and never make them differ: what this is asked
 is whether the reading dropped anything, and the answer may not
-be yes when it did not."
-  (replace-regexp-in-string "[ \t\n|:-]" "" text))
+be yes when it did not.
+
+What TEXT says is its characters, so the properties come off
+before the scan rather than being carried through it: the cells
+are joined with what the fontification marked still on them, and
+rebuilding that run by run is the greater part of the work here."
+  (replace-regexp-in-string "[ \t\n|:-]" "" (substring-no-properties text)))
 
 (defun parley-transcript--written (text width)
   "Return the table TEXT written out as a grid of WIDTH columns, nil for no table.
@@ -1081,17 +1086,26 @@ the window and not with a word broken in half.
 
 A cell with nothing in it is one empty line, because a row is as
 tall as its tallest cell and every cell of it has to reach the
-foot of the row."
-  (let ((lines nil)
-        (line ""))
-    (dolist (word (parley-transcript--cell-words text))
-      (setq line (cond ((equal line "") word)
-                       ((<= (+ (markdown--string-width line) 1
-                               (markdown--string-width word))
-                            width)
-                        (concat line " " word))
-                       (t (push line lines) word))))
-    (nreverse (cons line lines))))
+foot of the row.
+
+A cell already inside WIDTH is one line and is that cell, which
+is not the same as packing it: packing puts one space between two
+pieces, and a cell the agent wrote two spaces into is a cell he
+can have them back in when nothing has to be moved to fit.  It is
+the cheaper answer as well, and every cell of a table that fits
+the window is one of them."
+  (if (<= (markdown--string-width text) width)
+      (list text)
+    (let ((lines nil)
+          (line ""))
+      (dolist (word (parley-transcript--cell-words text))
+        (setq line (cond ((equal line "") word)
+                         ((<= (+ (markdown--string-width line) 1
+                                 (markdown--string-width word))
+                              width)
+                          (concat line " " word))
+                         (t (push line lines) word))))
+      (nreverse (cons line lines)))))
 
 (defun parley-transcript--wrapped-row (cells widths marks)
   "Return the lines CELLS wrapped to WIDTHS takes up, as one string.
