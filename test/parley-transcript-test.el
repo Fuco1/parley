@@ -2868,6 +2868,32 @@ strips."
             (should (equal text (parley-transcript-test--source overlay)))))
       (set-frame-width (selected-frame) columns))))
 
+(ert-deftest parley-transcript-test-paints-a-cell-from-its-own-place-in-the-row ()
+  "Two cells of one text are each painted from where it stands.
+
+The cell reader hands back text with nothing on it, so what the
+fontification marked is taken off the line the cell was read from
+by position -- and a row holding `**bold**' in one column and
+`bold' in the next is the case that says whose position it is.
+Searched from the head of the line every time, the plain cell
+would come back painted bold, with the hidden markers of the
+other cell either side of it.
+
+The cells are read back out of the grid with the bars, which is
+where the writer put them, so a reading that painted the wrong
+one has the two to tell apart and not one."
+  (let* ((form (parley-transcript-test--unnarrowed
+                "| a | b |\n|---|---|\n| **bold** | bold |"))
+         (cells (parley-transcript-test--cells
+                 (nth 2 (split-string form "\n")))))
+    (should (equal '("**bold**" "bold") cells))
+    (should (memq 'markdown-bold-face
+                  (parley-transcript-test--face-at (nth 0 cells) "bold")))
+    (should-not (memq 'markdown-bold-face
+                      (parley-transcript-test--face-at (nth 1 cells) "bold")))
+    (should-not (text-property-not-all 0 (length (nth 1 cells))
+                                       'invisible nil (nth 1 cells)))))
+
 (ert-deftest parley-transcript-test-keeps-a-display-property-out-of-the-grid ()
   "A cell markdown-mode would show through a `display' property is written plain.
 
