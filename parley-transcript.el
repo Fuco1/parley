@@ -1262,6 +1262,15 @@ name would be."
   "The session record this buffer follows, nil in a buffer that follows none.
 It is the plist `parley-sessions' returned for that session.")
 
+;; Permanent, because it is what this buffer is.  Which session a
+;; buffer follows does not change because the major mode was entered
+;; again over it, and a buffer that has lost the record follows
+;; nothing: its status reads `unknown' for good, whatever draws what
+;; the session is doing has nothing to draw, and
+;; `parley-transcript--buffer' no longer finds it for its own session
+;; and opens a second buffer over the same conversation.
+(put 'parley-transcript-session 'permanent-local t)
+
 (define-derived-mode parley-transcript-mode comint-mode "Parley"
   "Major mode for the transcript of a Claude Code session.
 
@@ -1428,11 +1437,9 @@ and history and all."
         ;; means no output filter, and the operator would be typing
         ;; into a buffer with nothing in it to type at.
         (parley-transcript--mark-input-zone)))
-    ;; After the mode, which is what `kill-all-local-variables' would
-    ;; otherwise clear this out of -- and outside the guard above,
-    ;; because a buffer already following this session is following the
-    ;; record it was opened with, and what `claude agents' says about a
-    ;; session goes stale.
+    ;; Outside the guard above, because a buffer already following this
+    ;; session is following the record it was opened with, and what
+    ;; `claude agents' says about a session goes stale.
     (with-current-buffer buffer (setq parley-transcript-session session))
     (pop-to-buffer buffer)))
 
@@ -1467,6 +1474,15 @@ everything that draws it draws the same value and the file is
 read once a tick however many of them there are.  `unknown' until
 the first tick has run, which is what a buffer nothing is showing
 stays at.")
+
+;; Permanent for the reason `parley-transcript-session' is: what the
+;; session is doing does not change because the major mode was entered
+;; again over the buffer.  The animation in front of the prompt reads
+;; this on a tick ten times as fast as the one that writes it, so a
+;; reentry that cleared it would stop a working session's spinner
+;; within a frame and leave it stopped until the next status tick put
+;; the value back.
+(put 'parley-transcript-status 'permanent-local t)
 
 (defvar-local parley-transcript--status-timer nil
   "The timer reading this buffer's status, nil in a buffer with none.")
@@ -1782,6 +1798,12 @@ It only ever goes up, and the frame is taken modulo the frames
 there are: the operator may set that list to another length while
 the spinner is running.")
 
+;; Permanent, as everything else the animation stands on is: where a
+;; spinner has got to is part of the animation, and one snapped back
+;; to its first frame because the major mode was entered again jumps
+;; on screen.
+(put 'parley-transcript--spinner-frame 'permanent-local t)
+
 (defvar-local parley-transcript--spinner-timer nil
   "The timer animating this buffer's spinner, nil when nothing is animating.")
 
@@ -1860,7 +1882,12 @@ redrawn where nobody is looking is a redisplay bought for no one,
 and the status it would draw is stale anyway.
 
 BUFFER coming back on screen starts it back up, on the tick that
-reads the status."
+reads the status.
+
+What it reads is the status the buffer holds and not the session's
+file.  `parley-transcript--read-status' is the one thing in the
+package that goes to the file, on a tick of its own, and this one
+runs ten times as often."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (if (and (eq parley-transcript-status 'working)

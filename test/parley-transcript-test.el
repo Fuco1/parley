@@ -1912,19 +1912,27 @@ starts it again, which is what the second round waits for."
           (should (eq (parley-transcript-test--status buffer) 'working)))))))
 
 (ert-deftest parley-transcript-test-animates-across-a-mode-reentry ()
-  "A major mode reentered over the buffer leaves the cell still animating.
-An overlay belongs to the buffer and not to the binding that
-names it: the reentry clears every buffer-local that is not
-permanent and leaves the marker on screen either way.  A cleared
-binding would therefore freeze the cell wherever the reentry
-caught it, with a timer redrawing an overlay it can no longer
-name, and the next `parley-transcript--mark-input-zone' would
-hang a second overlay over the first instead of moving it.
+  "A major mode reentered over the buffer leaves the cell animating, with no gap.
+`kill-all-local-variables' clears every buffer-local binding whose
+symbol does not carry `permanent-local', and entering the mode
+again changes neither which session the buffer follows nor what
+that session is doing.  So nothing the animation stands on is
+lost -- not the record, not the status, not the frame the spinner
+has got to, not the timer, and not the overlay, which belongs to
+the buffer and would be left on screen with nothing naming it.
+Each of the five is what one of the assertions below comes to.
 
-So the overlay afterwards is the one from before, and what is
-counted is the cell really changing: a timer on `timer-list' is
-not the animation reaching the screen, which is the whole of what
-the binding decides.
+What is asserted here is the animation and not any one of those.
+The frame after the reentry is drawn the way the timer draws it
+and before anything else can have run, because that is where a
+cleared binding shows: the animation fires 0.1 s after the
+reentry and the tick that would put a value back is a second
+away, so a frame that has to wait for that tick is a spinner
+stopped for most of a second under a session that never stopped
+working.  Then the status is read again, from the session's own
+file, which a buffer that has forgotten its session cannot do.
+Then the cell is counted really changing -- a timer on
+`timer-list' is not the animation reaching the screen.
 
 Then the session says something, which is what puts the zone back
 over the end of the buffer: that is the one path that would make
@@ -1939,21 +1947,32 @@ a marker.  Two would draw the rule and the prompt twice."
       (should (parley-transcript-test--wait
                (lambda () (timerp (buffer-local-value
                                    'parley-transcript--spinner-timer buffer)))))
+      (with-current-buffer buffer
+        ;; On a frame of its own first, so that a spinner snapped back
+        ;; to the head of its list by the reentry cannot be read for one
+        ;; that carried on from where it was.
+        (setq parley-transcript--spinner-frame 5)
+        (parley-transcript--draw-input-marker))
       (let ((overlay (buffer-local-value 'parley-transcript--input-overlay
                                          buffer)))
         (should (overlayp overlay))
-        (with-current-buffer buffer
-          (parley-transcript-mode)
-          ;; The record the tick reads the status from is not one the
-          ;; mode keeps, and a buffer that has lost it is a buffer whose
-          ;; session never works again -- which would leave this
-          ;; counting a cell nothing was animating.
-          (setq parley-transcript-session session))
+        (with-current-buffer buffer (parley-transcript-mode))
+        ;; Nothing has waited for anything since the reentry, so no
+        ;; timer has run: this is the next frame the animation's own
+        ;; timer would draw, drawn here instead.  It is the frame after
+        ;; the one that was up, and the animation goes on being a timer
+        ;; the buffer can still name.
+        (parley-transcript--advance-marker buffer)
+        (should (equal (parley-transcript-test--cell buffer)
+                       (nth 6 parley-input-spinner-frames)))
+        (should (timerp (buffer-local-value 'parley-transcript--spinner-timer
+                                            buffer)))
         (should (eq overlay (buffer-local-value
                              'parley-transcript--input-overlay buffer)))
-        (should (parley-transcript-test--wait
-                 (lambda () (timerp (buffer-local-value
-                                     'parley-transcript--spinner-timer buffer)))))
+        ;; And the first read of the file after the reentry is a read of
+        ;; this buffer's own session.
+        (parley-transcript--read-status buffer)
+        (should (eq (parley-transcript-test--status buffer) 'working))
         (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
         (parley-transcript-test--write
          file (list (parley-transcript-test--text-turn "and one thing more")))
@@ -1992,13 +2011,7 @@ either generation may be left on `timer-list' afterwards."
                (lambda () (timerp (buffer-local-value
                                    'parley-transcript--spinner-timer buffer)))))
       (let ((first (buffer-local-value 'parley-transcript--spinner-timer buffer)))
-        (with-current-buffer buffer
-          (parley-transcript-mode)
-          ;; The record the tick reads the status from is not one the
-          ;; mode keeps, and a buffer that has lost it is a buffer whose
-          ;; session never works again -- which would leave this killing
-          ;; a buffer with nothing running on it.
-          (setq parley-transcript-session session))
+        (with-current-buffer buffer (parley-transcript-mode))
         (should (parley-transcript-test--wait
                  (lambda () (timerp (buffer-local-value
                                      'parley-transcript--spinner-timer buffer)))))
