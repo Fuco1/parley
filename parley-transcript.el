@@ -124,7 +124,7 @@ the escape stripping out of the buffer, and `-M' is what keeps
 that safe if the pipeline ever ran on a terminal again.  Measured
 over the 26 MB transcript it leaves no escape byte in the stream
 at all: a control character inside a JSON string is written as
-the six characters \\u001b."
+the six characters \."
   (concat "tail -c +1 -F " (shell-quote-argument file)
           " | jq -M -c --unbuffered "
           (shell-quote-argument parley-transcript--projection)))
@@ -709,6 +709,14 @@ inserted and then rewritten in place."
 ;; as the quote around the operator's turn and the one line a run of
 ;; tool calls collapses to.
 ;;
+;; The grid is drawn: every column boundary in it is `│', the row
+;; between the header and the body is `├─┼─┤', and a rule of `┌─┬─┐'
+;; opens it with `└─┴─┘' to close.  Those characters are what the
+;; writer emits, because the writer is what put every boundary there
+;; and is the only thing that knows where one is.  Nothing scans a
+;; finished grid for a bar, so the bar inside `[[target|link words]]'
+;; stands in the cell holding it and nowhere in the grid.
+;;
 ;; One writer for every table, the one that fits the window and the
 ;; one wrapped into it alike.  What that buys is the markup in a cell:
 ;; a character hidden by `invisible markdown-markup' costs no column,
@@ -922,14 +930,16 @@ whole rather than as words it may break apart."
         (when (equal (parley-transcript--table-content
                       (mapconcat (lambda (row) (string-join row)) rows ""))
                      (parley-transcript--table-content text))
-          (string-join (mapcar (lambda (row)
-                                 (if row
-                                     (parley-transcript--wrapped-row
-                                      row widths marks)
-                                   (parley-transcript--delimiter-row
-                                    widths marks)))
-                               rows)
-                       "\n"))))))
+          (string-join
+           (append
+            (list (parley-transcript--table-rule widths "┌" "┬" "┐"))
+            (mapcar (lambda (row)
+                      (if row
+                          (parley-transcript--wrapped-row row widths marks)
+                        (parley-transcript--table-rule widths "├" "┼" "┤")))
+                    rows)
+            (list (parley-transcript--table-rule widths "└" "┴" "┘")))
+           "\n"))))))
 
 (defun parley-transcript--table-cells (line)
   "Return the cells LINE holds, each carrying the properties LINE carries.
@@ -1107,9 +1117,15 @@ the window is one of them."
   "Return the lines CELLS wrapped to WIDTHS takes up, as one string.
 
 As many lines as the cell that took the most of them, and each of
-them a whole row of bars: a cell with nothing left to show on a
-line stands empty there rather than the line stopping short, so
-the bars of every line of a row are the bars of the table.
+them a whole row of boundaries: a cell with nothing left to show
+on a line stands empty there rather than the line stopping short,
+so every line of a row carries the boundaries the table has.
+
+A boundary is `│', at each end of the line as well as between two
+cells, and it takes the one column the bar it stands for took.
+A bar the operator reads in the grid is therefore one a cell
+holds -- the one inside `[[target|link words]]' among them --
+because the writer puts none anywhere else.
 
 MARKS is what `markdown-table-colfmt' read off the delimiter row,
 one for each column, and says which side of a cell its padding
@@ -1121,39 +1137,41 @@ goes on."
          (height (apply #'max 1 (mapcar #'length wrapped))))
     (mapconcat
      (lambda (line)
-       (concat "|"
+       (concat "│"
                (mapconcat (lambda (column)
                             (parley-transcript--padded
                              (or (nth line (nth column wrapped)) "")
                              (nth column widths)
                              (nth column marks)))
                           (number-sequence 0 (1- (length widths)))
-                          "|")
-               "|"))
+                          "│")
+               "│"))
      (number-sequence 0 (1- height))
      "\n")))
 
-(defun parley-transcript--delimiter-row (widths marks)
-  "Return a delimiter row of WIDTHS, carrying MARKS.
+(defun parley-transcript--table-rule (widths left junction right)
+  "Return the rule across WIDTHS that LEFT, JUNCTION and RIGHT draw.
 
-MARKS is what markdown-mode's own `markdown-table-colfmt' read
-off the delimiter row of the table as the agent wrote it, so a
-column he marked left, right or centred is still marked that way
-in the grid.  A column he marked nothing about takes plain
-dashes."
-  (concat "|"
-          (string-join
-           (seq-map-indexed
-            (lambda (width column)
-              (let ((dashes (make-string width ?-)))
-                (pcase (nth column marks)
-                  ('l (concat ":" dashes "-"))
-                  ('r (concat "-" dashes ":"))
-                  ('c (concat ":" dashes ":"))
-                  (_ (concat "-" dashes "-")))))
-            widths)
-           "|")
-          "|"))
+Three rules are drawn from this and they differ in nothing else:
+`┌┬┐' over the head of a grid, `├┼┤' between its header and its
+body, and `└┴┘' under its foot.  JUNCTION stands where a boundary
+stands, because the stretch it divides is a column's width and
+the space either side of a cell -- which is what a row spends
+there too.
+
+The row between the header and the body is drawn and not written:
+the `:---:' of the delimiter row the agent typed says how a
+column is aligned, which is not something anyone reads off a
+drawn table, and `parley-transcript--padded' is what says it in
+the grid instead.  So no dash and no colon of that row reaches
+the buffer.
+
+Every character here takes the one column the character it stands
+for took, so a rule is exactly as wide as a row of the grid."
+  (concat left
+          (mapconcat (lambda (width) (make-string (+ 2 width) ?─))
+                     widths junction)
+          right))
 
 (defun parley-transcript--padded (text width mark)
   "Return TEXT as a cell of WIDTH columns, padded as MARK says, a space each side.
