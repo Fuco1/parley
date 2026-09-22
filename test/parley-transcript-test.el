@@ -859,28 +859,44 @@ telling his agent that a task finished is not that."
 (ert-deftest parley-transcript-test-quotes-a-turn-that-mentions-a-notification ()
   "A turn of the operator's that quotes the tag is his own words, tag and all.
 
-The pattern is anchored at the head of the text, so what makes a
-record a notification is that the harness wrote the whole of it.
-A turn of his that mentions `<task-notification>' further down is
-a turn: quoted whole, tag and summary alike, and indexed under
-its first line."
+The pattern is anchored at the very first character of the text,
+so what makes a record a notification is that the harness wrote
+the whole of it.  A turn of his that mentions
+`<task-notification>' on any line but the first is a turn: quoted
+whole, tag and summary alike, and indexed under its first line.
+
+Two of them, and what stands in front of the tag is what tells
+them apart from a notification -- a line of his words in the
+first, and in the second nothing but the newline of the blank
+line he opened with.  A pattern that stepped over whitespace
+before the tag would take that second one for the harness's, and
+the words it swallowed would be as gone as the ones under the
+first."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session
       (list (parley-transcript-test--user-turn
              (concat "why does this show up as mine\\n"
                      "<task-notification>\\n"
                      "<summary>Monitor fired</summary>\\n"
+                     "</task-notification>"))
+            (parley-transcript-test--user-turn
+             (concat "\\n<task-notification>\\n"
+                     "<summary>Monitor fired</summary>\\n"
                      "</task-notification>")))
     (should (equal (parley-transcript-test--wait
                     (lambda ()
                       (let ((shown (parley-transcript-test--shown buffer)))
-                        (and (= 4 (length shown)) shown))))
+                        (and (= 7 (length shown)) shown))))
                    (list "❯ why does this show up as mine"
+                         "❯ <task-notification>"
+                         "❯ <summary>Monitor fired</summary>"
+                         "❯ </task-notification>"
                          "❯ <task-notification>"
                          "❯ <summary>Monitor fired</summary>"
                          "❯ </task-notification>")))
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
-                   (list "why does this show up as mine")))))
+                   (list "why does this show up as mine"
+                         "<task-notification>")))))
 
 
 ;;; The buffer

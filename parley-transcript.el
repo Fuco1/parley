@@ -402,18 +402,22 @@ of a skill load and nothing else -- a body that merely mentions
 the phrase further down is a skill quoting one.")
 
 (defconst parley-transcript--notification-rx
-  "\\`[ \t\n]*<task-notification>"
+  "\\`<task-notification>"
   "What a task notification opens with, and nothing else does.
-Anchored at the start of the text, past whatever whitespace opens
-it: a turn of the operator's that quotes the tag further down is
-his own words.")
+Anchored at the very first character and tolerating nothing in
+front of it -- not a space and above all not a newline.  The
+harness writes the tag as the whole of the record's opening:
+every one of the 1622 notifications in the transcripts on this
+machine opens with it at character zero.  So anything standing in
+front of the tag was typed by the operator, and a turn of his
+that quotes it on any line but the first is his own words.")
 
 (defconst parley-transcript--notification-summary-rx
   "<summary>\\(.*\\)</summary>"
   "The tag a task notification's summary reaches the transcript in.
 The group does not cross a newline because the summary does not:
-measured over the 1620 notifications in the transcripts on this
-machine, 1617 carry a summary and every one of those sits on one
+measured over the 1622 notifications in the transcripts on this
+machine, 1619 carry a summary and every one of those sits on one
 line.")
 
 (defun parley-transcript--injection (text)

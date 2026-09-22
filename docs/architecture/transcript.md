@@ -118,10 +118,9 @@ the whole of what such a record says the operator can act on — the two ids and
 the path are addressed to the agent, and `<status>` says nothing the summary does
 not already say in its own words — so the line is the summary and nothing else. A
 notification carrying no summary renders nothing at all, having nothing to say.
-Measured over the 1622 records holding the tag in the transcripts on this
-machine: 1619 carry a `<summary>` and every one of those sits on one line,
-`<status>` is on 385 of them, and the 3 with no summary are `<fork-source>`
-notices.
+Measured over the 1622 notifications in the transcripts on this machine: 1619
+carry a `<summary>` and every one of those sits on one line, `<status>` is on 384
+of them, and the 3 with no summary are `<fork-source>` notices.
 
 **Every other injection renders nothing at all.** A constant line saying an
 injection happened carries no information, and the caveat and the command
@@ -171,14 +170,16 @@ a turn indexed before it is unwrapped is labelled
 that name, and two of them told apart by a number rather than by what he asked.
 
 **What the text decides, it decides from the head of the record.**
-`<local-command-stdout>` and `<task-notification>` are matched anchored at the
-start, so a turn of the operator's that quotes either further down is his own
-words — quoted whole, tag and all, and indexed under its first line. He writes
-one: of the 1622 records holding `<task-notification>` on this machine, 1621 are
-the whole of their record's text and the odd one is him pasting a notification
-into a bug report about this buffer. Anywhere but the head, the text would be
-deciding about his words instead of the harness's, which is what `isMeta` is for
-and what it stays for.
+`<task-notification>` is matched at the very first character of the text, with
+no whitespace tolerated in front of it — a space would be nothing the harness
+writes, and a newline would make the second line of a turn of his decide that
+the first one was never his. So a turn of the operator's that quotes the tag on
+any line but the first is his own words: quoted whole, tag and all, and indexed
+under its first line. He writes one: of the 1624 records holding the tag on this
+machine, 1622 are notifications opening with it at character zero, and the 2 that
+do not are prose quoting one. Anywhere but the head, the text would be deciding
+about his words instead of the harness's, which is what `isMeta` is for and what
+it stays for.
 
 ### Fontification happens in another buffer, twice over
 
