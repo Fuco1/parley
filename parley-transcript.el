@@ -1176,16 +1176,6 @@ character lines up under neither."
                     (make-string (- pad left) ?\s) " ")))
       (_ (concat " " text (make-string pad ?\s) " ")))))
 
-(defun parley-transcript--columns (text)
-  "Return how many columns the widest line of TEXT takes up on screen.
-`markdown--string-width' and not `length', because a table of CJK
-text is aligned in columns and lines up in none, and because a
-character hidden by `invisible markdown-markup' is a character
-that takes up none of them.  It reads the current buffer's
-`buffer-invisibility-spec' to know what is hidden, so this is
-asked where that spec names `markdown-markup'."
-  (apply #'max 0 (mapcar #'markdown--string-width (split-string text "\n"))))
-
 (defun parley-transcript--render-table (overlay width)
   "Write the table OVERLAY carries into its region, rendered to WIDTH columns.
 

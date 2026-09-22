@@ -2430,6 +2430,23 @@ Delimiter rows are not read, holding no cell."
             (seq-remove #'markdown--is-delimiter-row (split-string text "\n"))))
    " "))
 
+(defun parley-transcript-test--columns (text)
+  "Return how many columns the widest line of TEXT takes up on screen.
+`markdown--string-width' and not `length', because a table of CJK
+text is aligned in columns and lines up in none, and because a
+character hidden by `invisible markdown-markup' is a character
+that takes up none of them -- which is the measure the writer
+takes every width in a grid with.
+
+It reads the current buffer's `buffer-invisibility-spec' to know
+what is hidden, and answers as the operator reads only where that
+spec names `markdown-markup'.  Batch Emacs leaves the default of
+t, under which every `invisible' hides, so a test asking this
+outside a transcript buffer is asking it under that default.
+
+"
+  (apply #'max 0 (mapcar #'markdown--string-width (split-string text "\n"))))
+
 (defun parley-transcript-test--unnarrowed (text)
   "Return the grid parley writes for TEXT with no column narrowed.
 A width no fixture here is wider than, which is the grid a table
@@ -2621,8 +2638,8 @@ makes: the source is the overlay's and no longer the buffer's."
               (parley-transcript-test--resize buffer 20)
               (let ((wrapped (parley-transcript-test--form overlay))
                     (narrow (window-body-width (selected-window))))
-                (should (> (parley-transcript--columns aligned) narrow))
-                (should (<= (parley-transcript--columns wrapped) narrow))
+                (should (> (parley-transcript-test--columns aligned) narrow))
+                (should (<= (parley-transcript-test--columns wrapped) narrow))
                 (should (< (length (split-string aligned "\n"))
                            (length (split-string wrapped "\n"))))
                 (should (= 1 (length (seq-uniq
@@ -2671,10 +2688,10 @@ read that way."
          (form (parley-transcript--aligned text width))
          (rows (mapcar #'parley-transcript-test--cells (split-string form "\n"))))
     (should form)
-    (should (> (parley-transcript--columns
+    (should (> (parley-transcript-test--columns
                 (parley-transcript-test--unnarrowed text))
                width))
-    (should (<= (parley-transcript--columns form) width))
+    (should (<= (parley-transcript-test--columns form) width))
     (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
     (should (member '("step" "what it does") rows))
     (should (member '("two" "short") rows))
@@ -2717,7 +2734,7 @@ same columns."
         (width 34))
     (let ((form (parley-transcript--aligned text width)))
       (should form)
-      (should (<= (parley-transcript--columns form) width))
+      (should (<= (parley-transcript-test--columns form) width))
       (should (< (length (split-string text "\n"))
                  (length (split-string form "\n"))))
       (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
@@ -2777,7 +2794,7 @@ unreachable through the table and is pinned here instead."
          (rows (mapcar #'parley-transcript-test--cells (split-string form "\n"))))
     (should form)
     (should (member (list "one" word) rows))
-    (should (= 45 (parley-transcript--columns form)))
+    (should (= 45 (parley-transcript-test--columns form)))
     (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
     (should (equal (list word "and")
                    (parley-transcript--wrapped-cell (concat word " and") 5)))))
@@ -2810,10 +2827,10 @@ and the grid the other width asserts goes with it."
                        "| 22 | short |"))
          (wide (parley-transcript--aligned text 30))
          (narrow (parley-transcript--aligned text 14)))
-    (should (> (parley-transcript--columns
+    (should (> (parley-transcript-test--columns
                 (parley-transcript-test--unnarrowed text))
                30))
-    (should (<= (parley-transcript--columns wide) 30))
+    (should (<= (parley-transcript-test--columns wide) 30))
     (dolist (form (list wide narrow))
       (should form)
       (should (= 1 (length (seq-uniq (mapcar #'string-width
@@ -2868,7 +2885,7 @@ strips."
                   (let* ((form (buffer-substring (overlay-start overlay)
                                                  (overlay-end overlay)))
                          (shown (parley-transcript-test--visible form)))
-                    (should (<= (parley-transcript--columns form) width))
+                    (should (<= (parley-transcript-test--columns form) width))
                     (should (= 1 (length (seq-uniq
                                           (parley-transcript-test--bars form)))))
                     (dolist (marker '("**" "`" "[" "]" "(" ")"
@@ -3002,7 +3019,7 @@ and ragged on screen."
                      "| 1  | see the long    |"
                      "|    | link text now   |")
                    (split-string (parley-transcript-test--visible form) "\n")))
-    (should (= 24 (parley-transcript--columns form)))
+    (should (= 24 (parley-transcript-test--columns form)))
     (should (= 1 (length (seq-uniq (mapcar #'markdown--string-width lines)))))
     (should (< 1 (length (seq-uniq (mapcar #'length lines)))))))
 
@@ -3064,7 +3081,7 @@ nothing here to hold together."
          (rows (mapcar #'markdown--table-line-to-columns
                        (split-string form "\n"))))
     (should form)
-    (should (<= (parley-transcript--columns form) 34))
+    (should (<= (parley-transcript-test--columns form) 34))
     (should (= 1 (length (seq-uniq (mapcar #'string-width
                                            (split-string form "\n"))))))
     (should (seq-every-p (lambda (row) (= 2 (length row))) rows))
@@ -3073,7 +3090,7 @@ nothing here to hold together."
     (should (member (list "" "more prose all fit") rows))
     (let* ((tight (parley-transcript--aligned text 25))
            (lines (split-string tight "\n")))
-      (should (= 30 (parley-transcript--columns tight)))
+      (should (= 30 (parley-transcript-test--columns tight)))
       (should (= 1 (length (seq-uniq (mapcar #'string-width lines)))))
       (should (member (list "" link)
                       (mapcar #'markdown--table-line-to-columns lines))))))
