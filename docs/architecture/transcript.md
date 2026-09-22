@@ -381,6 +381,14 @@ A buffer's name still has to be unique to a session, so it carries the tag
 history and all, and refreshes the record in it: what `claude agents` says about
 a session goes stale.
 
+**The buffer replaces what the selected window is showing, and is never put in
+another window.** Every way in means the same thing by picking a session — go to
+it: the sallet action, the `completing-read` fallback behind it and the command
+called by hand all reach the one call that shows the buffer. Displaying it
+instead spends a window the request never named, because the transcript lands in
+the window the operator was not in, over whatever he had open there, and takes
+his selection with it.
+
 ## The header line says whose buffer this is, and what it is doing now
 
 **The buffer name is a snapshot and the header line is not.** The name is built

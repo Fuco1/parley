@@ -797,6 +797,40 @@ resolves to is what the buffer ends up following."
       (when (buffer-live-p buffer) (kill-buffer buffer))
       (delete-file file))))
 
+(ert-deftest parley-transcript-test-shows-a-session-in-the-selected-window ()
+  "The transcript replaces the buffer of the window the operator is in.
+
+The frame is split first, because a frame of one window cannot
+tell the two ways of showing a buffer apart.  Under `emacs -Q
+--batch' it is about 80 by 25, under both
+`split-height-threshold' and `split-width-threshold', so
+`display-buffer' can pop no window up and reuses the only window
+there is -- and over that frame `pop-to-buffer' passes as well.
+Given a second window it takes that one instead, which is the
+window holding whatever the operator was reading beside the
+session he asked for."
+  (skip-unless (executable-find "jq"))
+  (let* ((session (parley-transcript-test--session
+                   "test" parley-transcript-test--lines))
+         (file (plist-get session :transcript))
+         (elsewhere (get-buffer-create "*parley-transcript-test-elsewhere*"))
+         (buffer nil))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (let* ((here (selected-window))
+                 (other (split-window)))
+            (set-window-buffer other elsewhere)
+            (parley-transcript session)
+            (should (= 1 (length (parley-transcript-test--buffers))))
+            (setq buffer (car (parley-transcript-test--buffers)))
+            (should (eq (selected-window) here))
+            (should (eq (window-buffer here) buffer))
+            (should (eq (window-buffer other) elsewhere))))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (kill-buffer elsewhere)
+      (delete-file file))))
+
 (ert-deftest parley-transcript-test-names-two-sessions-of-one-name-apart ()
   "Two live sessions reported under one name get two buffer names.
 
