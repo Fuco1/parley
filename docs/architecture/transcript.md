@@ -231,6 +231,36 @@ writes, put there as text — this buffer is a rendering throughout, and a table
 is the same kind of rendering as the quote around the operator's turn and the
 one line a run of tool calls collapses to.
 
+**The grid is drawn, and the source behind it is the agent's bars and dashes.**
+Every column boundary in a rendered table is `│`, at each end of a line as well
+as between two cells; the row between the header and the body is `├─┼─┤`, with
+none of his dashes or colons left in it; and a rule of `┌─┬─┐` opens the grid
+with `└─┴─┘` to close, each junction standing in the column a boundary stands
+in. What the overlay carries is the `|` and the `---` he typed, which is what
+every render is computed from.
+
+**The writer emits those characters, and nothing substitutes them into a
+finished form.** parley writes every grid itself, so the writer is what puts
+each boundary where it is and the only thing that knows where one is. A pass
+over the finished form could not: a cell can hold a bar of its own —
+`[[target|link words]]` is one cell to markdown-mode's reader — and that bar
+stands where no column ends, so a substitution would draw a boundary inside the
+cell. Nothing scans a cell for a bar, and a bar inside one reaches the buffer
+exactly as the agent wrote it.
+
+**The `:---:` of a delimiter row is said by the padding.** How a column is
+aligned is not something anyone reads off a drawn table, and it is not lost:
+the marks are read off his delimiter row once and every line the writer puts out
+is padded by them. The row itself becomes `├───┼───┤`.
+
+**The drawing costs the grid no width.** Each of those characters takes the one
+column the character it stands for took: measured with `char-width` on Emacs
+28.2, `│`, `─` and every junction and corner are one column, as `|` and `-`
+are. That is the default width table. Under the CJK one, which a Chinese,
+Japanese or Korean language environment installs, each of them is two columns
+and `|` and `-` are still one — measured on the same Emacs, a rule then stands
+in 62 columns where the row above it stands in 34.
+
 **The form is text and not something shown through a `display` property.** What
 a `display` property shows is not text: the buffer's own machinery never looks
 inside it, so nothing in such a table could be a button — `button-at` and
@@ -321,7 +351,7 @@ the padding in front of the cell and centred splits it either side; a column
 nobody marked takes it behind. The marks are read once, with markdown-mode's own
 `markdown-table-colfmt`, and every line the writer puts out is padded by them —
 so the lines a cell was packed over stand in the same column as the line its row
-began on.
+began on, and the padding is the whole of what says how a column is aligned.
 
 **A cell already inside its column is not packed.** Packing puts one space
 between two pieces, which is what a wrap has to do to a cell it spreads over
@@ -332,17 +362,17 @@ cheaper answer as well.
 **A wrap never breaks a construct a bar stands in.** A cell can hold a bar that
 is no column boundary — the one inside a wiki link, which markdown-mode's own
 cell reader passes over — and it is read over only while the link is whole. A
-line carrying `[[target|link` alone is that construct left open, and its bar is
-a boundary again: the row reads as a column more than the table has, to anything
-parsing the wrapped form back and to the operator, whose grid goes with it. So a
-link holding a bar is one piece of the wrap however many spaces stand inside it,
-and the column it is in is floored by it exactly as a long word floors one.
+line carrying `[[target|link` alone is that construct left open, and what the
+break costs is the link: nothing reading the form back has one there any more.
+So a link holding a bar is one piece of the wrap however many spaces stand
+inside it, and the column it is in is floored by it exactly as a long word
+floors one.
 
 **A cell nothing can narrow sets a floor under its column.** Wrapping packs the
 pieces of a cell — its words, and a wiki link holding a bar entire — and breaks
 none of them across two lines: a table past the edge of the window is one the
 operator can still read back, where a broken word costs him the word and a
-broken link costs him the grid. So a column holding a piece longer than the room
+broken link costs him the link. So a column holding a piece longer than the room
 the grid leaves it gives nothing, and the table settles wider than the window.
 That is the honest outcome. The floor is not what keeps a piece whole, which the
 packing does at any width; it is what stops the columns beside an incompressible
@@ -350,8 +380,8 @@ one being packed tighter than the table they share will ever be.
 
 **The rendered form closes a row the agent left open.** The outer bar at the end
 of a row is optional, and a table written by hand leaves it off; the grid always
-carries it, because what the cells are read out of is a copy of the table with
-those bars put back. Without them the reader takes such a row as a row with one
+draws that boundary, because what the cells are read out of is a copy of the
+table with those bars put back. Without them the reader takes such a row as a row with one
 cell fewer, and a cell dropped on the way into the buffer is a cell of the
 agent's the operator cannot read at all, where a ragged table is merely ragged.
 The row stays open in the table the overlay carries, which is what every later
@@ -394,13 +424,12 @@ global font lock strips in this buffer, for the reason the render pass maps it
 away. A cell carries the faces markdown-mode painted it with, which is
 `markdown-table-face` over the whole of a table line and the face of a construct
 over the construct; what comes out of the writer with no face at all is the grid
-itself, the bars and the padding, and that is what the table face is filled into.
+itself — the boundaries, the rules and the padding — and that is what the table
+face is filled into.
 
-The faces are also what tells a form from the table it came from. An agent who
-lined his table up himself wrote the characters the render produces, and what
-the region held before the render was the text the render pass delivered.
-Compared as text the two are one and the region would be left as it stands;
-compared with their properties they are not, and the region is written over.
+A form is never the table it came from, whatever the agent lined up himself: the
+grid is drawn and his table is bars and dashes, so the first render of one
+always writes.
 
 `equal-including-properties` compares two property values with `eq` and a face
 markdown-mode painted a cell with is a fresh list every fontification, so two
