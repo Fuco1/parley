@@ -1028,7 +1028,7 @@ and reading the cells back out of one would render the last
 render rather than the table: a row wrapped over three lines
 would come back as three rows of a table nobody wrote.
 
-Only while the region still holds the form written there, which
+Only while the region still holds the text written there, which
 is what `parley-table-form' carries.  `comint-truncate-buffer'
 takes the top of the conversation away and the operator can edit
 in this buffer, and a region that no longer holds what parley put
@@ -1038,14 +1038,28 @@ and nothing puts it back.
 
 Dropped as well when the table renders to nothing, which
 `parley-transcript--aligned' answers at every width alike: there
-is no width to come back for."
+is no width to come back for.
+
+The region is written over unless it already holds this form with
+its properties, which is what tells the form from the table it
+was rendered from.  A table the agent had already aligned renders
+to the characters he wrote, and the text the render pass
+delivered carries markdown-mode's own properties over those
+characters -- the `display' that hides the markers around `x^2^'
+among them.  `equal' passes over a property, so it would leave
+that text standing as the table and the `display' in it, where a
+table here is the form, its face, and nothing else.  Two
+computations of one form agree under
+`equal-including-properties', so a render with nothing to do is
+still free."
   (let ((form (and (equal (buffer-substring-no-properties (overlay-start overlay)
                                                           (overlay-end overlay))
                           (overlay-get overlay 'parley-table-form))
                    (parley-transcript--aligned
                     (overlay-get overlay 'parley-table) width))))
     (cond ((null form) (delete-overlay overlay))
-          ((not (equal form (overlay-get overlay 'parley-table-form)))
+          ((not (equal-including-properties
+                 form (overlay-get overlay 'parley-table-form)))
            (parley-transcript--replace-table overlay form)))))
 
 (defun parley-transcript--replace-table (overlay form)
@@ -1058,9 +1072,16 @@ reaches past a table rendered again is his own last change, and
 it binds the modification hooks away with it, so nothing takes a
 render for text that has to be fontified again.
 
-Point is put back where it stood, and comint reads point back off
-the buffer once its output filters have run -- it is the
-operator's and a filter that moved it has moved his.
+Point is put back where it stood, which comint reads back off the
+buffer once its output filters have run -- it is the operator's,
+and a filter that moved it has moved his.  Point outside the
+table is a marker that follows the replacement; point inside one
+is put the distance into the form that it stood into what was
+there, and `save-excursion' alone would not do it -- a marker in
+what a deletion takes survives at the boundary of it, which here
+is the head of the table.  The distance is the most a grid laid
+out again can promise, and the form it is measured into is as far
+as it goes: a table point stood in is a table it stays in.
 
 The process mark is a marker past the end of this region, because
 a table ends before the newline that closes the block around it,
@@ -1069,12 +1090,16 @@ table does.  The overlay over this one is moved by hand: the
 deletion leaves it empty and it takes in nothing inserted at
 either end, which is what keeps the text around a table out of
 it."
-  (let ((start (overlay-start overlay)))
+  (let* ((start (overlay-start overlay))
+         (end (overlay-end overlay))
+         (into (and (<= start (point) end) (- (point) start))))
     (with-silent-modifications
       (save-excursion
-        (delete-region start (overlay-end overlay))
+        (delete-region start end)
         (goto-char start)
         (insert form)))
+    (when into
+      (goto-char (+ start (min into (length form)))))
     (move-overlay overlay start (+ start (length form)))
     (overlay-put overlay 'parley-table-form form)))
 

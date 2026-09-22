@@ -2353,6 +2353,40 @@ character the rest of the table does not hold."
         (should-not (string-search parley-transcript-test--table
                                    (parley-transcript-test--text buffer)))))))
 
+(ert-deftest parley-transcript-test-renders-a-table-that-needs-no-aligning ()
+  "A table the agent had already aligned is the buffer's own text like any other.
+
+Its form is the characters he wrote, so nothing but the
+properties tells the form from the table -- and the text the
+render pass delivers carries markdown-mode's own: `x^2^' in a
+cell is a superscript, and what hides the markers around one is a
+`display' property.  A render that compared the two as text would
+leave that text standing as the table and the `display' in it,
+where a table here is the form, its face, and nothing else.
+
+That the aligner leaves this table alone is asserted first, so a
+fixture it would have rewritten anyway could not pass this by
+being rewritten."
+  (skip-unless (executable-find "jq"))
+  (let ((text (concat "| name | power |\n"
+                      "|------|-------|\n"
+                      "| a    | x^2^  |")))
+    (should (equal text (parley-transcript--alignment text)))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--text-turn text))
+      (let ((overlay (car (parley-transcript-test--wait
+                           (lambda ()
+                             (parley-transcript-test--tables buffer))))))
+        (should (equal text (parley-transcript-test--source overlay)))
+        (should (equal text (parley-transcript-test--form overlay)))
+        (with-current-buffer buffer
+          (let ((start (overlay-start overlay))
+                (end (overlay-end overlay)))
+            (should-not (text-property-not-all start end 'display nil))
+            (should-not (text-property-not-all start end 'invisible nil))
+            (should-not (text-property-not-all start end 'font-lock-face
+                                               'markdown-table-face))))))))
+
 (ert-deftest parley-transcript-test-renders-a-table-again-at-a-new-width ()
   "A table is rendered again for the width of the window, from the agent's table.
 
@@ -2812,6 +2846,16 @@ buffer once its output filters have run -- it is the operator's,
 and a render that moved it would have moved his -- so it is
 pinned on the text it was on and not on a number.
 
+Point inside the table is pinned too, and separately: the
+deletion takes the text it stands in, so a marker is not what
+keeps it and `save-excursion' alone brings it to the head of the
+grid.  It stands the same distance into the form, which the
+table's own start is measured from because that start does not
+move.  And from a distance the next form is too short for --
+point at the end of a wrapped form, widened to an aligned one 19
+characters shorter -- it stands at the end of the table and not
+in the sentence after it.
+
 The process mark is where comint left it, which is where the
 next output the session writes goes in.
 
@@ -2825,25 +2869,34 @@ here."
         (parley-transcript-test--with-session
             (list (parley-transcript-test--text-turn
                    (concat parley-transcript-test--table "\n\nand that is all")))
-          (parley-transcript-test--wait
-           (lambda () (parley-transcript-test--tables buffer)))
-          (save-window-excursion
-            (set-window-buffer (selected-window) buffer)
-            (parley-transcript-test--resize buffer 100)
-            (with-current-buffer buffer
-              (let ((mark (process-mark (get-buffer-process (current-buffer))))
-                    (size (buffer-size)))
-                (should (= (marker-position mark) (point-max)))
-                (buffer-enable-undo)
-                (setq buffer-undo-list nil)
-                (goto-char (point-min))
-                (should (search-forward "and that is all" nil t))
-                (goto-char (match-beginning 0))
-                (parley-transcript-test--resize buffer 20)
-                (should (/= size (buffer-size)))
-                (should (null buffer-undo-list))
-                (should (looking-at-p "and that is all"))
-                (should (= (marker-position mark) (point-max)))))))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda ()
+                                 (parley-transcript-test--tables buffer))))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer 100)
+              (with-current-buffer buffer
+                (let ((mark (process-mark (get-buffer-process (current-buffer))))
+                      (size (buffer-size)))
+                  (should (= (marker-position mark) (point-max)))
+                  (buffer-enable-undo)
+                  (setq buffer-undo-list nil)
+                  (goto-char (point-min))
+                  (should (search-forward "and that is all" nil t))
+                  (goto-char (match-beginning 0))
+                  (parley-transcript-test--resize buffer 20)
+                  (should (/= size (buffer-size)))
+                  (should (null buffer-undo-list))
+                  (should (looking-at-p "and that is all"))
+                  (should (= (marker-position mark) (point-max)))
+                  (goto-char (+ 5 (overlay-start overlay)))
+                  (parley-transcript-test--resize buffer 100)
+                  (should (= (point) (+ 5 (overlay-start overlay))))
+                  (parley-transcript-test--resize buffer 20)
+                  (goto-char (overlay-end overlay))
+                  (parley-transcript-test--resize buffer 100)
+                  (should (= (point) (overlay-end overlay)))
+                  (should (null buffer-undo-list)))))))
       (set-frame-width (selected-frame) columns))))
 
 
