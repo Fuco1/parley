@@ -2970,6 +2970,42 @@ began on."
                                 20)
                                "\n"))))
 
+(ert-deftest parley-transcript-test-holds-the-grid-around-a-broken-link ()
+  "A link the wrap breaks costs the grid nothing, only the link.
+
+A markdown link carries no bar, so a wrap may break one where it
+may not break a wiki link: what the operator reads is the link's
+text over as many lines as the cell took, and what he loses is
+that clicking it would have gone anywhere.
+
+Each piece the break leaves hides a different amount -- the piece
+ending the first line hides one bracket, the piece starting the
+second hides a bracket, two parentheses and the whole of a URL --
+so the pieces are what say every width here is measured on what
+is shown.  What the operator reads is pinned line by line: by the
+character those pieces are far wider than they show, the packing
+fits fewer of them on a line, and the cell comes out over four
+lines with one word on each of the last three.
+
+The lines are equal in columns and unequal in characters, which
+is the other half of it: the padding is measured on what is shown
+too, and by the character the grid would be square in characters
+and ragged on screen."
+  (let* ((text (concat "| id | note |\n|---|---|\n"
+                       "| 1 | see [the long link text]"
+                       "(http://example.com/page) now |"))
+         (form (parley-transcript--aligned text 24))
+         (lines (split-string form "\n")))
+    (should form)
+    (should (equal '("| id | note            |"
+                     "|----|-----------------|"
+                     "| 1  | see the long    |"
+                     "|    | link text now   |")
+                   (split-string (parley-transcript-test--visible form) "\n")))
+    (should (= 24 (parley-transcript--columns form)))
+    (should (= 1 (length (seq-uniq (mapcar #'markdown--string-width lines)))))
+    (should (< 1 (length (seq-uniq (mapcar #'length lines)))))))
+
 (ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
   "A bar standing inside a cell is not a column boundary, and a wrap leaves it none.
 
