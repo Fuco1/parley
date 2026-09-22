@@ -192,7 +192,7 @@ same reason the pipeline refuses colour at the source: measured over the 26 MB
 transcript not one escape byte reaches the buffer, and scanning the 1.3 MB for
 them costs 2.4 s of the 6.9 s that history takes to settle.
 
-## A table is drawn into the buffer, and the overlay keeps its source
+## A table is rendered into the buffer, and the overlay keeps its source
 
 A table lines up only if the agent lined it up, and a table whose columns do not
 line up is a table nobody reads. What stands in the buffer is the aligned form,
@@ -208,14 +208,14 @@ could never be made clickable. Text is what the rest of the rendering can be
 grown past, and a form shown through a property is where it stops.
 
 **The overlay stays, carrying the table the agent wrote.** That is what a resize
-is rendered from. The buffer holds a grid this package drew, and reading the
+is rendered from. The buffer holds a grid this package wrote, and reading the
 cells back out of one would render the last render rather than the table: every
 line of a wrapped row parses back as a row of its own. The overlay is also what
 says where a table is, and what tracks a deletion — `comint-truncate-buffer`
 taking the top of the conversation away brings its ends together, where a text
 property would survive in both halves of what was cut.
 
-**A region that no longer holds what parley wrote there is not drawn again.**
+**A region that no longer holds what parley wrote there is not rendered again.**
 Truncation can take the first lines of a table away and the operator can edit in
 this buffer, and rendering from the source over either would put back text that
 is not there any more. The overlay is dropped instead and what is left stands as
@@ -267,7 +267,7 @@ That is the honest outcome. The floor is not what keeps a piece whole, which the
 packing does at any width; it is what stops the columns beside an incompressible
 one being packed tighter than the table they share will ever be.
 
-**The drawn form closes a row the agent left open.** The outer bar at the end of
+**The rendered form closes a row the agent left open.** The outer bar at the end of
 a row is optional, and a table written by hand leaves it off; the aligned form
 always carries it, because what is aligned is a copy of the table with those
 bars put back. Without them the aligner reads such a row as a row with one cell
@@ -294,14 +294,14 @@ an agent wrote from one it was quoting.
 comint has not inserted yet, so what it can say is how far into that string each
 table begins — the same offsets the index over the prompts is recorded from, and
 turned into buffer positions by the same output filter, because that is the
-first moment the text exists. Every overlay is laid before any table is drawn,
-because drawing one replaces buffer text and moves everything after it: an
+first moment the text exists. Every overlay is laid before any table is rendered,
+because rendering one replaces buffer text and moves everything after it: an
 overlay follows that move and an offset into the inserted string does not.
 
-**The faces the drawn form carries are in `font-lock-face`.** `face` is what
+**The faces the rendered form carries are in `font-lock-face`.** `face` is what
 global font lock strips in this buffer, for the reason the render pass maps it
-away, and a table is drawn with the face markdown-mode paints one with and
-nothing finer — so markup inside a cell stands in the drawn form as the agent
+away, and a table is rendered with the face markdown-mode paints one with and
+nothing finer — so markup inside a cell stands in the rendered form as the agent
 wrote it.
 
 **What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
@@ -315,12 +315,12 @@ the aligner.
 A conversation holding forty tables therefore costs 0.11 s of blocked redisplay
 on a resize, and 0.20 s if every one of them has to be wrapped. The hook this
 runs on is called for a window added, deleted or given another buffer as well,
-and the width the tables were last drawn to is what tells a resize from the
+and the width the tables were last rendered to is what tells a resize from the
 rest — 3.3 µs when it has not changed, which is what keeps every other window
 change free.
 
 A table is the buffer's text and not a window's, so a buffer shown in two
-windows of different widths is drawn to whichever of them changed last.
+windows of different widths is rendered to whichever of them changed last.
 
 ## A run of tool calls is one line
 

@@ -642,7 +642,7 @@ inserted and then rewritten in place."
 ;;
 ;; The table the agent wrote is carried by an overlay over it, which
 ;; is what a resize is rendered from: what the buffer holds is a grid
-;; this file drew, and reading the cells back out of one would render
+;; this file wrote, and reading the cells back out of one would render
 ;; the last render instead of the table.  The overlay is also what
 ;; says where a table is and what tracks a deletion --
 ;; `comint-truncate-buffer' taking the top of the conversation away
@@ -1023,13 +1023,13 @@ aligned in columns and lines up in none."
   "Write the table OVERLAY carries into its region, rendered to WIDTH columns.
 
 Rendered from the table the agent wrote, which OVERLAY carries in
-`parley-table'.  What the region holds is a grid this file drew,
+`parley-table'.  What the region holds is a grid this file wrote,
 and reading the cells back out of one would render the last
 render rather than the table: a row wrapped over three lines
 would come back as three rows of a table nobody wrote.
 
 Only while the region still holds the form written there, which
-`parley-table-form' is what it was.  `comint-truncate-buffer'
+is what `parley-table-form' carries.  `comint-truncate-buffer'
 takes the top of the conversation away and the operator can edit
 in this buffer, and a region that no longer holds what parley put
 in it is not parley's to write over -- what is left of a table
@@ -1052,11 +1052,11 @@ is no width to come back for."
   "Put FORM in the buffer in place of OVERLAY's region, and record it on OVERLAY.
 
 A render is not an edit the operator made and not one he may
-undo, which `with-silent-modifications' is the whole of: it binds
-`buffer-undo-list' away, so what `undo' reaches past a table
-rendered again is his own last change, and it binds the
-modification hooks away with it, so nothing takes this for text
-that has to be fontified again.
+undo, which is the whole of what `with-silent-modifications'
+says here: it binds `buffer-undo-list' away, so what `undo'
+reaches past a table rendered again is his own last change, and
+it binds the modification hooks away with it, so nothing takes a
+render for text that has to be fontified again.
 
 Point is put back where it stood, and comint reads point back off
 the buffer once its output filters have run -- it is the
@@ -1064,10 +1064,11 @@ operator's and a filter that moved it has moved his.
 
 The process mark is a marker past the end of this region, because
 a table ends before the newline that closes the block around it,
-and follows the replacement as the overlay over every other table
-does.  This one's is moved by hand: the deletion leaves it empty
-and it takes in nothing inserted at either end, which is what
-keeps the text around a table out of it."
+and it follows the replacement as the overlay over every other
+table does.  The overlay over this one is moved by hand: the
+deletion leaves it empty and it takes in nothing inserted at
+either end, which is what keeps the text around a table out of
+it."
   (let ((start (overlay-start overlay)))
     (with-silent-modifications
       (save-excursion

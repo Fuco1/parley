@@ -2229,8 +2229,8 @@ wrapped to fit one.")
                       (overlays-in (point-min) (point-max)))
           (lambda (one other) (< (overlay-start one) (overlay-start other))))))
 
-(defun parley-transcript-test--drawn (overlay)
-  "Return the buffer text OVERLAY covers, which is the form parley drew there."
+(defun parley-transcript-test--form (overlay)
+  "Return the buffer text OVERLAY covers, which is the form parley rendered."
   (with-current-buffer (overlay-buffer overlay)
     (buffer-substring-no-properties (overlay-start overlay)
                                     (overlay-end overlay))))
@@ -2260,7 +2260,7 @@ line."
           (split-string text "\n")))
 
 (defun parley-transcript-test--resize (buffer width)
-  "Give the selected frame WIDTH columns and draw BUFFER's tables again.
+  "Give the selected frame WIDTH columns and render BUFFER's tables again.
 BUFFER has to be in the selected window, which is the window
 `parley-transcript--width' reads.
 
@@ -2282,7 +2282,7 @@ and with an empty one wherever that row's cell has run out of
 words before its neighbours have."
   (mapcar #'string-trim (butlast (cdr (split-string line "|")))))
 
-(ert-deftest parley-transcript-test-draws-a-table-as-the-buffers-own-text ()
+(ert-deftest parley-transcript-test-renders-a-table-as-the-buffers-own-text ()
   "A table stands in the buffer as the text of the form parley rendered.
 
 The buffer is a rendering throughout and a table is no exception:
@@ -2312,7 +2312,7 @@ The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
 its last cell is one column wide -- which is the cell the aligner
 drops when no bar closes it, unless the copy it is given has that
-bar put back.  Every cell of it is read out of what was drawn for
+bar put back.  Every cell of it is read out of what was rendered for
 that reason, and each of those one-column cells is a character
 the rest of the table does not hold."
   (skip-unless (executable-find "jq"))
@@ -2329,18 +2329,18 @@ the rest of the table does not hold."
                         (lambda ()
                           (let ((found (parley-transcript-test--tables buffer)))
                             (and (= 2 (length found)) found)))))
-             (drawn (mapcar #'parley-transcript-test--drawn overlays)))
+             (forms (mapcar #'parley-transcript-test--form overlays)))
         (should (= 2 (length overlays)))
         (should (equal (list parley-transcript-test--table other)
                        (mapcar #'parley-transcript-test--source overlays)))
-        (dolist (form drawn)
+        (dolist (form forms)
           (should (= 1 (length (seq-uniq (parley-transcript-test--bars form))))))
         (should (< 1 (length (seq-uniq (parley-transcript-test--bars
                                         parley-transcript-test--table)))))
         (dolist (cell '("name" "what it does" "bbbbbb" "a much longer cell"))
-          (should (string-search cell (car drawn))))
+          (should (string-search cell (car forms))))
         (dolist (cell '("id" "flag" "1" "x" "22" "q"))
-          (should (string-search cell (cadr drawn))))
+          (should (string-search cell (cadr forms))))
         (dolist (overlay overlays)
           (should-not (overlay-get overlay 'display))
           (with-current-buffer buffer
@@ -2353,8 +2353,8 @@ the rest of the table does not hold."
         (should-not (string-search parley-transcript-test--table
                                    (parley-transcript-test--text buffer)))))))
 
-(ert-deftest parley-transcript-test-draws-a-table-again-when-the-window-changes-width ()
-  "A table is drawn again for the width of the window, from the table the agent wrote.
+(ert-deftest parley-transcript-test-renders-a-table-again-when-the-window-changes-width ()
+  "A table is rendered again for the width of the window, from the table the agent wrote.
 
 Wide enough and it is aligned; too narrow for the aligned form
 and its cells are wrapped into the window instead, over as many
@@ -2380,13 +2380,13 @@ makes: the source is the overlay's and no longer the buffer's."
             (save-window-excursion
               (set-window-buffer (selected-window) buffer)
               (parley-transcript-test--resize buffer 100)
-              (setq aligned (parley-transcript-test--drawn overlay))
+              (setq aligned (parley-transcript-test--form overlay))
               (should (= 1 (length (seq-uniq
                                     (parley-transcript-test--bars aligned)))))
               (should (equal parley-transcript-test--table
                              (parley-transcript-test--source overlay)))
               (parley-transcript-test--resize buffer 20)
-              (let ((wrapped (parley-transcript-test--drawn overlay))
+              (let ((wrapped (parley-transcript-test--form overlay))
                     (narrow (window-body-width (selected-window))))
                 (should (> (parley-transcript--columns aligned) narrow))
                 (should (<= (parley-transcript--columns wrapped) narrow))
@@ -2399,7 +2399,7 @@ makes: the source is the overlay's and no longer the buffer's."
                 (should (equal parley-transcript-test--table
                                (parley-transcript-test--source overlay))))
               (parley-transcript-test--resize buffer 100)
-              (should (equal aligned (parley-transcript-test--drawn overlay))))
+              (should (equal aligned (parley-transcript-test--form overlay))))
             (should (equal parley-transcript-test--table
                            (parley-transcript-test--source overlay)))))
       (set-frame-width (selected-frame) columns))))
@@ -2685,7 +2685,7 @@ The message holds the same table twice, fenced and not, so a
 render pass that found no table anywhere fails the first
 assertion rather than passing this test by having done nothing.
 The fenced one is the only copy left standing as the agent wrote
-it, because the other has been replaced by the form parley drew
+it, because the other has been replaced by the form parley rendered
 -- so the search that finds it is the search that says so."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session
@@ -2717,7 +2717,7 @@ it, because the other has been replaced by the form parley drew
 Truncation is how a comint buffer is kept from growing without
 end and it takes the top of the conversation away, which can be
 the first lines of a table.  What is left there is not the form
-parley wrote, and drawing the table again over it would put back
+parley wrote, and rendering the table again over it would put back
 lines the operator watched go -- so the overlay is dropped and
 what is left of the table is never touched again.
 
@@ -2740,7 +2740,7 @@ stands there."
             (save-window-excursion
               (set-window-buffer (selected-window) buffer)
               (parley-transcript-test--resize buffer 100)
-              (let ((form (parley-transcript-test--drawn overlay))
+              (let ((form (parley-transcript-test--form overlay))
                     (left nil))
                 (with-current-buffer buffer
                   ;; Cut to the lines from the table's second line on,
@@ -2754,9 +2754,9 @@ stands there."
                                       (point-max))))
                     (comint-truncate-buffer))
                   (setq left (parley-transcript-test--text buffer)))
-                (should (string-suffix-p (parley-transcript-test--drawn overlay)
+                (should (string-suffix-p (parley-transcript-test--form overlay)
                                          form))
-                (should (< (length (parley-transcript-test--drawn overlay))
+                (should (< (length (parley-transcript-test--form overlay))
                            (length form)))
                 (parley-transcript-test--resize buffer 20)
                 (should-not (parley-transcript-test--tables buffer))
@@ -2769,7 +2769,7 @@ stands there."
 This is his buffer and he can type in it.  What stands in a
 region he has changed is not the form parley wrote there and is
 not parley's to write over: the overlay is dropped and the table
-is never drawn again, where a render that went ahead would take
+is never rendered again, where a render that went ahead would take
 his edit back out at the next resize.
 
 The character goes inside the region and not at either end of it,
@@ -2786,7 +2786,7 @@ edited, not the text around it."
             (save-window-excursion
               (set-window-buffer (selected-window) buffer)
               (parley-transcript-test--resize buffer 100)
-              (let ((form (parley-transcript-test--drawn overlay))
+              (let ((form (parley-transcript-test--form overlay))
                     (left nil))
                 (with-current-buffer buffer
                   (let ((inhibit-read-only t))
@@ -2794,14 +2794,14 @@ edited, not the text around it."
                       (goto-char (+ 2 (overlay-start overlay)))
                       (insert "!")))
                   (setq left (parley-transcript-test--text buffer)))
-                (should-not (equal form (parley-transcript-test--drawn overlay)))
+                (should-not (equal form (parley-transcript-test--form overlay)))
                 (parley-transcript-test--resize buffer 20)
                 (should-not (parley-transcript-test--tables buffer))
                 (should (equal left (parley-transcript-test--text buffer)))))))
       (set-frame-width (selected-frame) columns))))
 
-(ert-deftest parley-transcript-test-draws-a-table-over-nothing-of-the-operators ()
-  "Drawing a table again leaves the operator his undo, his point and comint its mark.
+(ert-deftest parley-transcript-test-renders-a-table-over-nothing-of-the-operators ()
+  "Rendering a table again leaves the operator his undo, his point and comint its mark.
 
 The replacement is parley's and is none of his: `undo' reaches
 past it to his own last change, so the buffer's undo list carries
