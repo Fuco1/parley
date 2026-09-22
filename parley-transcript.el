@@ -124,7 +124,7 @@ the escape stripping out of the buffer, and `-M' is what keeps
 that safe if the pipeline ever ran on a terminal again.  Measured
 over the 26 MB transcript it leaves no escape byte in the stream
 at all: a control character inside a JSON string is written as
-the six characters \."
+the six characters \\u001b."
   (concat "tail -c +1 -F " (shell-quote-argument file)
           " | jq -M -c --unbuffered "
           (shell-quote-argument parley-transcript--projection)))
