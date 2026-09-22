@@ -2312,9 +2312,9 @@ The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
 its last cell is one column wide -- which is the cell the aligner
 drops when no bar closes it, unless the copy it is given has that
-bar put back.  Every cell of it is read out of what was rendered for
-that reason, and each of those one-column cells is a character
-the rest of the table does not hold."
+bar put back.  Every cell of it is read out of what was rendered
+for that reason, and each of those one-column cells is a
+character the rest of the table does not hold."
   (skip-unless (executable-find "jq"))
   (let ((other (concat "| id | flag\n"
                        "|---|---\n"
@@ -2353,8 +2353,8 @@ the rest of the table does not hold."
         (should-not (string-search parley-transcript-test--table
                                    (parley-transcript-test--text buffer)))))))
 
-(ert-deftest parley-transcript-test-renders-a-table-again-when-the-window-changes-width ()
-  "A table is rendered again for the width of the window, from the table the agent wrote.
+(ert-deftest parley-transcript-test-renders-a-table-again-at-a-new-width ()
+  "A table is rendered again for the width of the window, from the agent's table.
 
 Wide enough and it is aligned; too narrow for the aligned form
 and its cells are wrapped into the window instead, over as many
@@ -2763,7 +2763,7 @@ stands there."
                 (should (equal left (parley-transcript-test--text buffer)))))))
       (set-frame-width (selected-frame) columns))))
 
-(ert-deftest parley-transcript-test-leaves-a-table-the-operator-edited-as-it-stands ()
+(ert-deftest parley-transcript-test-leaves-a-table-the-operator-edited ()
   "A table the operator has edited is left as he left it.
 
 This is his buffer and he can type in it.  What stands in a
@@ -2800,8 +2800,8 @@ edited, not the text around it."
                 (should (equal left (parley-transcript-test--text buffer)))))))
       (set-frame-width (selected-frame) columns))))
 
-(ert-deftest parley-transcript-test-renders-a-table-over-nothing-of-the-operators ()
-  "Rendering a table again leaves the operator his undo, his point and comint its mark.
+(ert-deftest parley-transcript-test-renders-a-table-and-disturbs-nothing ()
+  "Rendering a table again leaves his undo, his point and comint its mark.
 
 The replacement is parley's and is none of his: `undo' reaches
 past it to his own last change, so the buffer's undo list carries
