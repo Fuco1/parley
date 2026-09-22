@@ -1911,6 +1911,51 @@ starts it again, which is what the second round waits for."
           (should (get-buffer-window buffer t))
           (should (eq (parley-transcript-test--status buffer) 'working)))))))
 
+(ert-deftest parley-transcript-test-animates-across-a-mode-reentry ()
+  "A major mode reentered over the buffer leaves the cell still animating.
+An overlay belongs to the buffer and not to the binding that
+names it: the reentry clears every buffer-local that is not
+permanent and leaves the marker on screen either way.  A cleared
+binding would therefore freeze the cell wherever the reentry
+caught it, with a timer redrawing an overlay it can no longer
+name, and the next `parley-transcript--mark-input-zone' would
+hang a second overlay over the first instead of moving it.
+
+So the overlay afterwards is the one from before, it is still the
+only one drawing a marker, and what is counted is the cell really
+changing: a timer on `timer-list' is not the animation reaching
+the screen, which is the whole of what the binding decides."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--write-status buffer "busy")
+      (set-window-buffer (selected-window) buffer)
+      (should (parley-transcript-test--wait
+               (lambda () (timerp (buffer-local-value
+                                   'parley-transcript--spinner-timer buffer)))))
+      (let ((overlay (buffer-local-value 'parley-transcript--input-overlay
+                                         buffer)))
+        (should (overlayp overlay))
+        (with-current-buffer buffer
+          (parley-transcript-mode)
+          ;; The record the tick reads the status from is not one the
+          ;; mode keeps, and a buffer that has lost it is a buffer whose
+          ;; session never works again -- which would leave this
+          ;; counting a cell nothing was animating.
+          (setq parley-transcript-session session))
+        (should (eq overlay (buffer-local-value
+                             'parley-transcript--input-overlay buffer)))
+        (should (parley-transcript-test--wait
+                 (lambda () (timerp (buffer-local-value
+                                     'parley-transcript--spinner-timer buffer)))))
+        (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
+        (should (equal (list overlay)
+                       (with-current-buffer buffer
+                         (seq-filter
+                          (lambda (o) (overlay-get o 'before-string))
+                          (overlays-in (point-min) (point-max))))))))))
+
 (ert-deftest parley-transcript-test-kill-stops-the-animation ()
   "Killing the buffer cancels the timer animating its cell, reentered mode or not.
 The animation is stopped by a buffer-local `kill-buffer-hook',

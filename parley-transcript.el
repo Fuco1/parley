@@ -1710,6 +1710,16 @@ zone is bounded whether or not anything has been typed in it.")
 (defvar-local parley-transcript--input-overlay nil
   "The overlay marking the input zone, nil in a buffer that has none.")
 
+;; Permanent, and for a sharper reason than the timers below: an
+;; overlay belongs to the buffer and not to the binding, so reentering
+;; the major mode leaves it on screen -- marker, cell and all -- while
+;; clearing the only name the buffer had for it.  Everything that
+;; redraws the cell goes through that name, so the mark would stand at
+;; whatever the reentry caught it on for as long as the buffer lived,
+;; and the next `parley-transcript--mark-input-zone' would hang a
+;; second overlay over the first rather than move it.
+(put 'parley-transcript--input-overlay 'permanent-local t)
+
 (defun parley-transcript--mark-input-zone (&optional _string)
   "Put the overlay that marks the input zone over the end of the buffer.
 
