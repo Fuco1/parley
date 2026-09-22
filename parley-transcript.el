@@ -770,17 +770,10 @@ operator sees is then the table as the agent wrote it.  Neither
 is a question of width, so a table that renders to nothing here
 renders to nothing at any size of window.
 
-Nil, last, when the grid does not say what TEXT says.  Where a
-cell begins and ends is markdown-mode's own
-`markdown--table-line-to-columns' and which markdown-mode is
-under this buffer is the operator's business, so a version of it
-that dropped a cell would write that cell's row into the buffer
-without it -- and a cell he cannot read at all is worse than a
-table that is merely ragged."
+Nil, last, when the cells do not say what TEXT says, which
+`parley-transcript--written' answers for as well."
   (let ((form (parley-transcript--written text width)))
-    (when (and form
-               (equal (parley-transcript--table-content form)
-                      (parley-transcript--table-content text)))
+    (when form
       (parley-transcript--table-faced form))))
 
 (defun parley-transcript--table-faced (form)
@@ -836,24 +829,22 @@ in its place is one grid, and a grid has an edge."
              "\n"))
 
 (defun parley-transcript--table-content (text)
-  "Return what TEXT says, with everything the writer may move taken out.
+  "Return what TEXT says, with everything a reading of it may drop taken out.
 
-The spaces a cell is padded with, the bars between two of them,
-the dashes and colons a delimiter row is written from, and the
-line breaks -- so two forms of one table answer this the same way
-exactly when they hold the same cells, whatever either does with
-the width of a column.
+The spaces around a cell, the bars between two of them, the
+dashes and colons a delimiter row is written from, and the line
+breaks -- so a table and the cells read out of it answer this the
+same way exactly when the cells say what the table says.
 
-The line breaks go because a wrapped cell puts one in the middle
-of what the agent wrote on one line.  Where a row ends is not
-what this is asked: the bars are already gone, so a form that
-moved a cell from one row to another answered the same before the
-newlines went with them.
+The line breaks go because the cells are compared joined with
+nothing between them, and a delimiter row goes with them: it is
+dashes and colons and bars throughout, and it carries no cell to
+compare.
 
 A cell's own dashes and colons go with them, which can only make
-two forms agree and never make them differ: what this is asked is
-whether the grid dropped anything, and the answer may not be yes
-when it did not."
+two readings agree and never make them differ: what this is asked
+is whether the reading dropped anything, and the answer may not
+be yes when it did not."
   (replace-regexp-in-string "[ \t\n|:-]" "" text))
 
 (defun parley-transcript--written (text width)
@@ -891,6 +882,19 @@ that is the predicate the cell reader is sorted by -- `| --- |
 --- |' is a delimiter row, and anything reading the character
 after the bar takes it for a row of data.
 
+Nil, last, when the cells do not say what TEXT says.  Where a
+cell begins and ends is markdown-mode's own
+`markdown--table-line-to-columns' and which markdown-mode is
+under this buffer is the operator's business, so a version of it
+that dropped a cell would put that cell's row in the buffer
+without it -- and a cell the operator cannot read at all is worse
+than a table that is merely ragged.  It is the cells that are
+held to TEXT and not the grid written from them, because a wrap
+takes a cell down the lines its row spreads over: read back
+across a line the grid says its columns in one order and TEXT
+says them in another, where the cells are in the order TEXT has
+them whatever any width does to the grid.
+
 A cell may hold a bar that is no column boundary -- the one
 inside a wiki link, which `markdown--table-line-to-columns' reads
 over -- and what keeps that bar out of the grid is
@@ -914,14 +918,17 @@ whole rather than as words it may break apart."
              (widths (parley-transcript--column-widths (remq nil rows) width))
              (marks (markdown-table-colfmt
                      (seq-find #'markdown--is-delimiter-row lines))))
-        (string-join (mapcar (lambda (row)
-                               (if row
-                                   (parley-transcript--wrapped-row
-                                    row widths marks)
-                                 (parley-transcript--delimiter-row
-                                  widths marks)))
-                             rows)
-                     "\n")))))
+        (when (equal (parley-transcript--table-content
+                      (mapconcat (lambda (row) (string-join row)) rows ""))
+                     (parley-transcript--table-content text))
+          (string-join (mapcar (lambda (row)
+                                 (if row
+                                     (parley-transcript--wrapped-row
+                                      row widths marks)
+                                   (parley-transcript--delimiter-row
+                                    widths marks)))
+                               rows)
+                       "\n"))))))
 
 (defun parley-transcript--table-cells (line)
   "Return the cells LINE holds, each carrying the properties LINE carries.

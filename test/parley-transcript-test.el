@@ -2415,6 +2415,21 @@ than the column it is in."
               (nreverse columns)))
           (split-string text "\n")))
 
+(defun parley-transcript-test--column (text column)
+  "Return what COLUMN of the table TEXT holds, its cells joined with a space.
+Read down the lines, which is the order a wrap leaves the cells
+of a row in: a cell packed over three lines comes back as the
+three pieces it was packed into, and the empty cells a
+neighbouring column's wrap left behind come back as nothing.
+Delimiter rows are not read, holding no cell."
+  (string-join
+   (seq-remove
+    #'string-empty-p
+    (mapcar (lambda (line)
+              (or (nth column (parley-transcript-test--cells line)) ""))
+            (seq-remove #'markdown--is-delimiter-row (split-string text "\n"))))
+   " "))
+
 (defun parley-transcript-test--unnarrowed (text)
   "Return the grid parley writes for TEXT with no column narrowed.
 A width no fixture here is wider than, which is the grid a table
@@ -2675,6 +2690,40 @@ read that way."
       (should (equal "one" (car (car wrapped))))
       (should (seq-every-p (lambda (row) (equal "" (car row))) (cdr wrapped)))
       (should (equal prose (string-join (mapcar #'cadr wrapped) " "))))))
+
+(ert-deftest parley-transcript-test-wraps-a-column-that-is-not-the-last ()
+  "A table with a column wrapped before its last one is written all the same.
+
+A wrap takes the cells of one row down the lines it spreads over,
+so read across a line the grid says the head of the first cell,
+the head of the second and the head of the third where the table
+says the whole of the first before the second begins.  What holds
+the grid to the table is therefore asked of the cells the reader
+handed over and not of the grid written from them: asked across a
+line it would refuse every table with two columns wrapped, which
+is what this fixture is.
+
+Each column is read back down the lines of the grid here and
+joined, which is the order that survives a wrap, and has to say
+what the table's own column says.
+
+That two columns wrapped is asserted rather than assumed: the
+grid is taller than the table and every line of it stands in the
+same columns."
+  (let ((text (concat "| step | what it does | when |\n"
+                      "|---|---|---|\n"
+                      "| one | a first cell of prose | before the rest |\n"
+                      "| two | short | after |"))
+        (width 34))
+    (let ((form (parley-transcript--aligned text width)))
+      (should form)
+      (should (<= (parley-transcript--columns form) width))
+      (should (< (length (split-string text "\n"))
+                 (length (split-string form "\n"))))
+      (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+      (dolist (column '(0 1 2))
+        (should (equal (parley-transcript-test--column text column)
+                       (parley-transcript-test--column form column)))))))
 
 (ert-deftest parley-transcript-test-leaves-a-table-nothing-narrows-too-wide ()
   "A table holding a word longer than the window stays wider than the window.
