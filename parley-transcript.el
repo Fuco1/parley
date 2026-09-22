@@ -401,10 +401,33 @@ Anchored at the start of the text, because this is the first line
 of a skill load and nothing else -- a body that merely mentions
 the phrase further down is a skill quoting one.")
 
+(defconst parley-transcript--notification-rx
+  "\\`[ \t\n]*<task-notification>"
+  "What a task notification opens with, and nothing else does.
+Anchored at the start of the text, past whatever whitespace opens
+it: a turn of the operator's that quotes the tag further down is
+his own words.")
+
+(defconst parley-transcript--notification-summary-rx
+  "<summary>\\(.*\\)</summary>"
+  "The tag a task notification's summary reaches the transcript in.
+The group does not cross a newline because the summary does not:
+measured over the 1620 notifications in the transcripts on this
+machine, 1617 carry a summary and every one of those sits on one
+line.")
+
 (defun parley-transcript--injection (text)
   "Return the block of buffer text the harness injection TEXT renders to.
 
-A skill load is the one injection worth a line, and it names
+A task notification is worth a line, and the line is its
+`<summary>'.  That is the whole of what the harness is telling
+the operator he can act on: the task id, the tool-use id and the
+output path are addressed to the agent, and `<status>' says
+nothing the summary does not already say in its own words.  One
+carrying no summary renders nothing, which is what a notification
+with nothing new to say is.
+
+A skill load is the other injection worth a line, and it names
 itself.  Both ways into one -- the `Skill' tool and the slash
 command the operator types for it -- open with the line
 `parley-transcript--skill-base-rx' matches, and the skill's own
@@ -422,15 +445,20 @@ there are -- the caveat a local command prepends, the expansion
 of a personal command, the notice the `Agent' tool writes about a
 fork -- each stand under a turn of the operator's that already
 says what he did."
-  (if (not (string-match parley-transcript--skill-base-rx text))
-      ""
+  (cond
+   ((string-match-p parley-transcript--notification-rx text)
+    (if (string-match parley-transcript--notification-summary-rx text)
+        (parley-transcript--renderer-line (match-string 1 text))
+      ""))
+   ((not (string-match parley-transcript--skill-base-rx text)) "")
+   (t
     (let ((directory (string-trim-right (match-string 1 text))))
       (parley-transcript--renderer-line
        (format "Loaded skill \"%s\""
                (if (string-match "^# +\\(.*[^ \t\n]\\)" text)
                    (match-string 1 text)
                  (file-name-nondirectory
-                  (directory-file-name directory))))))))
+                  (directory-file-name directory)))))))))
 
 (defconst parley-transcript--local-output-rx
   "\\`[ \t\n]*<local-command-stdout>"
@@ -451,14 +479,15 @@ them -- `.' does not -- and it is the first closing tag that ends
 it.")
 
 (defun parley-transcript--unwrapped (record)
-  "Return RECORD with what the harness wrapped around its text taken off.
+  "Return RECORD with what the harness wrapped around its text dealt with.
 
-Two `user' records carry no turn of the conversation: the tags
-Claude Code writes when the operator types a slash command, and
-the output a local command printed at his terminal.  Neither
-carries `isMeta', so neither reaches
-`parley-transcript--injection' and both would be quoted as his
-own words, tags and all.
+Three `user' records carry no turn of the conversation: the tags
+Claude Code writes when the operator types a slash command, the
+output a local command printed at his terminal, and the
+notification the harness writes when a background task reports
+back.  None carries `isMeta', so none reaches
+`parley-transcript--injection' on the mark, and all three would
+be quoted as his own words, tags and all.
 
 A slash command is three tags, and what he typed is the name and
 the argument on one line -- `<command-message>' is the name a
@@ -472,6 +501,14 @@ A local command's own output renders nothing at all: it is the
 terminal answering, and his own turn invoking that command stands
 right above it saying what he did.
 
+A task notification is marked here and otherwise left alone.  It
+is an injection the harness did not mark, and the mark is the
+whole of the rule: an injection is already what the render pass
+hands to `parley-transcript--injection' and already what the
+imenu index passes over, so a notification needs no third path
+through the pass.  Its text stands as it arrived, the summary
+being read out of it there.
+
 Here, before the record is read for anything: what it renders to,
 what `parley-transcript--echoed-p' compares against what was
 sent, and what the imenu entry is labelled with all come off this
@@ -482,17 +519,19 @@ out of one line a moment earlier and reaching nobody else."
                    (not (alist-get 'meta record))
                    (alist-get 'text record))))
     (when text
-      (setcdr (assq 'text record)
-              (cond
-               ((string-match-p parley-transcript--local-output-rx text) "")
-               ((string-match parley-transcript--command-name-rx text)
-                (let ((name (match-string 1 text)))
-                  (string-trim
-                   (concat name " "
-                           (and (string-match
-                                 parley-transcript--command-args-rx text)
-                                (match-string 1 text))))))
-               (t text)))))
+      (if (string-match-p parley-transcript--notification-rx text)
+          (setcdr (assq 'meta record) t)
+        (setcdr (assq 'text record)
+                (cond
+                 ((string-match-p parley-transcript--local-output-rx text) "")
+                 ((string-match parley-transcript--command-name-rx text)
+                  (let ((name (match-string 1 text)))
+                    (string-trim
+                     (concat name " "
+                             (and (string-match
+                                   parley-transcript--command-args-rx text)
+                                  (match-string 1 text))))))
+                 (t text))))))
   record)
 
 (defvar-local parley-transcript--partial ""
