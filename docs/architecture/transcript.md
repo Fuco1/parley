@@ -380,3 +380,40 @@ A buffer's name still has to be unique to a session, so it carries the tag
 **Switching to a session again shows the buffer as it stands**, process and
 history and all, and refreshes the record in it: what `claude agents` says about
 a session goes stale.
+
+## The header line says whose buffer this is, and what it is doing now
+
+**The buffer name is a snapshot and the header line is not.** The name is built
+once, when the buffer is made, and nothing renames it afterwards — so the
+operator scrolled back through a long conversation has nothing in front of him
+saying which session he is reading or what it is doing. A header line is rebuilt
+on every redisplay, which is what lets it say what is true now. It is also
+parley's own line: a mode line is configured by whoever owns the Emacs and may
+show none of this.
+
+**It carries the session's name, what it is doing, where its pane is and the
+mark saying it cannot be typed into.** The status is the buffer's live one
+([discovery](discovery.md)) and never the one the record carried when the buffer
+was opened; all four states are told apart in words, and waiting is a word of
+its own, because it is the state that wants the operator.
+
+**The working directory is not on it.** A switcher row carries it because the
+operator is choosing between sessions; inside the buffer it is
+`default-directory`, and a line repeating what the buffer already is spends a
+line on nothing.
+
+**The line and the cell in front of the prompt are not abbreviations of each
+other.** The cell says that something is working, in one column, where the
+operator is typing ([typing](typing.md)); the line says which session and what
+it is doing, wherever in the buffer he is.
+
+**Where the pane is is a bare lookup in the map, never the accessor over it.**
+That accessor fills the map when it has not been asked, and filling it runs
+`tmux list-panes -a` — which from a header line is a subprocess per open
+transcript on screen, every time the session list is discovered again and drops
+the map. The tag is no way round it, reaching the same accessor. A pane the map
+holds nothing for shows no location at all, and never the pane id in its place.
+
+**The bare lookup is also what keeps the location current.** The map is refilled
+whenever the sessions are listed, so a pane the operator moved shows where it is
+now while the buffer name still carries where it was.
