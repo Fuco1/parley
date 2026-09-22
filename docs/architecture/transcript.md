@@ -413,12 +413,12 @@ the resize.
 **What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
 in CPU time from `get-internal-run-time` and taken as the best of twenty runs of
 two hundred renders, over a table of seven rows and four columns whose grid is
-71 columns wide: 4.5 ms for one that fits and 6.0 ms for one wrapped into 50
-columns. Writing the form into the buffer is 87 µs of that, nearly all of it the
-properties: inserting the form costs 76 µs where inserting the same characters
-with nothing on them costs 1.2 µs, because a form carrying markup carries 49
-runs of text properties over those seven rows and each run is an interval the
-insertion has to build. A conversation holding forty tables therefore costs
+71 columns wide: 4.5 ms to write the grid for one that fits, 6.0 ms for one
+wrapped into 50 columns, and 87 µs on top of either to put it in the buffer.
+That last is nearly all properties — inserting the form costs 76 µs where
+inserting the same characters with nothing on them costs 1.2 µs, because a form
+carrying markup carries 49 runs of text properties over those seven rows and
+each run is an interval the insertion has to build. A conversation holding forty tables therefore costs
 0.18 s of blocked redisplay on a resize, and 0.24 s if every one of them has to
 be wrapped.
 
