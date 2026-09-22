@@ -400,9 +400,15 @@ The faces are also what tells a form from the table it came from. An agent who
 lined his table up himself wrote the characters the render produces, and what
 the region held before the render was the text the render pass delivered.
 Compared as text the two are one and the region would be left as it stands;
-compared with their properties they are not, and the region is written over. Two
-computations of one form carry the same properties, so a render with nothing
-left to do is still free.
+compared with their properties they are not, and the region is written over.
+
+`equal-including-properties` compares two property values with `eq` and a face
+markdown-mode painted a cell with is a fresh list every fontification, so two
+computations of one form do not compare equal either: a resize that leaves a
+table's grid unchanged still writes it into the buffer. What that costs is the
+write and never the render, which has happened by the time the comparison is
+made — 87 µs against 4.5 ms, so the saving a comparison could win back is 2% of
+the resize.
 
 **What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
 in CPU time from `get-internal-run-time` and taken as the best of twenty runs of

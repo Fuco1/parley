@@ -1212,13 +1212,17 @@ its properties, which is what tells the form from the table it
 was rendered from.  A table the agent had already aligned renders
 to the characters he wrote, and the text the render pass
 delivered carries markdown-mode's own properties over those
-characters -- the `display' that hides the markers around `x^2^'
-among them.  `equal' passes over a property, so it would leave
-that text standing as the table and the `display' in it, where a
-table here is the form, its face, and nothing else.  Two
-computations of one form agree under
-`equal-including-properties', so a render with nothing to do is
-still free."
+characters -- the `display' over the digit of `x^2^' among them,
+which the grid does not take.  `equal' passes over a property, so
+it would leave that text standing as the table and that `display'
+in it.
+
+`equal-including-properties' compares two property values with
+`eq', and a face markdown-mode painted a cell with is a fresh
+list every fontification, so two computations of one form do not
+agree under it: what a width that changes the window without
+changing the grid costs is the write, and not the render, which
+has happened by then either way."
   (let ((form (and (equal (buffer-substring-no-properties (overlay-start overlay)
                                                           (overlay-end overlay))
                           (overlay-get overlay 'parley-table-form))
