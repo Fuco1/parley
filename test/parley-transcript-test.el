@@ -982,6 +982,127 @@ buffer would cancel the second alone."
         (should-not (memq second timer-list))))))
 
 
+;;; The header line
+
+(defun parley-transcript-test--header (buffer)
+  "Return the line BUFFER shows at its top, by evaluating its own format.
+`format-mode-line' returns the empty string under `emacs -Q
+--batch', there being no frame to format a line for, so the
+`:eval' form the buffer carries is evaluated here instead -- in
+the buffer, which is what redisplay does with it.  Read off the
+buffer rather than named, so a mode that stopped installing the
+line fails every test below."
+  (with-current-buffer buffer
+    (should (eq (car header-line-format) :eval))
+    (substring-no-properties (eval (cadr header-line-format) t))))
+
+(defun parley-transcript-test--header-for (session status)
+  "Return the line a transcript buffer following SESSION at STATUS shows."
+  (with-temp-buffer
+    (parley-transcript-mode)
+    (setq parley-transcript-session session
+          parley-transcript-status status)
+    (parley-transcript-test--header (current-buffer))))
+
+(defconst parley-transcript-test--in-pane
+  (list :name "orc-w1" :pane "%61" :cwd "/home/me/worktrees/orc-w1"
+        :session-id "1111ffff-0000-4000-8000-000000000001")
+  "A session record living in a tmux pane, for the lines below.
+Its working directory is one no line may carry: inside the buffer
+that is `default-directory', and a header line repeating it
+spends a line on what the buffer already is.")
+
+(ert-deftest parley-transcript-test-header-line-names-the-session-and-its-state ()
+  "The header line names the session, what it is doing and where its pane is.
+
+All four states are told apart in words, and waiting is a word of
+its own: it is the state that wants the operator, and a line
+drawing it as a shade of idle would say nothing about the one
+session he has to answer.  The cell in front of the prompt says
+that something is working, in one column, where he is typing;
+this says which session and what it is doing, wherever in the
+buffer he is.
+
+A session `claude agents' named none shows the placeholder a
+switcher row shows for it, and the mark saying a session cannot
+be typed into is read from the record having no pane -- a
+background agent and a session started outside tmux both have
+none, and `:kind' names only the first.
+
+The location is what `parley--pane-locations' holds for the
+record's pane.  A pane it holds nothing for shows no location at
+all and never the pane id, which locates nothing the operator can
+act on."
+  (let ((parley--pane-locations '(("%61" . "orc-b3:2.0")))
+        (unnamed (list :name nil :pane nil :cwd "/home/me/worktrees/orc-w1"
+                       :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
+        (moved (plist-put (copy-sequence parley-transcript-test--in-pane)
+                          :pane "%99")))
+    (should (equal (mapcar (lambda (status)
+                             (parley-transcript-test--header-for
+                              parley-transcript-test--in-pane status))
+                           '(working waiting idle unknown))
+                   '("orc-w1  working  orc-b3:2.0"
+                     "orc-w1  waiting  orc-b3:2.0"
+                     "orc-w1  idle  orc-b3:2.0"
+                     "orc-w1  unknown  orc-b3:2.0")))
+    (should (equal (parley-transcript-test--header-for unnamed 'idle)
+                   "unnamed  idle  [RO]"))
+    (should (equal (parley-transcript-test--header-for moved 'working)
+                   "orc-w1  working"))
+    (dolist (line (list (parley-transcript-test--header-for
+                         parley-transcript-test--in-pane 'working)
+                        (parley-transcript-test--header-for unnamed 'idle)
+                        (parley-transcript-test--header-for moved 'working)))
+      (should-not (string-match-p (regexp-quote "%99") line))
+      (should-not (string-match-p (regexp-quote "worktrees") line)))))
+
+(ert-deftest parley-transcript-test-header-line-asks-tmux-nothing ()
+  "Drawing the header line runs no subprocess, whatever the cache holds.
+`parley--pane-location' fills the cache when it reads `unasked',
+and filling it is a `tmux list-panes -a' -- from redisplay, in
+every transcript buffer on screen, every time `parley-sessions'
+puts the cache back to `unasked'.  So the lookup is bare: the
+cache is left as this test found it, and a line drawn over an
+`unasked' cache shows no location rather than asking tmux for
+one.
+
+`call-process' is what a fill would reach, and it errors here
+instead: a test that only read the location off the line would
+pass over a header line that ran tmux and got an answer."
+  (let ((parley--pane-locations 'unasked)
+        (line nil))
+    (cl-letf (((symbol-function 'call-process)
+               (lambda (&rest _) (error "The header line asked tmux"))))
+      (setq line (parley-transcript-test--header-for
+                  parley-transcript-test--in-pane 'working)))
+    (should (equal line "orc-w1  working"))
+    (should (eq parley--pane-locations 'unasked))))
+
+(ert-deftest parley-transcript-test-header-line-follows-the-live-status ()
+  "A real transcript buffer carries the line, and it says what is true now.
+The record the buffer was opened with says `idle' throughout and
+the session's own file never does, so a line built from that
+record would read `idle' at both of the reads below."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-sessions-directory
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (equal (parley-transcript-test--header buffer)
+                     "test  unknown  [RO]"))
+      (set-window-buffer (selected-window) buffer)
+      (parley-transcript-test--write-status buffer "busy")
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (equal (parley-transcript-test--header buffer)
+                        "test  working  [RO]"))))
+      (parley-transcript-test--write-status buffer "waiting")
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (equal (parley-transcript-test--header buffer)
+                        "test  waiting  [RO]")))))))
+
+
+
 ;;; Typing into the pane
 
 ;; A real tmux would need a real server, a real pane and a real Claude
