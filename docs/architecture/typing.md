@@ -164,6 +164,18 @@ because an Emacs holds frames on more than one terminal — a graphical frame an
 an `emacsclient -t` frame — and the operator is reading a frame whether or not
 it is on the terminal he last typed in.
 
+**Entering the major mode again over the buffer does not stop it.** Nothing
+about the mode says which session the buffer follows or what that session is
+doing, so nothing the animation stands on is the mode's to reset: the record,
+the status read from it, the frame the spinner has got to, the timer and the
+overlay all survive a reentry. The overlay is the sharpest of the five, because
+it belongs to the buffer and not to the binding — a cleared binding leaves the
+marker on screen with nothing able to redraw it. And the gap is what the other
+four come to: the animation is a tick ten times as fast as the one that reads
+the status, so a value the reentry has to wait for a status tick to put back is
+most of a second of a spinner stopped under a session that never stopped
+working.
+
 **Ten frames a second costs one to two percent of a core, and what it costs is
 the redisplay and not the arithmetic.** Measured on Emacs 28.2 under tmux, over
 a buffer of 564,628 bytes and 6,000 lines rendered from a 3,000 record
