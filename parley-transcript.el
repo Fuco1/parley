@@ -1092,6 +1092,11 @@ render replaces buffer text and moves everything after it -- an
 overlay follows that move and an offset into the inserted string
 does not.
 
+What stands in the region as an overlay is laid is the table
+itself, so it goes on the overlay as both the table a render is
+computed from and the form standing there -- which is what leaves
+a table the agent had already aligned untouched.
+
 The overlay takes in neither what is inserted at its start nor
 what is inserted at its end, because a table's own text is all it
 stands for.
