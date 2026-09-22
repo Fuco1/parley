@@ -634,17 +634,24 @@ inserted and then rewritten in place."
 ;;; Aligning the tables
 
 ;; A table lines up only if the agent lined it up, and a table whose
-;; columns do not line up is a table nobody reads.  The alignment is a
-;; rendering and not an edit: an overlay over the table carries the
-;; aligned form in a `display' property, and the text under it is the
-;; text the transcript delivered.
+;; columns do not line up is a table nobody reads.  What stands in the
+;; buffer is the aligned form, written there as text -- this buffer is
+;; a rendering throughout, and a table is the same rendering as the
+;; quote around the operator's turn and the one line a run of tool
+;; calls collapses to.
 ;;
-;; That is what lets the rendering be recomputed when the window
-;; changes width.  Nothing refontifies or rewrites this buffer after
-;; an insertion, by design, so text written once on the way in could
-;; never answer a resize -- and what the rendering is computed from is
-;; the text under the overlay, so recomputing it needs no record of
-;; anything.
+;; The table the agent wrote is carried by an overlay over it, which
+;; is what a resize is rendered from: what the buffer holds is a grid
+;; this file drew, and reading the cells back out of one would render
+;; the last render instead of the table.  The overlay is also what
+;; says where a table is and what tracks a deletion --
+;; `comint-truncate-buffer' taking the top of the conversation away
+;; brings its ends together, where a text property would survive in
+;; both halves of what was cut.
+;;
+;; What that costs the operator is the source in the buffer: a kill
+;; over a table copies the form he is reading and not the table the
+;; agent typed.
 
 (defvar-local parley-transcript--aligned-width nil
   "The window width this buffer's tables were last aligned to, nil for none.
@@ -659,9 +666,9 @@ The body of a window showing the buffer, and the selected
 window's when none does -- which is what an alignment computed
 before the buffer was ever displayed has to stand on.
 
-An overlay is the buffer's and not a window's, so a buffer shown
-in two windows of different widths is aligned to whichever of
-them changed last."
+A rendered table is the buffer's text and not a window's, so a
+buffer shown in two windows of different widths is aligned to
+whichever of them changed last."
   (window-body-width (get-buffer-window (current-buffer) t)))
 
 (defun parley-transcript--aligned (text width)
@@ -684,18 +691,23 @@ puts a bar in the grid where the table has no column.
 
 Nil when `parley-transcript--alignment' will not take TEXT, which
 is the only thing either form is refused for: what the operator
-sees is then the table as the agent wrote it.
+sees is then the table as the agent wrote it.  It is refused at
+every width, so a table that renders to nothing here renders to
+nothing at any size of window.
 
-The face is on the string and not on the text under it.  What a
-`display' property shows is the string's own properties, and the
-`font-lock-face' markdown-mode left on the buffer text never
-reaches the screen through one."
+The face is in `font-lock-face', which is the property every
+other face this file writes ends up in --
+`parley-transcript--fontified-properties' is where the render
+pass maps it.  `face' is what global font lock strips in this
+buffer: `font-lock-defaults' is `(nil t)' in a comint buffer, so
+font lock turns on there with no keywords and unfontifying is the
+only thing left for it to do."
   (let* ((aligned (parley-transcript--alignment text))
          (form (cond ((null aligned) nil)
                      ((<= (parley-transcript--columns aligned) width) aligned)
                      (t (parley-transcript--wrapped text width)))))
     (when form
-      (propertize form 'face 'markdown-table-face))))
+      (propertize form 'font-lock-face 'markdown-table-face))))
 
 (defun parley-transcript--alignment (text)
   "Return TEXT with its columns aligned, nil if that is not what came back.
@@ -709,9 +721,9 @@ table answers for TEXT too: a table line is one that starts with
 a bar, and a bar put on the end of a line moves nothing at the
 start of it.
 
-Nil if TEXT is no longer a table: the operator can edit in this
-buffer, and what is under the overlay is what the aligned form is
-computed from.
+Nil if TEXT is not a table: markdown-mode aligns what it calls
+one, and a line that does not open with a bar is not a table line
+to it.
 
 Nil as well for a table of nothing but delimiter rows, which has
 nothing in it to line up: `markdown-table-align' formats from the
@@ -726,9 +738,9 @@ takes it for a row of data.
 Nil, last, when the aligned form does not say what TEXT says.
 The aligner is markdown-mode's and which markdown-mode is under
 this buffer is the operator's business, so a version of it that
-dropped a cell would put a `display' property over that cell's
-row showing text the agent never wrote -- and a cell he cannot
-read at all is worse than a table that is merely ragged."
+dropped a cell would write that cell's row into the buffer
+without it -- and a cell he cannot read at all is worse than a
+table that is merely ragged."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
     (insert (parley-transcript--table-closed text))
@@ -756,9 +768,9 @@ markdown-mode, `| a', `|---' and `| 1' align to three bare bars
 and `| a | b |', `|---|---|', `| 1 | 2' loses the 2.
 
 It is the copy the alignment is computed from that is closed and
-never the buffer text, so the row the agent left open is still
-open in what the overlay covers.  What that copy shows in its
-place is one grid, and a grid has an edge."
+never the table itself, so the row the agent left open is still
+open in the table the overlay carries.  What is written into the
+buffer in its place is one grid, and a grid has an edge."
   (mapconcat (lambda (line)
                (if (string-suffix-p "|" (string-trim-right line))
                    line
@@ -1007,24 +1019,66 @@ lines up in none."
 aligned in columns and lines up in none."
   (apply #'max 0 (mapcar #'string-width (split-string text "\n"))))
 
-(defun parley-transcript--align-overlay (overlay width)
-  "Show the table under OVERLAY aligned to WIDTH columns.
+(defun parley-transcript--render-table (overlay width)
+  "Write the table OVERLAY carries into its region, rendered to WIDTH columns.
 
-An overlay left empty is dropped rather than realigned.  Nothing
-brings its ends together but the deletion of every line of its
-table -- `comint-truncate-buffer' taking the top of the
-conversation away, or the operator killing a stretch of it -- and
-an overlay over no text is an overlay nothing can bring back."
-  (if (= (overlay-start overlay) (overlay-end overlay))
-      (delete-overlay overlay)
-    (overlay-put overlay 'display
-                 (parley-transcript--aligned
-                  (buffer-substring-no-properties (overlay-start overlay)
-                                                  (overlay-end overlay))
-                  width))))
+Rendered from the table the agent wrote, which OVERLAY carries in
+`parley-table'.  What the region holds is a grid this file drew,
+and reading the cells back out of one would render the last
+render rather than the table: a row wrapped over three lines
+would come back as three rows of a table nobody wrote.
+
+Only while the region still holds the form written there, which
+`parley-table-form' is what it was.  `comint-truncate-buffer'
+takes the top of the conversation away and the operator can edit
+in this buffer, and a region that no longer holds what parley put
+in it is not parley's to write over -- what is left of a table
+cut in half stands as it stands.  The overlay is dropped then,
+and nothing puts it back.
+
+Dropped as well when the table renders to nothing, which
+`parley-transcript--aligned' answers at every width alike: there
+is no width to come back for."
+  (let ((form (and (equal (buffer-substring-no-properties (overlay-start overlay)
+                                                          (overlay-end overlay))
+                          (overlay-get overlay 'parley-table-form))
+                   (parley-transcript--aligned
+                    (overlay-get overlay 'parley-table) width))))
+    (cond ((null form) (delete-overlay overlay))
+          ((not (equal form (overlay-get overlay 'parley-table-form)))
+           (parley-transcript--replace-table overlay form)))))
+
+(defun parley-transcript--replace-table (overlay form)
+  "Put FORM in the buffer in place of OVERLAY's region, and record it on OVERLAY.
+
+A render is not an edit the operator made and not one he may
+undo, which `with-silent-modifications' is the whole of: it binds
+`buffer-undo-list' away, so what `undo' reaches past a table
+rendered again is his own last change, and it binds the
+modification hooks away with it, so nothing takes this for text
+that has to be fontified again.
+
+Point is put back where it stood, and comint reads point back off
+the buffer once its output filters have run -- it is the
+operator's and a filter that moved it has moved his.
+
+The process mark is a marker past the end of this region, because
+a table ends before the newline that closes the block around it,
+and follows the replacement as the overlay over every other table
+does.  This one's is moved by hand: the deletion leaves it empty
+and it takes in nothing inserted at either end, which is what
+keeps the text around a table out of it."
+  (let ((start (overlay-start overlay)))
+    (with-silent-modifications
+      (save-excursion
+        (delete-region start (overlay-end overlay))
+        (goto-char start)
+        (insert form)))
+    (move-overlay overlay start (+ start (length form)))
+    (overlay-put overlay 'parley-table-form form)))
 
 (defun parley-transcript--align-output (_string)
-  "Lay an overlay over each table the last render pass produced, and align it.
+  "Lay an overlay over each table the last render pass produced, and render it.
 
 On `comint-output-filter-functions', for the reason
 `parley-transcript--index-output' is: the render pass ran before
@@ -1032,24 +1086,35 @@ the insertion and could only say how far into its string each
 table was, and comint has just inserted that string at
 `comint-last-output-start'.
 
+Every overlay is laid before any table is rendered, because a
+render replaces buffer text and moves everything after it -- an
+overlay follows that move and an offset into the inserted string
+does not.
+
 The overlay takes in neither what is inserted at its start nor
 what is inserted at its end, because a table's own text is all it
-may show in place of.
+stands for.
 
 STRING is what the hook is called with and is not looked at: what
 arrived is already in the buffer."
   (when parley-transcript--pending-tables
-    (let ((width (parley-transcript--width)))
+    (let ((width (parley-transcript--width))
+          (overlays nil))
       (dolist (table parley-transcript--pending-tables)
-        (let ((overlay (make-overlay (+ comint-last-output-start (car table))
-                                     (+ comint-last-output-start (cdr table))
-                                     nil t)))
-          (overlay-put overlay 'parley-table t)
-          (parley-transcript--align-overlay overlay width))))
+        (let* ((overlay (make-overlay (+ comint-last-output-start (car table))
+                                      (+ comint-last-output-start (cdr table))
+                                      nil t))
+               (text (buffer-substring-no-properties (overlay-start overlay)
+                                                     (overlay-end overlay))))
+          (overlay-put overlay 'parley-table text)
+          (overlay-put overlay 'parley-table-form text)
+          (push overlay overlays)))
+      (dolist (overlay overlays)
+        (parley-transcript--render-table overlay width)))
     (setq parley-transcript--pending-tables nil)))
 
 (defun parley-transcript--realign-tables ()
-  "Align this buffer's tables to the width of the window showing it.
+  "Render this buffer's tables again for the width of the window showing it.
 
 On `window-configuration-change-hook', whose buffer-local value
 Emacs runs for each window showing the buffer once that window
@@ -1057,15 +1122,15 @@ has changed its body size -- with the window selected, so the
 width read here is that window's.
 
 It runs on a window being added, deleted or given another buffer
-as well, and the tables are recomputed on none of those: the
-aligned form follows from the text and the width alone, so
-nothing but a width that has changed can change it."
+as well, and the tables are rendered again on none of those: the
+form follows from the table the overlay carries and the width
+alone, so nothing but a width that has changed can change it."
   (let ((width (parley-transcript--width)))
     (unless (eq width parley-transcript--aligned-width)
       (setq parley-transcript--aligned-width width)
       (dolist (overlay (overlays-in (point-min) (point-max)))
         (when (overlay-get overlay 'parley-table)
-          (parley-transcript--align-overlay overlay width))))))
+          (parley-transcript--render-table overlay width))))))
 
 
 ;;; The imenu index
