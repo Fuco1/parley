@@ -1342,7 +1342,10 @@ and never the objects."
   ;; Nothing announces what the session is doing, so the buffer reads
   ;; its file on a tick of its own -- see the section that starts at
   ;; `parley-transcript--status-interval'.
-  (parley-transcript--watch-status))
+  (parley-transcript--watch-status)
+  ;; An `:eval', so the line is built on every redisplay: which session
+  ;; the buffer follows is fixed, and what it is doing is not.
+  (setq-local header-line-format '(:eval (parley-transcript--header-line))))
 
 (defun parley-transcript--buffer-name (session)
   "Return the name of the buffer that follows SESSION.
@@ -1352,7 +1355,7 @@ session is not unique -- two in sibling worktrees come back under
 one, and two live sessions can even share a pane -- so what makes
 this name one session's own is `parley-session-tag'."
   (format "*parley: %s %s*"
-          (or (plist-get session :name) "unnamed")
+          (or (plist-get session :name) parley-session-no-name)
           (parley-session-tag session)))
 
 (defun parley-transcript--buffer (session)
@@ -1531,6 +1534,63 @@ tick would otherwise leave that one running for good."
   (when parley-transcript--status-timer
     (cancel-timer parley-transcript--status-timer)
     (setq parley-transcript--status-timer nil)))
+
+
+;;; The header line
+
+;; The buffer's name is the one thing in it that says which session it
+;; follows, and it is a snapshot: `parley-transcript--buffer-name' runs
+;; once, when the buffer is made, and nothing renames it afterwards.
+;; The header line is parley's own line and is built on every
+;; redisplay, so it says what is true now -- and a mode line says none
+;; of this, being configured by whoever owns the Emacs.
+
+(defun parley-transcript--header-line ()
+  "Return what the top line of this buffer says about the session it follows.
+Its name, what it is doing, where its pane is, and the mark
+saying it cannot be typed into -- the placeholder for a session
+`claude agents' named none and the mark itself are the switcher
+row's, `parley-session-no-name' and
+`parley-session-read-only-mark', and the mark is read from the
+record having no pane for the reason `parley-session-fields'
+reads it from there.
+
+What it is doing is `parley-transcript-status', which is what the
+session is doing now: the record carries what `claude agents'
+said when the buffer was opened, and a conversation is read for
+minutes.  All four states are told apart, `waiting' from `idle'
+above all -- see `parley-session-status'.
+
+The location is a bare lookup in `parley--pane-locations', and is
+asked neither of `parley--pane-location' nor of
+`parley-session-tag', which reaches that same accessor.  It fills
+the cache when it reads `unasked', and filling it runs `tmux
+list-panes -a' -- a `call-process' from redisplay, in every
+transcript buffer on screen, every time `parley-sessions' puts
+the cache back.  The lookup is also what keeps the location
+current: the cache is refilled whenever the sessions are listed,
+so a pane the operator moved is shown where it is now while the
+buffer name still carries where it was.
+
+A pane the cache holds nothing for shows no location -- and it
+holds nothing for every pane while it reads `unasked', which is a
+symbol and no alist.  The pane id is never shown in its place:
+`%15' locates nothing the operator can act on.
+
+The working directory is not here.  It is a switcher column
+because the operator is choosing between sessions; in the buffer
+it is `default-directory', and a line repeating what the buffer
+already is spends a line on nothing."
+  (let* ((session parley-transcript-session)
+         (pane (plist-get session :pane))
+         (location (and pane
+                        (listp parley--pane-locations)
+                        (cdr (assoc pane parley--pane-locations)))))
+    (string-join
+     (delq nil (list (or (plist-get session :name) parley-session-no-name)
+                     (symbol-name parley-transcript-status)
+                     (if pane location parley-session-read-only-mark)))
+     "  ")))
 
 
 ;;; Typing into the pane
