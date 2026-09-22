@@ -404,6 +404,19 @@ stay in the order `parley-sessions' discovered them in."
         (lambda (a b) (< (parley--status-rank a)
                          (parley--status-rank b)))))
 
+(defconst parley-session-no-name "unnamed"
+  "What stands in for the name of a session `claude agents' named none.
+One string and not one per frontend: a switcher row, a transcript
+buffer's name and that buffer's header line each show such a
+session, and three spellings of the placeholder are three
+sessions the operator has to match up himself.")
+
+(defconst parley-session-read-only-mark "[RO]"
+  "The mark saying a session cannot be typed into.
+Here for the reason `parley-session-no-name' is: a switcher row
+and a transcript buffer's header line both carry it, and the
+operator reads the two against each other.")
+
 (defun parley-session-fields (session)
   "Return the columns SESSION is listed and matched by.
 A vector of five strings: its name, its status, the mark saying
@@ -424,11 +437,12 @@ does not own, and so does a session started outside tmux --
 so it is not what the mark can be read from.
 
 Nothing in a session record is guaranteed to be there, so the
-placeholders for a name and a status `claude agents' did not
-report are chosen once here rather than by each frontend."
-  (vector (or (plist-get session :name) "unnamed")
+placeholder for a status `claude agents' did not report is chosen
+once here rather than by each frontend, and the one for a name it
+did not report is `parley-session-no-name'."
+  (vector (or (plist-get session :name) parley-session-no-name)
           (or (plist-get session :status) "unknown")
-          (if (plist-get session :pane) "" "[RO]")
+          (if (plist-get session :pane) "" parley-session-read-only-mark)
           (abbreviate-file-name (plist-get session :cwd))
           (parley-session-tag session)))
 
