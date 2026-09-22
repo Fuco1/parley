@@ -2359,7 +2359,7 @@ comes to."
       (should (equal "what is here" (parley-transcript--old-input))))))
 
 
-;;; Aligning a table
+;;; Writing a table
 
 (defconst parley-transcript-test--table
   (concat "| name | what it does |\n"
@@ -2367,9 +2367,9 @@ comes to."
           "| a | short |\n"
           "| bbbbbb | a much longer cell |")
   "A table as an agent writes one, whose columns do not line up.
-Its aligned form is 31 columns wide and the text itself is 30, so
-a window of 20 has room for neither and the cells have to be
-wrapped to fit one.")
+Its grid is 31 columns wide and so is the widest line it is
+written from, so a window of 20 has room for neither and the
+cells have to be wrapped to fit one.")
 
 (defun parley-transcript-test--tables (buffer)
   "Return the overlays over a table in BUFFER, in buffer order."
@@ -2398,15 +2398,83 @@ wrapped to fit one.")
 A table is aligned when every line of it answers this the same
 way, and the fixture is the case that says a test of it can
 fail: the table an agent wrote answers it differently on every
-line."
+line.
+
+A column and not a character, which is `markdown--string-width'
+over what stands before the bar: a character hidden by
+`invisible markdown-markup' takes no column, so a bar behind a
+cell of `**bold**' stands four characters further along its line
+than the column it is in."
   (mapcar (lambda (line)
             (let ((columns nil)
                   (position 0))
               (while (setq position (string-search "|" line position))
-                (push position columns)
+                (push (markdown--string-width (substring line 0 position))
+                      columns)
                 (setq position (1+ position)))
               (nreverse columns)))
           (split-string text "\n")))
+
+(defun parley-transcript-test--column (text column)
+  "Return what COLUMN of the table TEXT holds, its cells joined with a space.
+Read down the lines, which is the order a wrap leaves the cells
+of a row in: a cell packed over three lines comes back as the
+three pieces it was packed into, and the empty cells a
+neighbouring column's wrap left behind come back as nothing.
+Delimiter rows are not read, holding no cell."
+  (string-join
+   (seq-remove
+    #'string-empty-p
+    (mapcar (lambda (line)
+              (or (nth column (parley-transcript-test--cells line)) ""))
+            (seq-remove #'markdown--is-delimiter-row (split-string text "\n"))))
+   " "))
+
+(defun parley-transcript-test--columns (text)
+  "Return how many columns the widest line of TEXT takes up on screen.
+`markdown--string-width' and not `length', because a table of CJK
+text is aligned in columns and lines up in none, and because a
+character hidden by `invisible markdown-markup' is a character
+that takes up none of them -- which is the measure the writer
+takes every width in a grid with.
+
+It reads the current buffer's `buffer-invisibility-spec' to know
+what is hidden, and answers as the operator reads only where that
+spec names `markdown-markup'.  Batch Emacs leaves the default of
+t, under which every `invisible' hides, so a test asking this
+outside a transcript buffer is asking it under that default.
+
+"
+  (apply #'max 0 (mapcar #'markdown--string-width (split-string text "\n"))))
+
+(defun parley-transcript-test--unnarrowed (text)
+  "Return the grid parley writes for TEXT with no column narrowed.
+A width no fixture here is wider than, which is the grid a table
+gets when it fits the window: every column as wide as its widest
+cell."
+  (parley-transcript--aligned text 1000))
+
+(defun parley-transcript-test--visible (text)
+  "Return TEXT as the operator reads it, with the hidden markup taken out.
+`markdown--remove-invisible-markup' is markdown-mode's own, and
+takes out what it marked `invisible markdown-markup'."
+  (markdown--remove-invisible-markup text))
+
+(defun parley-transcript-test--face-at (text string)
+  "Return the faces TEXT carries where STRING first stands in it, as a list.
+markdown-mode paints a table by appending `markdown-table-face'
+to whatever a construct already carries, so a cell's markup comes
+with two faces and the grid around it with one."
+  (ensure-list (get-text-property (string-search string text)
+                                  'font-lock-face text)))
+
+(defun parley-transcript-test--all-faced-p (text face)
+  "Return non-nil when every character of TEXT is painted in FACE."
+  (seq-every-p (lambda (position)
+                 (memq face (ensure-list
+                             (get-text-property position 'font-lock-face
+                                                text))))
+               (number-sequence 0 (1- (length text)))))
 
 (defun parley-transcript-test--resize (buffer width)
   "Give the selected frame WIDTH columns and render BUFFER's tables again.
@@ -2459,9 +2527,9 @@ the wrong text and pass everything else here.
 
 The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
-its last cell is one column wide -- which is the cell the aligner
-drops when no bar closes it, unless the copy it is given has that
-bar put back.  Every cell of it is read out of what was rendered
+its last cell is one column wide -- which is the cell the cell
+reader drops when no bar closes it, unless the copy it is given
+has that bar put back.  Every cell of it is read out of what was rendered
 for that reason, and each of those one-column cells is a
 character the rest of the table does not hold."
   (skip-unless (executable-find "jq"))
@@ -2497,8 +2565,8 @@ character the rest of the table does not hold."
                   (end (overlay-end overlay)))
               (should-not (text-property-not-all start end 'display nil))
               (should-not (text-property-not-all start end 'face nil))
-              (should-not (text-property-not-all start end 'font-lock-face
-                                                 'markdown-table-face)))))
+              (should (parley-transcript-test--all-faced-p
+                       (buffer-substring start end) 'markdown-table-face)))))
         (should-not (string-search parley-transcript-test--table
                                    (parley-transcript-test--text buffer)))))))
 
@@ -2507,20 +2575,19 @@ character the rest of the table does not hold."
 
 Its form is the characters he wrote, so nothing but the
 properties tells the form from the table -- and the text the
-render pass delivers carries markdown-mode's own: `x^2^' in a
-cell is a superscript, and what hides the markers around one is a
-`display' property.  A render that compared the two as text would
-leave that text standing as the table and the `display' in it,
-where a table here is the form, its face, and nothing else.
+render pass delivers carries markdown-mode's own over those
+characters.  A render that compared the two as text would leave
+the delivered text standing as the table, where a table here is
+the form and its faces.
 
-That the aligner leaves this table alone is asserted first, so a
+That the writer leaves this table alone is asserted first, so a
 fixture it would have rewritten anyway could not pass this by
 being rewritten."
   (skip-unless (executable-find "jq"))
   (let ((text (concat "| name | power |\n"
                       "|------|-------|\n"
-                      "| a    | x^2^  |")))
-    (should (equal text (parley-transcript--alignment text)))
+                      "| a    | b     |")))
+    (should (equal text (parley-transcript--aligned text 80)))
     (parley-transcript-test--with-session
         (list (parley-transcript-test--text-turn text))
       (let ((overlay (car (parley-transcript-test--wait
@@ -2533,8 +2600,8 @@ being rewritten."
                 (end (overlay-end overlay)))
             (should-not (text-property-not-all start end 'display nil))
             (should-not (text-property-not-all start end 'invisible nil))
-            (should-not (text-property-not-all start end 'font-lock-face
-                                               'markdown-table-face))))))))
+            (should (parley-transcript-test--all-faced-p
+                     (buffer-substring start end) 'markdown-table-face))))))))
 
 (ert-deftest parley-transcript-test-renders-a-table-again-at-a-new-width ()
   "A table is rendered again for the width of the window, from the agent's table.
@@ -2571,8 +2638,8 @@ makes: the source is the overlay's and no longer the buffer's."
               (parley-transcript-test--resize buffer 20)
               (let ((wrapped (parley-transcript-test--form overlay))
                     (narrow (window-body-width (selected-window))))
-                (should (> (parley-transcript--columns aligned) narrow))
-                (should (<= (parley-transcript--columns wrapped) narrow))
+                (should (> (parley-transcript-test--columns aligned) narrow))
+                (should (<= (parley-transcript-test--columns wrapped) narrow))
                 (should (< (length (split-string aligned "\n"))
                            (length (split-string wrapped "\n"))))
                 (should (= 1 (length (seq-uniq
@@ -2590,12 +2657,12 @@ makes: the source is the overlay's and no longer the buffer's."
 (ert-deftest parley-transcript-test-wraps-a-cell-of-prose-into-the-width ()
   "A table a cell of prose takes past the width is wrapped into it.
 
-Aligning a wide table makes it wider: the cell of prose sets its
+Lining a wide table up makes it wider: the cell of prose sets its
 column's width and the table runs off the window.  Wrapping that
 cell over several lines and growing the row to match is what
-makes it fit, and the aligned form is measured here too so that a
-rendering which merely stopped aligning would fail rather than
-pass by having done nothing.
+makes it fit, and the grid with nothing narrowed is measured here
+too so that a rendering which merely stopped wrapping would fail
+rather than pass by having done nothing.
 
 Every line of the wrapped row stands in the same columns as the
 rest of the table, which is asserted three ways: the bars of
@@ -2621,9 +2688,10 @@ read that way."
          (form (parley-transcript--aligned text width))
          (rows (mapcar #'parley-transcript-test--cells (split-string form "\n"))))
     (should form)
-    (should (> (parley-transcript--columns (parley-transcript--alignment text))
+    (should (> (parley-transcript-test--columns
+                (parley-transcript-test--unnarrowed text))
                width))
-    (should (<= (parley-transcript--columns form) width))
+    (should (<= (parley-transcript-test--columns form) width))
     (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
     (should (member '("step" "what it does") rows))
     (should (member '("two" "short") rows))
@@ -2639,6 +2707,59 @@ read that way."
       (should (equal "one" (car (car wrapped))))
       (should (seq-every-p (lambda (row) (equal "" (car row))) (cdr wrapped)))
       (should (equal prose (string-join (mapcar #'cadr wrapped) " "))))))
+
+(ert-deftest parley-transcript-test-wraps-a-column-that-is-not-the-last ()
+  "A table with a column wrapped before its last one is written all the same.
+
+A wrap takes the cells of one row down the lines it spreads over,
+so read across a line the grid says the head of the first cell,
+the head of the second and the head of the third where the table
+says the whole of the first before the second begins.  What holds
+the grid to the table is therefore asked of the cells the reader
+handed over and not of the grid written from them: asked across a
+line it would refuse every table with two columns wrapped, which
+is what this fixture is.
+
+Each column is read back down the lines of the grid here and
+joined, which is the order that survives a wrap, and has to say
+what the table's own column says.
+
+That two columns wrapped is asserted rather than assumed: the
+grid is taller than the table and every line of it stands in the
+same columns."
+  (let ((text (concat "| step | what it does | when |\n"
+                      "|---|---|---|\n"
+                      "| one | a first cell of prose | before the rest |\n"
+                      "| two | short | after |"))
+        (width 34))
+    (let ((form (parley-transcript--aligned text width)))
+      (should form)
+      (should (<= (parley-transcript-test--columns form) width))
+      (should (< (length (split-string text "\n"))
+                 (length (split-string form "\n"))))
+      (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
+      (dolist (column '(0 1 2))
+        (should (equal (parley-transcript-test--column text column)
+                       (parley-transcript-test--column form column)))))))
+
+(ert-deftest parley-transcript-test-keeps-the-spacing-of-a-cell-that-fits ()
+  "A cell inside its column stands as the agent typed it, spacing and all.
+
+Packing puts one space between two pieces, which is what a wrap
+has to do to a cell it spreads over lines.  A cell nothing has to
+be moved in is not packed at all, so two spaces he typed are two
+spaces the operator reads -- and that is every cell of every
+table that fits the window.
+
+The same table narrowed is asserted packed beside it, so a form
+that merely looked untouched could not pass this by being the
+only form this cell has."
+  (let ((text "| id | note |\n|---|---|\n| 1 | two  spaces here |"))
+    (should (string-search "two  spaces here"
+                           (parley-transcript-test--unnarrowed text)))
+    (let ((narrow (parley-transcript--aligned text 20)))
+      (should (string-search "two spaces" narrow))
+      (should-not (string-search "two  spaces" narrow)))))
 
 (ert-deftest parley-transcript-test-leaves-a-table-nothing-narrows-too-wide ()
   "A table holding a word longer than the window stays wider than the window.
@@ -2673,7 +2794,7 @@ unreachable through the table and is pinned here instead."
          (rows (mapcar #'parley-transcript-test--cells (split-string form "\n"))))
     (should form)
     (should (member (list "one" word) rows))
-    (should (= 45 (parley-transcript--columns form)))
+    (should (= 45 (parley-transcript-test--columns form)))
     (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
     (should (equal (list word "and")
                    (parley-transcript--wrapped-cell (concat word " and") 5)))))
@@ -2706,13 +2827,201 @@ and the grid the other width asserts goes with it."
                        "| 22 | short |"))
          (wide (parley-transcript--aligned text 30))
          (narrow (parley-transcript--aligned text 14)))
-    (should (> (parley-transcript--columns (parley-transcript--alignment text))
+    (should (> (parley-transcript-test--columns
+                (parley-transcript-test--unnarrowed text))
                30))
-    (should (<= (parley-transcript--columns wide) 30))
+    (should (<= (parley-transcript-test--columns wide) 30))
     (dolist (form (list wide narrow))
       (should form)
       (should (= 1 (length (seq-uniq (mapcar #'string-width
                                              (split-string form "\n")))))))))
+
+(ert-deftest parley-transcript-test-hides-the-markup-in-a-cell ()
+  "A cell's markup is painted and hidden, and the grid stands at either width.
+
+Everywhere else in a message `**bold**' shows as bold and
+`code' as code, because the fontification has markup hiding
+on and the render pass copies what markdown-mode marked
+`invisible'.  A cell is no exception, and what it takes is one
+writer: a character hidden by `invisible markdown-markup' costs
+no column, and `markdown--string-width' is what every width in
+the grid is measured with so that it costs none.
+
+The markers are read back out of the form with markdown-mode's
+own `markdown--remove-invisible-markup', which is what the
+operator sees, and the faces are read off the text the markers
+stand around.
+
+The first column is what says the measurement is the rendering's:
+`**bold**' is eight characters and four columns, `plainlonger' is
+eleven of each, and they are one field of eleven.  Measured by
+the character they are a field of eleven and one of eight, and
+every bar behind the first on that line lands four columns early
+-- which is the assertion over the bars, at both widths.
+
+Both widths through the window, because a table that fits it and
+a table wrapped into it are the same writer and the properties
+have to survive the buffer either way: font lock runs in a comint
+buffer with no keywords at all, and `invisible' is not what it
+strips."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width))
+        (text (concat "| name | note |\n"
+                      "|---|---|\n"
+                      "| **bold** | `code` and [text](http://example.com)"
+                      " and more words here |\n"
+                      "| plainlonger | x |")))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn text))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda ()
+                                 (parley-transcript-test--tables buffer))))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (dolist (width '(100 40))
+                (parley-transcript-test--resize buffer width)
+                (with-current-buffer buffer
+                  (let* ((form (buffer-substring (overlay-start overlay)
+                                                 (overlay-end overlay)))
+                         (shown (parley-transcript-test--visible form)))
+                    (should (<= (parley-transcript-test--columns form) width))
+                    (should (= 1 (length (seq-uniq
+                                          (parley-transcript-test--bars form)))))
+                    (dolist (marker '("**" "`" "[" "]" "(" ")"
+                                      "http://example.com"))
+                      (should-not (string-search marker shown)))
+                    (dolist (word '("bold" "code" "text" "plainlonger"))
+                      (should (string-search word shown)))
+                    (should (memq 'markdown-bold-face
+                                  (parley-transcript-test--face-at form "bold")))
+                    (should (memq 'markdown-inline-code-face
+                                  (parley-transcript-test--face-at form "code")))
+                    (should (memq 'markdown-link-face
+                                  (parley-transcript-test--face-at form "text")))
+                    (should (parley-transcript-test--all-faced-p
+                             form 'markdown-table-face))))))
+            (should (equal text (parley-transcript-test--source overlay)))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-paints-a-cell-from-its-own-place-in-the-row ()
+  "Two cells of one text are each painted from where it stands.
+
+The cell reader hands back text with nothing on it, so what the
+fontification marked is taken off the line the cell was read from
+by position -- and a row holding `**bold**' in one column and
+`bold' in the next is the case that says whose position it is.
+Searched from the head of the line every time, the plain cell
+would come back painted bold, with the hidden markers of the
+other cell either side of it.
+
+The cells are read back out of the grid with the bars, which is
+where the writer put them, so a reading that painted the wrong
+one has the two to tell apart and not one."
+  (let* ((form (parley-transcript-test--unnarrowed
+                "| a | b |\n|---|---|\n| **bold** | bold |"))
+         (cells (parley-transcript-test--cells
+                 (nth 2 (split-string form "\n")))))
+    (should (equal '("**bold**" "bold") cells))
+    (should (memq 'markdown-bold-face
+                  (parley-transcript-test--face-at (nth 0 cells) "bold")))
+    (should-not (memq 'markdown-bold-face
+                      (parley-transcript-test--face-at (nth 1 cells) "bold")))
+    (should-not (text-property-not-all 0 (length (nth 1 cells))
+                                       'invisible nil (nth 1 cells)))))
+
+(ert-deftest parley-transcript-test-keeps-a-display-property-out-of-the-grid ()
+  "A cell markdown-mode would show through a `display' property is written plain.
+
+A grid is characters standing in columns and a `display' property
+is a width no measurement of those characters can take: the `2'
+of `x^2^' is one character and `markdown--string-width' counts it
+as one column, where the property markdown-mode raises and
+shrinks it with puts it on screen as less than one.  So
+`parley-transcript--cell-properties' leaves that property behind
+and takes what hides the markers around it, which is `invisible'
+-- a hidden character is one the measurement and the screen agree
+costs nothing.
+
+The markers are asserted hidden in the same breath, so a writer
+that took none of markdown-mode's properties at all would fail
+here rather than pass by carrying no `display' either."
+  (let ((form (parley-transcript-test--unnarrowed
+               "| name | power |\n|---|---|\n| a | x^2^ |")))
+    (should form)
+    (should-not (text-property-not-all 0 (length form) 'display nil form))
+    (should (string-search "x^2^" form))
+    (should-not (string-search "^" (parley-transcript-test--visible form)))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))))
+
+(ert-deftest parley-transcript-test-pads-a-cell-as-its-column-is-marked ()
+  "A column the delimiter row marks right or centred has its cells padded that way.
+
+The marks are the agent's -- `markdown-table-colfmt' is what
+reads them -- and a column he marked is one he meant to be read
+that way.  All three are pinned at once, against the grid the
+writer puts out: a writer that ignored the marks writes the same
+widths with every cell flush left, so the left column alone could
+not tell one from the other.
+
+The marks are read once and every line the writer puts out is
+padded by them, which the wrapped row is here for: the lines a
+cell was packed over stand in the same column as the line its row
+began on."
+  (should (equal '("| a      |      b |   c    |"
+                   "|:-------|-------:|:------:|"
+                   "| 1      |      2 |   3    |"
+                   "| longer | longer | longer |")
+                 (split-string (parley-transcript-test--unnarrowed
+                                (concat "| a | b | c |\n"
+                                        "|:---|---:|:---:|\n"
+                                        "| 1 | 2 | 3 |\n"
+                                        "| longer | longer | longer |"))
+                               "\n")))
+  (should (equal '("| id | note        |"
+                   "|---:|-------------|"
+                   "|  1 | some words  |"
+                   "|    | here        |")
+                 (split-string (parley-transcript--aligned
+                                "| id | note |\n|---:|---|\n| 1 | some words here |"
+                                20)
+                               "\n"))))
+
+(ert-deftest parley-transcript-test-holds-the-grid-around-a-broken-link ()
+  "A link the wrap breaks costs the grid nothing, only the link.
+
+A markdown link carries no bar, so a wrap may break one where it
+may not break a wiki link: what the operator reads is the link's
+text over as many lines as the cell took, and what he loses is
+that clicking it would have gone anywhere.
+
+Each piece the break leaves hides a different amount -- the piece
+ending the first line hides one bracket, the piece starting the
+second hides a bracket, two parentheses and the whole of a URL --
+so the pieces are what say every width here is measured on what
+is shown.  What the operator reads is pinned line by line: by the
+character those pieces are far wider than they show, the packing
+fits fewer of them on a line, and the cell comes out over four
+lines with one word on each of the last three.
+
+The lines are equal in columns and unequal in characters, which
+is the other half of it: the padding is measured on what is shown
+too, and by the character the grid would be square in characters
+and ragged on screen."
+  (let* ((text (concat "| id | note |\n|---|---|\n"
+                       "| 1 | see [the long link text]"
+                       "(http://example.com/page) now |"))
+         (form (parley-transcript--aligned text 24))
+         (lines (split-string form "\n")))
+    (should form)
+    (should (equal '("| id | note            |"
+                     "|----|-----------------|"
+                     "| 1  | see the long    |"
+                     "|    | link text now   |")
+                   (split-string (parley-transcript-test--visible form) "\n")))
+    (should (= 24 (parley-transcript-test--columns form)))
+    (should (= 1 (length (seq-uniq (mapcar #'markdown--string-width lines)))))
+    (should (< 1 (length (seq-uniq (mapcar #'length lines)))))))
 
 (ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
   "A bar standing inside a cell is not a column boundary, and a wrap leaves it none.
@@ -2727,9 +3036,9 @@ is the one line of the table whose grid is gone.
 
 So the link is one piece of the wrap, and every line of the
 wrapped form is read back here with markdown-mode's own
-`markdown--table-line-to-columns' -- the reader
-`markdown-table-align' measures the cells with, and the one whose
-answer decides whether a bar is a boundary at all.  Every line
+`markdown--table-line-to-columns' -- the reader the writer finds
+the cells with, and the one whose answer decides whether a bar is
+a boundary at all.  Every line
 has to hold the two columns the table has, and the link has to
 come back whole in one of them.
 
@@ -2772,7 +3081,7 @@ nothing here to hold together."
          (rows (mapcar #'markdown--table-line-to-columns
                        (split-string form "\n"))))
     (should form)
-    (should (<= (parley-transcript--columns form) 34))
+    (should (<= (parley-transcript-test--columns form) 34))
     (should (= 1 (length (seq-uniq (mapcar #'string-width
                                            (split-string form "\n"))))))
     (should (seq-every-p (lambda (row) (= 2 (length row))) rows))
@@ -2781,7 +3090,7 @@ nothing here to hold together."
     (should (member (list "" "more prose all fit") rows))
     (let* ((tight (parley-transcript--aligned text 25))
            (lines (split-string tight "\n")))
-      (should (= 30 (parley-transcript--columns tight)))
+      (should (= 30 (parley-transcript-test--columns tight)))
       (should (= 1 (length (seq-uniq (mapcar #'string-width lines)))))
       (should (member (list "" link)
                       (mapcar #'markdown--table-line-to-columns lines))))))
@@ -2789,19 +3098,18 @@ nothing here to hold together."
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
   "A table of nothing but delimiter rows is shown as the agent wrote it.
 
-There is nothing in it to line up, and `markdown-table-align'
-raises `Empty table' rather than saying so: it is the cells it
-formats from, and a delimiter row contributes none.  Nothing may
-come back out of here but the aligned form or nil, because this
-is called from an output filter and from a hook run during
-redisplay, where a signal is a conversation that stops rendering
-and says nothing about why.
+There is nothing in it to line up: the widths come from the
+cells, a delimiter row carries none, and a grid of no columns is
+a row of two bars.  Nothing may come back out of here but the
+grid or nil, because this is called from an output filter and
+from a hook run during redisplay, where a signal is a
+conversation that stops rendering and says nothing about why.
 
 A delimiter row is what markdown-mode calls one and is asked with
-markdown-mode's own predicate, because the caller that raises
-uses that one: `| --- | --- |' is a delimiter row with a space
-after the bar, which reads as a row of data to anything matching
-on the character after it.
+markdown-mode's own predicate, because that is the predicate the
+cells are sorted out by: `| --- | --- |' is a delimiter row with
+a space after the bar, which reads as a row of data to anything
+matching on the character after it.
 
 The table with rows in it is aligned in the same breath, so a
 guard tightened until nothing at all is aligned fails here."
@@ -2815,10 +3123,10 @@ guard tightened until nothing at all is aligned fails here."
 The outer bar at the end of a row is optional, which is how an
 agent writes a table by hand, and
 `markdown--table-line-to-columns' drops a last cell of one column
-when no bar closes it -- so what is aligned is a copy with those
-bars put back.  Every cell of the text has to stand in the
-aligned form, because a display over a table that lost a cell is
-a cell of the agent's the operator cannot read at all.
+when no bar closes it -- so what the cells are read out of is a
+copy with those bars put back.  Every cell of the text has to
+stand in the grid, because a grid that lost a cell is a cell of
+the agent's the operator cannot read at all.
 
 The last of them is a table of one column, where the cell that
 would be dropped is the only cell there is."
@@ -2834,24 +3142,28 @@ would be dropped is the only cell there is."
       (dolist (cell (cdr case))
         (should (string-search cell aligned))))))
 
-(ert-deftest parley-transcript-test-shows-a-table-an-aligner-would-cut-as-written ()
-  "A table whose aligned form does not say what the text says is shown as written.
+(ert-deftest parley-transcript-test-shows-a-table-a-reader-would-cut-as-written ()
+  "A table whose grid does not say what the text says is shown as written.
 
-Which markdown-mode is under the buffer is the operator's
-business, and an aligner that dropped a cell would put a display
-over the table showing text the agent never wrote.  The aligner
-is stood in for here because the one in this tree keeps every
-cell of a table the closing bars were put back on, and what is
-under test is what becomes of a result that does not.
+Where a cell begins and ends is markdown-mode's own
+`markdown--table-line-to-columns', and which markdown-mode is
+under the buffer is the operator's business: a version of it that
+dropped a cell would write that cell's row into the buffer
+without it.  The reader is stood in for here because the one in
+this tree keeps every cell of a table the closing bars were put
+back on, and what is under test is what becomes of a grid written
+from a reading that does not.
 
-An aligner that leaves the table alone is stood in the same way,
-so that what refuses the first is the cell it dropped and not the
+A reader that keeps every cell is stood in the same way, so that
+what refuses the first is the cell it dropped and not the
 standing in."
-  (let ((text "| a | b |\n|---|---|\n| 1 | 2 |"))
-    (cl-letf (((symbol-function 'markdown-table-align)
-               (lambda () (erase-buffer) (insert "| a | b |\n|---|---|\n| 1 |"))))
+  (let ((text "| a | b |\n|---|---|\n| 1 | 2 |")
+        (reader (symbol-function 'markdown--table-line-to-columns)))
+    (cl-letf (((symbol-function 'markdown--table-line-to-columns)
+               (lambda (line) (butlast (funcall reader line)))))
       (should-not (parley-transcript--aligned text 80)))
-    (cl-letf (((symbol-function 'markdown-table-align) #'ignore))
+    (cl-letf (((symbol-function 'markdown--table-line-to-columns)
+               (lambda (line) (funcall reader line))))
       (should (parley-transcript--aligned text 80)))))
 
 (ert-deftest parley-transcript-test-leaves-a-table-in-a-fence-as-written ()
