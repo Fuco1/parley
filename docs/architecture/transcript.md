@@ -226,10 +226,10 @@ them costs 2.4 s of the 6.9 s that history takes to settle.
 ## A table is rendered into the buffer, and the overlay keeps its source
 
 A table lines up only if the agent lined it up, and a table whose columns do not
-line up is a table nobody reads. What stands in the buffer is the aligned form,
-written there as text — this buffer is a rendering throughout, and a table is
-the same kind of rendering as the quote around the operator's turn and the one
-line a run of tool calls collapses to.
+line up is a table nobody reads. What stands in the buffer is the grid parley
+writes, put there as text — this buffer is a rendering throughout, and a table
+is the same kind of rendering as the quote around the operator's turn and the
+one line a run of tool calls collapses to.
 
 **The form is text and not something shown through a `display` property.** What
 a `display` property shows is not text: the buffer's own machinery never looks
@@ -273,13 +273,61 @@ grid. The distance is the most a grid laid out again can promise — the cell th
 was under point may not exist at the new width — and the form is as far as it
 goes, so a table point stood in is a table it stays in.
 
-**Alignment only ever makes a table wider**, so a table it takes past the edge
-of the window is wrapped into it: each cell over as many lines as it needs, and
-the row as tall as its tallest cell. The width to wrap to is the width the
-rendering is already computed for, which is what makes the width of the window
-the thing the rendering is recomputed on. It costs nothing to undo — the columns
-are recomputed from the table the overlay carries every time, so a wrap is never
-something a later render has to unpick.
+**One writer for every table, parley's own.** A table that fits the window is
+the grid with no column narrowed; a table that does not is the same grid with
+its cells wrapped, each over as many lines as it needs and the row as tall as
+its tallest cell. There is no second path: the only other writer is
+`markdown-table-align`, and it cannot write a grid around markup that is hidden.
+
+**The reason is the markup in a cell.** Everywhere else in a message `**bold**`
+shows as bold and inline code as code: the fontification has markup hiding on
+and the render pass copies what markdown-mode marked `invisible`. A cell is no
+exception, and what it takes is a writer that knows a hidden character costs
+no column. The aligner cannot: it measures a column with
+`markdown--string-width`, which does discount `invisible markdown-markup`, but
+it reads its cells with `buffer-substring-no-properties`, so nothing that hides
+a character ever reaches that measurement — and it pads with `%-Ns`, which
+counts characters either way. Measured against this repository's markdown-mode
+with hiding on, a column holding `**bold**` and `plainlonger` comes out padded
+to thirteen characters on every line of the table, and the line the bold is on
+then stands in eleven columns where every other line stands in fifteen.
+
+**Every width the grid is written to is measured on what the rendering shows.**
+`markdown--string-width` is markdown-mode's own answer for that width, and it is
+what a column's width, the floor under it, the room a wrapped line is packed
+into and the padding that fills a cell out are all taken with. It reads
+`buffer-invisibility-spec` to know what is hidden, which is the other reason the
+grid is written in the buffer the fontification happens in: that spec is the one
+`markdown-toggle-markup-hiding` put `markdown-markup` into.
+
+**A `display` property is a width the grid cannot measure, so it stays out of
+one.** A cell comes away from the fontification with what markdown-mode painted
+it and what markdown-mode hid, and without the `display` properties it also
+leaves behind: the `2` of `x^2^` is one character and one column to every
+measurement of it, where the property that raises and shrinks it puts it on
+screen as less than one. A grid is characters standing in columns, and a hidden
+character is the one thing done to a cell that the measurement and the screen
+agree the width of.
+
+**The cells reach the writer with what the fontification marked still on them.**
+Where a cell begins and ends is markdown-mode's own cell reader, because that is
+what reads over the bar inside a wiki link and the escaped bar — and it hands
+back text with nothing on it. A cell is a verbatim substring of the line it was
+read from, so what the fontification marked is taken back off that line by
+position, each cell searched for from where the last one ended.
+
+**A column the delimiter row marks is padded the way it is marked.** Right puts
+the padding in front of the cell and centred splits it either side; a column
+nobody marked takes it behind. The marks are read once, with markdown-mode's own
+`markdown-table-colfmt`, and every line the writer puts out is padded by them —
+so the lines a cell was packed over stand in the same column as the line its row
+began on.
+
+**A cell already inside its column is not packed.** Packing puts one space
+between two pieces, which is what a wrap has to do to a cell it spreads over
+lines; a cell nothing has to be moved in is the cell the agent typed, two spaces
+and all. That is every cell of every table that fits the window, and it is the
+cheaper answer as well.
 
 **A wrap never breaks a construct a bar stands in.** A cell can hold a bar that
 is no column boundary — the one inside a wiki link, which markdown-mode's own
@@ -289,13 +337,6 @@ a boundary again: the row reads as a column more than the table has, to anything
 parsing the wrapped form back and to the operator, whose grid goes with it. So a
 link holding a bar is one piece of the wrap however many spaces stand inside it,
 and the column it is in is floored by it exactly as a long word floors one.
-
-**The wrapped grid is written from the cells, not handed back to the aligner.**
-The widths are settled by the wrap and the padding follows from them, so a
-second pass through the aligner would only read back text just written. The
-cells are read once, from the table as the agent wrote it, where every construct
-in them is whole, and what is written out of them is the layout the aligner
-would have written.
 
 **A cell nothing can narrow sets a floor under its column.** Wrapping packs the
 pieces of a cell — its words, and a wiki link holding a bar entire — and breaks
@@ -307,24 +348,34 @@ That is the honest outcome. The floor is not what keeps a piece whole, which the
 packing does at any width; it is what stops the columns beside an incompressible
 one being packed tighter than the table they share will ever be.
 
-**The rendered form closes a row the agent left open.** The outer bar at the end of
-a row is optional, and a table written by hand leaves it off; the aligned form
-always carries it, because what is aligned is a copy of the table with those
-bars put back. Without them the aligner reads such a row as a row with one cell
-fewer, and a cell dropped on the way into the buffer is a cell of the agent's
-the operator cannot read at all, where a ragged table is merely ragged. The row
-stays open in the table the overlay carries, which is what every later render
-reads.
+**The rendered form closes a row the agent left open.** The outer bar at the end
+of a row is optional, and a table written by hand leaves it off; the grid always
+carries it, because what the cells are read out of is a copy of the table with
+those bars put back. Without them the reader takes such a row as a row with one
+cell fewer, and a cell dropped on the way into the buffer is a cell of the
+agent's the operator cannot read at all, where a ragged table is merely ragged.
+The row stays open in the table the overlay carries, which is what every later
+render reads.
+
+**The cells are held to the table, and the grid written from them is not.** The
+cell reader is markdown-mode's, and which markdown-mode is under the buffer is
+the operator's business: a version of it that dropped a cell would put that
+cell's row in the buffer without it. So what it handed back is compared with
+what the agent typed, with everything either may space or bar or break
+differently taken out, before anything is written. It is the cells that are
+compared and not the grid, because a wrap takes a cell down the lines its row
+spreads over: read back across a line the grid says the head of every cell where
+the table says the whole of the first before the second begins.
 
 **A table is what markdown-mode calls one**, which is narrower than what the
 agent may have meant. A line that does not open with a bar is not a table line
-to it, and a block of delimiter rows with no header row is a table it will not
-align — both are left in the buffer as the agent wrote them, and the overlay
-over them is dropped: what markdown-mode refuses it refuses at every width, so
-there is no width to come back for.
+to it, and a block of delimiter rows with no row of data has nothing in it to
+line up — both are left in the buffer as the agent wrote them, and the overlay
+over them is dropped: what is refused is refused at every width, so there is no
+width to come back for.
 
 **A table inside a fenced code block is not a table**, it is text the agent is
-showing, and aligning it would rewrite what he quoted. The difference is
+showing, and lining it up would rewrite what he quoted. The difference is
 markdown-mode's syntax over the fence, which is known in the buffer the
 fontification happens in and nowhere after it: the transcript buffer holds no
 markdown syntax at all, so a pass over the finished text could not tell a table
@@ -340,33 +391,41 @@ overlay follows that move and an offset into the inserted string does not.
 
 **The faces the rendered form carries are in `font-lock-face`.** `face` is what
 global font lock strips in this buffer, for the reason the render pass maps it
-away, and a table is rendered with the face markdown-mode paints one with and
-nothing finer — so markup inside a cell stands in the rendered form as the agent
-wrote it.
+away. A cell carries the faces markdown-mode painted it with, which is
+`markdown-table-face` over the whole of a table line and the face of a construct
+over the construct; what comes out of the writer with no face at all is the grid
+itself, the bars and the padding, and that is what the table face is filled into.
 
-That one face is also what tells a form from the table it came from. An agent
-who lined his table up himself wrote the characters the render produces, and the
-text the render pass delivered carries markdown-mode's properties over those
-characters — the `display` that hides the markers around a superscript among
-them. Compared as text the two are one and the region would be left as it
-stands, with a property in it that covers part of a table; compared with their
-properties they are not, and the region is written over. Two computations of one
-form carry the same face, so a render with nothing left to do is still free.
+The faces are also what tells a form from the table it came from. An agent who
+lined his table up himself wrote the characters the render produces, and what
+the region held before the render was the text the render pass delivered.
+Compared as text the two are one and the region would be left as it stands;
+compared with their properties they are not, and the region is written over. Two
+computations of one form carry the same properties, so a render with nothing
+left to do is still free.
 
 **What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
-in CPU time and taken as the best of twenty runs of two hundred alignments, over
-a table of seven rows and four columns whose aligned form is 73 columns wide:
-2.8 ms for one that fits, nearly all of it markdown-mode's own aligner, and
-5.0 ms for one wrapped into 50 columns — the aligner is run first either way,
-because whether the aligned form fits is what says a wrap is needed at all.
-Writing the form into the buffer is 3 µs of that: what a render costs is
-the aligner.
-A conversation holding forty tables therefore costs 0.11 s of blocked redisplay
-on a resize, and 0.20 s if every one of them has to be wrapped. The hook this
-runs on is called for a window added, deleted or given another buffer as well,
-and the width the tables were last rendered to is what tells a resize from the
-rest — 3.3 µs when it has not changed, which is what keeps every other window
-change free.
+in CPU time from `get-internal-run-time` and taken as the best of twenty runs of
+two hundred renders, over a table of seven rows and four columns whose grid is
+71 columns wide: 4.5 ms for one that fits and 6.0 ms for one wrapped into 50
+columns. Writing the form into the buffer is 87 µs of that, nearly all of it the
+properties: inserting the form costs 76 µs where inserting the same characters
+with nothing on them costs 1.2 µs, because a form carrying markup carries 49
+runs of text properties over those seven rows and each run is an interval the
+insertion has to build. A conversation holding forty tables therefore costs
+0.18 s of blocked redisplay on a resize, and 0.24 s if every one of them has to
+be wrapped.
+
+That is around 1.6 times what handing a table that fits to `markdown-table-align`
+costs, measured the same way on the same table: 2.7 ms and a 3 µs write. The
+difference is the markup — the fontification the cells are read out of, and the
+property runs the form is written with — and it buys every table the rendering
+the rest of a message gets.
+
+The hook this runs on is called for a window added, deleted or given another
+buffer as well, and the width the tables were last rendered to is what tells a
+resize from the rest — 0.7 µs when it has not changed, which is what keeps every
+other window change free.
 
 A table is the buffer's text and not a window's, so a buffer shown in two
 windows of different widths is rendered to whichever of them changed last.
