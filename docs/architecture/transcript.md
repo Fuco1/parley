@@ -235,6 +235,13 @@ process mark is a marker past the end of a table — a table ends before the
 newline that closes the block around it — so it follows the replacement as the
 overlay over every other table does.
 
+**Point inside a table is put back by hand, the same distance into the form.** A
+marker is what carries point over a replacement and the deletion takes the text
+this one is in, so nothing carries it: it would come back at the head of the
+grid. The distance is the most a grid laid out again can promise — the cell that
+was under point may not exist at the new width — and the form is as far as it
+goes, so a table point stood in is a table it stays in.
+
 **Alignment only ever makes a table wider**, so a table it takes past the edge
 of the window is wrapped into it: each cell over as many lines as it needs, and
 the row as tall as its tallest cell. The width to wrap to is the width the
@@ -305,6 +312,15 @@ global font lock strips in this buffer, for the reason the render pass maps it
 away, and a table is rendered with the face markdown-mode paints one with and
 nothing finer — so markup inside a cell stands in the rendered form as the agent
 wrote it.
+
+That one face is also what tells a form from the table it came from. An agent
+who lined his table up himself wrote the characters the render produces, and the
+text the render pass delivered carries markdown-mode's properties over those
+characters — the `display` that hides the markers around a superscript among
+them. Compared as text the two are one and the region would be left as it
+stands, with a property in it that covers part of a table; compared with their
+properties they are not, and the region is written over. Two computations of one
+form carry the same face, so a render with nothing left to do is still free.
 
 **What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
 in CPU time and taken as the best of twenty runs of two hundred alignments, over
