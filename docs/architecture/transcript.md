@@ -92,21 +92,35 @@ personal command, and the notice the `Agent` tool writes about a fork. Quoted as
 the operator's speech, a skill load is a thousand lines of instructions behind a
 `>` marker in a buffer whose whole subject is the conversation.
 
-**`isMeta` is what marks one, and it is the whole of the test.** The transcript
-puts that field on every turn the harness injected and on nothing the operator
-typed — so the turn Claude Code writes when he invokes a skill by typing its
-slash command carries no mark, and is quoted, marked and indexed as any turn of
-his is. A pattern in the text would decide the opposite, and would be deciding
-it about his own words.
+**`isMeta` is what marks one, and the mark is not read off the body of a
+record.** The transcript puts that field on every turn the harness injected and
+on nothing the operator typed — so the turn Claude Code writes when he invokes a
+skill by typing its slash command carries no mark, and is quoted, marked and
+indexed as any turn of his is. A pattern in the body would decide the opposite,
+and would be deciding it about his own words. The one injection the harness
+leaves unmarked says what it is in the first characters of its text, and the
+section below is where that is read.
 
-**A skill load is the one injection the buffer shows, and it is worth one
-line.** Both ways into a skill — the `Skill` tool and the slash command typed
-for it — open with the same `Base directory for this skill: PATH` line, which is
-what identifies the load, and the line the buffer shows is named from the
-skill's own first `# ` heading: that heading is the name because it is what the
+**A skill load is worth one line, and the skill's own name is that line.** Both
+ways into a skill — the `Skill` tool and the slash command typed for it — open
+with the same `Base directory for this skill: PATH` line, which is what
+identifies the load, and the line the buffer shows is named from the skill's own
+first `# ` heading: that heading is the name because it is what the
 skill calls itself. A skill whose body opens with no heading is named by the
 last segment of `PATH`. The name is quoted in the line, so a heading of several
 words cannot read as prose an agent wrote.
+
+**A task notification is worth one line too, and the line is its `<summary>`.**
+Claude Code writes one when a background shell finishes, a `Monitor` fires or a
+subagent returns: a `<task-notification>` wrapping a task id, a tool-use id, the
+path the output was left at, a status, and a summary on one line. The summary is
+the whole of what such a record says the operator can act on — the two ids and
+the path are addressed to the agent, and `<status>` says nothing the summary does
+not already say in its own words — so the line is the summary and nothing else. A
+notification carrying no summary renders nothing at all, having nothing to say.
+Measured over the 1622 notifications in the transcripts on this machine: 1619
+carry a `<summary>` and every one of those sits on one line, `<status>` is on 384
+of them, and the 3 with no summary are `<fork-source>` notices.
 
 **Every other injection renders nothing at all.** A constant line saying an
 injection happened carries no information, and the caveat and the command
@@ -117,11 +131,12 @@ so such an injection is no break in a run of tool calls either.
 **An injected turn is not a prompt, so it takes no imenu entry** however it
 renders — the operator jumping through that index is looking for what he typed.
 
-### Two `user` records are a wrapper the harness wrote, not speech
+### Three `user` records are a wrapper the harness wrote, not speech
 
-Neither carries `isMeta`, so neither is an injection, and quoted as it stands
-each puts tags in front of the operator as his own words. **The wrapper comes
-off before the record is read for anything.**
+None of them carries `isMeta`, so none is an injection the transcript marked,
+and quoted as it stands each puts tags in front of the operator as his own
+words. **What the harness wrapped around the record is dealt with before the
+record is read for anything.**
 
 **A slash command reaches the transcript as three tags, and renders to the one
 line he typed** — the `<command-name>` and the `<command-args>` on one line, and
@@ -137,6 +152,14 @@ above it saying what he did. It is also the one place an escape byte could enter
 this buffer — a compaction notice arrives inside a real `ESC[2m`, and nothing
 strips one out here — so rendering nothing settles that as well.
 
+**A task notification is marked as the injection it is, and its text is left
+alone.** What it renders to is above, with the injections the harness does mark;
+the mark is what puts it there. An injection is already what the render pass
+turns into a renderer line or into nothing, and already what the index passes
+over, so marking a notification is the whole of the rule and it needs no third
+path through the pass. The summary is read out of the text where every
+injection's line is made.
+
 **The unwrapping has to happen before the echo guard and before the index.**
 The guard [typing.md](typing.md) describes recognises parley's own copy of a
 message by the text that was sent, so a slash command submitted at parley's
@@ -146,9 +169,17 @@ a turn indexed before it is unwrapped is labelled
 `<command-message>one</command-message>` — one label for every slash command of
 that name, and two of them told apart by a number rather than by what he asked.
 
-**What the tags decide is what a record renders to, and never whose turn it
-is.** Whose it is stays `isMeta`'s, above: the mark says the harness wrote the
-record, and the tags say only what shape it wrote it in.
+**What the text decides, it decides from the head of the record.**
+`<task-notification>` is matched at the very first character of the text, with
+no whitespace tolerated in front of it — a space would be nothing the harness
+writes, and a newline would make the second line of a turn of his decide that
+the first one was never his. So a turn of the operator's that quotes the tag on
+any line but the first is his own words: quoted whole, tag and all, and indexed
+under its first line. He writes one: of the 1624 records holding the tag on this
+machine, 1622 are notifications opening with it at character zero, and the 2 that
+do not are prose quoting one. Anywhere but the head, the text would be deciding
+about his words instead of the harness's, which is what `isMeta` is for and what
+it stays for.
 
 ### Fontification happens in another buffer, twice over
 

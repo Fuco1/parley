@@ -118,6 +118,31 @@ what `unslop', `ponytail-review' and `ponytail-audit' do."
           (if heading (concat "# " heading "\n\n") "")
           parley-transcript-test--skill-body "\n"))
 
+(defun parley-transcript-test--notification-text (summary)
+  "Return the text a task notification carrying SUMMARY arrives as.
+Six lines of XML as the harness writes them -- a task id, a
+tool-use id, the path the output was left at, a status and the
+summary -- of which only the summary is the operator's to act on.
+SUMMARY is nil for a notification carrying none, which is what a
+`<fork-source>' notice is."
+  (concat "<task-notification>\n"
+          "<task-id>b6v36vu3p</task-id>\n"
+          "<tool-use-id>toolu_013evn7VG22QBizmAxQKcKfk</tool-use-id>\n"
+          "<output-file>/tmp/claude-1000/-home-x-dev-orc/ef8159c3/tasks/"
+          "b6v36vu3p.output</output-file>\n"
+          "<status>completed</status>\n"
+          (if summary (concat "<summary>" summary "</summary>\n") "")
+          "</task-notification>"))
+
+(defun parley-transcript-test--notification (summary)
+  "Return a transcript line for a task notification carrying SUMMARY.
+Under the operator's role and unmarked, as the harness writes it:
+it is an injection carrying no `isMeta', which is why the render
+pass has to know the tag."
+  (format (concat "{\"type\":\"user\",\"message\":"
+                  "{\"role\":\"user\",\"content\":%s}}")
+          (json-serialize (parley-transcript-test--notification-text summary))))
+
 (defconst parley-transcript-test--caveat
   (concat "<local-command-caveat>Caveat: The messages below were generated"
           " by the user while running local commands."
@@ -748,6 +773,130 @@ nothing the name does not."
       (dolist (absent (list "<command" "</command" "one</" ">plugin<"))
         (goto-char (point-min))
         (should-not (search-forward absent nil t))))))
+
+
+(ert-deftest parley-transcript-test-renders-a-task-notification-as-its-summary ()
+  "A task notification is one renderer line carrying its summary.
+
+The harness saying that a background shell finished, that a
+`Monitor' fired or that a subagent returned is not a turn of the
+conversation, and quoted as it stands it puts six lines of XML in
+front of the operator as his own words.  The summary is the whole
+of what such a record says he can act on, so the line is the
+summary and nothing else: the task id, the tool-use id, the
+output path and the status are addressed to the agent, and none
+of them reaches the buffer.
+
+The line is the renderer's and not anyone's in the conversation,
+so it stands in the bullet and the face every line the renderer
+wrote stands in."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--notification
+             "Background command \"go test ./...\" completed (exit code 0)")
+            (parley-transcript-test--user-turn "and what did it say"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 2 (length shown)) shown))))
+                   (list (concat "● Background command \"go test ./...\""
+                                 " completed (exit code 0)")
+                         "❯ and what did it say")))
+    (with-current-buffer buffer
+      (dolist (absent (list "task-notification" "task-id" "toolu_"
+                            "output-file" "<status" "<summary"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t)))
+      (goto-char (point-min))
+      (should (search-forward "● Background" nil t))
+      (should (eq (get-text-property (match-beginning 0) 'font-lock-face)
+                  'parley-tool-run)))))
+
+(ert-deftest parley-transcript-test-shows-nothing-for-a-summaryless-notification ()
+  "A task notification carrying no summary renders nothing at all.
+
+The summary is the whole of what one says, so a notification
+without one has nothing to say, and it renders the empty string a
+turn that said nothing renders to.  That makes it no break in a
+run of tool calls and leaves no blank block where it was: two
+calls, the notification, three calls, and one line saying five."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--tool-turn 2)
+            (parley-transcript-test--notification nil)
+            (parley-transcript-test--tool-turn 3))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (equal shown (list "● 5 tool calls")) shown))))
+                   (list "● 5 tool calls")))
+    (with-current-buffer buffer
+      (dolist (absent (list "\n\n\n" "task-notification" "task-id" "toolu_"
+                            "output-file" "completed"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t))))))
+
+(ert-deftest parley-transcript-test-indexes-no-task-notification ()
+  "A task notification is not a prompt, so it takes no imenu entry.
+
+It reaches the buffer as the line carrying its summary and the
+index holds only the prompt under it: the operator jumping
+through that index is looking for what he typed, and the harness
+telling his agent that a task finished is not that."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--notification
+             "Agent \"review the diff\" completed")
+            (parley-transcript-test--user-turn "what did it find"))
+    (should (parley-transcript-test--wait
+             (lambda ()
+               (equal (parley-transcript-test--shown buffer)
+                      (list "● Agent \"review the diff\" completed"
+                            "❯ what did it find")))))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "what did it find")))))
+
+(ert-deftest parley-transcript-test-quotes-a-turn-that-mentions-a-notification ()
+  "A turn of the operator's that quotes the tag is his own words, tag and all.
+
+The pattern is anchored at the very first character of the text,
+so what makes a record a notification is that the harness wrote
+the whole of it.  A turn of his that mentions
+`<task-notification>' on any line but the first is a turn: quoted
+whole, tag and summary alike, and indexed under its first line.
+
+Two of them, and what stands in front of the tag is what tells
+them apart from a notification -- a line of his words in the
+first, and in the second nothing but the newline of the blank
+line he opened with.  A pattern that stepped over whitespace
+before the tag would take that second one for the harness's, and
+the words it swallowed would be as gone as the ones under the
+first."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--user-turn
+             (concat "why does this show up as mine\\n"
+                     "<task-notification>\\n"
+                     "<summary>Monitor fired</summary>\\n"
+                     "</task-notification>"))
+            (parley-transcript-test--user-turn
+             (concat "\\n<task-notification>\\n"
+                     "<summary>Monitor fired</summary>\\n"
+                     "</task-notification>")))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 7 (length shown)) shown))))
+                   (list "❯ why does this show up as mine"
+                         "❯ <task-notification>"
+                         "❯ <summary>Monitor fired</summary>"
+                         "❯ </task-notification>"
+                         "❯ <task-notification>"
+                         "❯ <summary>Monitor fired</summary>"
+                         "❯ </task-notification>")))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "why does this show up as mine"
+                         "<task-notification>")))))
 
 
 ;;; The buffer
