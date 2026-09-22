@@ -763,15 +763,11 @@ across two lines is one the operator cannot read back, and a link
 broken across two puts a bar in the grid where the table has no
 column.
 
-Nil when TEXT is not a table markdown-mode calls one, and nil for
-a table of nothing but delimiter rows, which has nothing in it to
-line up: `parley-transcript--written' answers for both.  What the
-operator sees is then the table as the agent wrote it.  Neither
-is a question of width, so a table that renders to nothing here
-renders to nothing at any size of window.
-
-Nil, last, when the cells do not say what TEXT says, which
-`parley-transcript--written' answers for as well."
+Nil for everything `parley-transcript--written' refuses, which is
+all that either is refused for: what the operator sees is then
+the table as the agent wrote it.  None of those refusals is a
+question of width, so a table that renders to nothing here
+renders to nothing at any size of window."
   (let ((form (parley-transcript--written text width)))
     (when form
       (parley-transcript--table-faced form))))
@@ -1595,8 +1591,8 @@ and never the objects."
   ;; afterwards, for the reason the index is.
   (add-hook 'comint-output-filter-functions
             #'parley-transcript--align-output nil t)
-  ;; The aligned form of a table is what fits the window, so it is
-  ;; computed again when the window changes width.  Buffer locally,
+  ;; The grid a table is written to is what fits the window, so it is
+  ;; written again when the window changes width.  Buffer locally,
   ;; which is what has Emacs run it for each window showing this
   ;; buffer with that window selected.
   (add-hook 'window-configuration-change-hook

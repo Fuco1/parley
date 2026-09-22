@@ -2367,9 +2367,9 @@ comes to."
           "| a | short |\n"
           "| bbbbbb | a much longer cell |")
   "A table as an agent writes one, whose columns do not line up.
-Its aligned form is 31 columns wide and the text itself is 30, so
-a window of 20 has room for neither and the cells have to be
-wrapped to fit one.")
+Its grid is 31 columns wide and so is the widest line it is
+written from, so a window of 20 has room for neither and the
+cells have to be wrapped to fit one.")
 
 (defun parley-transcript-test--tables (buffer)
   "Return the overlays over a table in BUFFER, in buffer order."
@@ -2510,9 +2510,9 @@ the wrong text and pass everything else here.
 
 The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
-its last cell is one column wide -- which is the cell the aligner
-drops when no bar closes it, unless the copy it is given has that
-bar put back.  Every cell of it is read out of what was rendered
+its last cell is one column wide -- which is the cell the cell
+reader drops when no bar closes it, unless the copy it is given
+has that bar put back.  Every cell of it is read out of what was rendered
 for that reason, and each of those one-column cells is a
 character the rest of the table does not hold."
   (skip-unless (executable-find "jq"))
@@ -2983,9 +2983,9 @@ is the one line of the table whose grid is gone.
 
 So the link is one piece of the wrap, and every line of the
 wrapped form is read back here with markdown-mode's own
-`markdown--table-line-to-columns' -- the reader
-`markdown-table-align' measures the cells with, and the one whose
-answer decides whether a bar is a boundary at all.  Every line
+`markdown--table-line-to-columns' -- the reader the writer finds
+the cells with, and the one whose answer decides whether a bar is
+a boundary at all.  Every line
 has to hold the two columns the table has, and the link has to
 come back whole in one of them.
 
@@ -3045,19 +3045,18 @@ nothing here to hold together."
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
   "A table of nothing but delimiter rows is shown as the agent wrote it.
 
-There is nothing in it to line up, and `markdown-table-align'
-raises `Empty table' rather than saying so: it is the cells it
-formats from, and a delimiter row contributes none.  Nothing may
-come back out of here but the aligned form or nil, because this
-is called from an output filter and from a hook run during
-redisplay, where a signal is a conversation that stops rendering
-and says nothing about why.
+There is nothing in it to line up: the widths come from the
+cells, a delimiter row carries none, and a grid of no columns is
+a row of two bars.  Nothing may come back out of here but the
+grid or nil, because this is called from an output filter and
+from a hook run during redisplay, where a signal is a
+conversation that stops rendering and says nothing about why.
 
 A delimiter row is what markdown-mode calls one and is asked with
-markdown-mode's own predicate, because the caller that raises
-uses that one: `| --- | --- |' is a delimiter row with a space
-after the bar, which reads as a row of data to anything matching
-on the character after it.
+markdown-mode's own predicate, because that is the predicate the
+cells are sorted out by: `| --- | --- |' is a delimiter row with
+a space after the bar, which reads as a row of data to anything
+matching on the character after it.
 
 The table with rows in it is aligned in the same breath, so a
 guard tightened until nothing at all is aligned fails here."
@@ -3071,10 +3070,10 @@ guard tightened until nothing at all is aligned fails here."
 The outer bar at the end of a row is optional, which is how an
 agent writes a table by hand, and
 `markdown--table-line-to-columns' drops a last cell of one column
-when no bar closes it -- so what is aligned is a copy with those
-bars put back.  Every cell of the text has to stand in the
-aligned form, because a display over a table that lost a cell is
-a cell of the agent's the operator cannot read at all.
+when no bar closes it -- so what the cells are read out of is a
+copy with those bars put back.  Every cell of the text has to
+stand in the grid, because a grid that lost a cell is a cell of
+the agent's the operator cannot read at all.
 
 The last of them is a table of one column, where the cell that
 would be dropped is the only cell there is."
