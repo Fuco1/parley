@@ -2305,9 +2305,8 @@ font lock turns on there with no keywords at all and stripping
 Two turns, each with a table in it, because where a table is is
 an offset into what the render pass returned: the second table's
 is one the length of the first turn's block into that string, and
-a pass that forgot to count the turns before it -- or one that
-forgot that drawing the first table moved everything after it --
-would render over the wrong text and pass everything else here.
+a pass that forgot to count the turns before it would render over
+the wrong text and pass everything else here.
 
 The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
