@@ -2229,11 +2229,20 @@ wrapped to fit one.")
                       (overlays-in (point-min) (point-max)))
           (lambda (one other) (< (overlay-start one) (overlay-start other))))))
 
-(defun parley-transcript-test--under (overlay)
-  "Return the buffer text OVERLAY covers, which is not what it shows."
+(defun parley-transcript-test--form (overlay)
+  "Return the buffer text OVERLAY covers, which is the form parley rendered."
   (with-current-buffer (overlay-buffer overlay)
     (buffer-substring-no-properties (overlay-start overlay)
                                     (overlay-end overlay))))
+
+(defun parley-transcript-test--source (overlay)
+  "Return the table OVERLAY carries, which is the table the agent wrote."
+  (overlay-get overlay 'parley-table))
+
+(defun parley-transcript-test--text (buffer)
+  "Return the whole of BUFFER's text, properties and all dropped."
+  (with-current-buffer buffer
+    (buffer-substring-no-properties (point-min) (point-max))))
 
 (defun parley-transcript-test--bars (text)
   "Return the columns the `|' of TEXT stand in, one list per line.
@@ -2250,6 +2259,20 @@ line."
               (nreverse columns)))
           (split-string text "\n")))
 
+(defun parley-transcript-test--resize (buffer width)
+  "Give the selected frame WIDTH columns and render BUFFER's tables again.
+BUFFER has to be in the selected window, which is the window
+`parley-transcript--width' reads.
+
+Batch Emacs never redisplays and
+`parley-transcript--realign-tables' runs during redisplay, so the
+hook it is on is run here by hand.  What is under test is what
+the hook does; that `parley-transcript-mode' puts it on the
+buffer's own value is what makes it the hook Emacs will call."
+  (set-frame-width (selected-frame) width)
+  (with-current-buffer buffer
+    (run-hooks 'window-configuration-change-hook)))
+
 (defun parley-transcript-test--cells (line)
   "Return the cells LINE holds, trimmed, one for each column of the table.
 What stands between two bars, less the two outer ones, which are
@@ -2259,33 +2282,39 @@ and with an empty one wherever that row's cell has run out of
 words before its neighbours have."
   (mapcar #'string-trim (butlast (cdr (split-string line "|")))))
 
-(ert-deftest parley-transcript-test-aligns-a-table-over-the-text-as-written ()
-  "A table is shown with its columns aligned, over the text the transcript delivered.
+(ert-deftest parley-transcript-test-renders-a-table-as-the-buffers-own-text ()
+  "A table stands in the buffer as the text of the form parley rendered.
 
-Both halves are what the overlay is for.  What it shows lines the
-columns up; what the buffer holds under it is the table the agent
-wrote, character for character -- so a rendering that left the
-text alone fails the alignment and one that rewrote the buffer
-fails the text.
+The buffer is a rendering throughout and a table is no exception:
+what stands there is the aligned form as text, with no `display'
+property over any of it.  A form shown through one is not text --
+the buffer's own machinery never looks inside it, so nothing in
+such a table could ever be a button, which `button-at' and
+`next-button' find by walking buffer positions.
 
-The face is asserted on the string the overlay shows and not on
-the text under it, because what a `display' property shows are
-the string's own properties: the `font-lock-face' markdown-mode
-left on the buffer text never reaches the screen through one.
+The table the agent wrote is on the overlay instead, and is gone
+from the buffer: a rendering that left the text alone fails the
+alignment, and one that kept the source under the form fails the
+last assertion.
+
+The faces are in `font-lock-face' and nothing carries `face'.
+`font-lock-defaults' is `(nil t)' in a comint buffer, so global
+font lock turns on there with no keywords at all and stripping
+`face' is the only thing left for it to do.
 
 Two turns, each with a table in it, because where a table is is
 an offset into what the render pass returned: the second table's
 is one the length of the first turn's block into that string, and
-a pass that forgot to count the turns before it would put the
-overlay over the wrong text and pass everything else here.
+a pass that forgot to count the turns before it would render over
+the wrong text and pass everything else here.
 
 The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
 its last cell is one column wide -- which is the cell the aligner
 drops when no bar closes it, unless the copy it is given has that
-bar put back.  Every cell of it is read out of what is shown for
-that reason, and each of those one-column cells is a character
-the rest of the table does not hold."
+bar put back.  Every cell of it is read out of what was rendered
+for that reason, and each of those one-column cells is a
+character the rest of the table does not hold."
   (skip-unless (executable-find "jq"))
   (let ((other (concat "| id | flag\n"
                        "|---|---\n"
@@ -2300,43 +2329,80 @@ the rest of the table does not hold."
                         (lambda ()
                           (let ((found (parley-transcript-test--tables buffer)))
                             (and (= 2 (length found)) found)))))
-             (shown (mapcar (lambda (overlay) (overlay-get overlay 'display))
-                            overlays)))
+             (forms (mapcar #'parley-transcript-test--form overlays)))
         (should (= 2 (length overlays)))
         (should (equal (list parley-transcript-test--table other)
-                       (mapcar #'parley-transcript-test--under overlays)))
-        (should (string-search parley-transcript-test--table
-                               (with-current-buffer buffer
-                                 (buffer-substring-no-properties (point-min)
-                                                                 (point-max)))))
-        (dolist (form shown)
-          (should (stringp form))
-          (should (= 1 (length (seq-uniq (parley-transcript-test--bars form)))))
-          (should (eq 'markdown-table-face (get-text-property 0 'face form))))
+                       (mapcar #'parley-transcript-test--source overlays)))
+        (dolist (form forms)
+          (should (= 1 (length (seq-uniq (parley-transcript-test--bars form))))))
         (should (< 1 (length (seq-uniq (parley-transcript-test--bars
                                         parley-transcript-test--table)))))
         (dolist (cell '("name" "what it does" "bbbbbb" "a much longer cell"))
-          (should (string-search cell (car shown))))
+          (should (string-search cell (car forms))))
         (dolist (cell '("id" "flag" "1" "x" "22" "q"))
-          (should (string-search cell (cadr shown))))))))
+          (should (string-search cell (cadr forms))))
+        (dolist (overlay overlays)
+          (should-not (overlay-get overlay 'display))
+          (with-current-buffer buffer
+            (let ((start (overlay-start overlay))
+                  (end (overlay-end overlay)))
+              (should-not (text-property-not-all start end 'display nil))
+              (should-not (text-property-not-all start end 'face nil))
+              (should-not (text-property-not-all start end 'font-lock-face
+                                                 'markdown-table-face)))))
+        (should-not (string-search parley-transcript-test--table
+                                   (parley-transcript-test--text buffer)))))))
 
-(ert-deftest parley-transcript-test-aligns-again-when-the-window-changes-width ()
-  "What is shown over a table follows the width of the window, and the text does not.
+(ert-deftest parley-transcript-test-renders-a-table-that-needs-no-aligning ()
+  "A table the agent had already aligned is the buffer's own text like any other.
 
-Wide enough and the table is aligned; too narrow for the aligned
-form and its cells are wrapped into the window instead, over as
-many lines as they need.  Widened again it comes back to exactly
-the form it had before, because both are computed from the text
-under the overlay and nothing else -- so a wrap is never
-something a later render has to unpick.  That the rendering can
-answer a resize at all is why it is an overlay and not text
-written once on the way in, and the text under it is asserted
-unchanged through all three widths.
+Its form is the characters he wrote, so nothing but the
+properties tells the form from the table -- and the text the
+render pass delivers carries markdown-mode's own: `x^2^' in a
+cell is a superscript, and what hides the markers around one is a
+`display' property.  A render that compared the two as text would
+leave that text standing as the table and the `display' in it,
+where a table here is the form, its face, and nothing else.
 
-Batch Emacs never redisplays and this hook runs during redisplay,
-so it is run here by hand.  What is under test is what the hook
-does; that `parley-transcript-mode' puts it on the buffer's own
-value is what makes it the hook Emacs will call."
+That the aligner leaves this table alone is asserted first, so a
+fixture it would have rewritten anyway could not pass this by
+being rewritten."
+  (skip-unless (executable-find "jq"))
+  (let ((text (concat "| name | power |\n"
+                      "|------|-------|\n"
+                      "| a    | x^2^  |")))
+    (should (equal text (parley-transcript--alignment text)))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--text-turn text))
+      (let ((overlay (car (parley-transcript-test--wait
+                           (lambda ()
+                             (parley-transcript-test--tables buffer))))))
+        (should (equal text (parley-transcript-test--source overlay)))
+        (should (equal text (parley-transcript-test--form overlay)))
+        (with-current-buffer buffer
+          (let ((start (overlay-start overlay))
+                (end (overlay-end overlay)))
+            (should-not (text-property-not-all start end 'display nil))
+            (should-not (text-property-not-all start end 'invisible nil))
+            (should-not (text-property-not-all start end 'font-lock-face
+                                               'markdown-table-face))))))))
+
+(ert-deftest parley-transcript-test-renders-a-table-again-at-a-new-width ()
+  "A table is rendered again for the width of the window, from the agent's table.
+
+Wide enough and it is aligned; too narrow for the aligned form
+and its cells are wrapped into the window instead, over as many
+lines as they need.  Widened again it comes back to exactly the
+form it had before, and that is what says the render reads the
+table off the overlay and not the grid out of the buffer: every
+line of a wrapped row reads back as a row of its own, so a table
+parsed out of the wrapped form would come back aligned to
+something the agent never wrote.
+
+The table on the overlay is asserted unchanged through all three
+widths.  It is what a render is computed from and the text is
+what a render throws away, which is the trade this rendering
+makes: the source is the overlay's and no longer the buffer's."
   (skip-unless (executable-find "jq"))
   (let ((columns (frame-width)))
     (unwind-protect
@@ -2347,33 +2413,29 @@ value is what makes it the hook Emacs will call."
                 (aligned nil))
             (save-window-excursion
               (set-window-buffer (selected-window) buffer)
-              (set-frame-width (selected-frame) 100)
-              (with-current-buffer buffer
-                (run-hooks 'window-configuration-change-hook))
-              (setq aligned (overlay-get overlay 'display))
-              (should (stringp aligned))
+              (parley-transcript-test--resize buffer 100)
+              (setq aligned (parley-transcript-test--form overlay))
               (should (= 1 (length (seq-uniq
                                     (parley-transcript-test--bars aligned)))))
-              (set-frame-width (selected-frame) 20)
-              (with-current-buffer buffer
-                (run-hooks 'window-configuration-change-hook))
-              (let ((wrapped (overlay-get overlay 'display))
+              (should (equal parley-transcript-test--table
+                             (parley-transcript-test--source overlay)))
+              (parley-transcript-test--resize buffer 20)
+              (let ((wrapped (parley-transcript-test--form overlay))
                     (narrow (window-body-width (selected-window))))
-                (should (stringp wrapped))
                 (should (> (parley-transcript--columns aligned) narrow))
                 (should (<= (parley-transcript--columns wrapped) narrow))
                 (should (< (length (split-string aligned "\n"))
                            (length (split-string wrapped "\n"))))
                 (should (= 1 (length (seq-uniq
                                       (parley-transcript-test--bars wrapped)))))
+                (should (string-search wrapped
+                                       (parley-transcript-test--text buffer)))
                 (should (equal parley-transcript-test--table
-                               (parley-transcript-test--under overlay))))
-              (set-frame-width (selected-frame) 100)
-              (with-current-buffer buffer
-                (run-hooks 'window-configuration-change-hook))
-              (should (equal aligned (overlay-get overlay 'display))))
+                               (parley-transcript-test--source overlay))))
+              (parley-transcript-test--resize buffer 100)
+              (should (equal aligned (parley-transcript-test--form overlay))))
             (should (equal parley-transcript-test--table
-                           (parley-transcript-test--under overlay)))))
+                           (parley-transcript-test--source overlay)))))
       (set-frame-width (selected-frame) columns))))
 
 (ert-deftest parley-transcript-test-wraps-a-cell-of-prose-into-the-width ()
@@ -2655,7 +2717,10 @@ apart.
 
 The message holds the same table twice, fenced and not, so a
 render pass that found no table anywhere fails the first
-assertion rather than passing this test by having done nothing."
+assertion rather than passing this test by having done nothing.
+The fenced one is the only copy left standing as the agent wrote
+it, because the other has been replaced by the form parley rendered
+-- so the search that finds it is the search that says so."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session
       (list (parley-transcript-test--text-turn
@@ -2666,16 +2731,173 @@ assertion rather than passing this test by having done nothing."
                      (lambda () (parley-transcript-test--tables buffer)))))
       (should (= 1 (length overlays)))
       (should (equal parley-transcript-test--table
-                     (parley-transcript-test--under (car overlays))))
+                     (parley-transcript-test--source (car overlays))))
       (with-current-buffer buffer
         (save-excursion
           (goto-char (point-min))
           (should (search-forward parley-transcript-test--table nil t))
-          (should (search-forward parley-transcript-test--table nil t))
-          (should-not (seq-find (lambda (overlay)
-                                  (overlay-get overlay 'parley-table))
-                                (overlays-in (match-beginning 0)
-                                             (match-end 0)))))))))
+          (let ((begin (match-beginning 0))
+                (end (match-end 0)))
+            (should-not (seq-find (lambda (overlay)
+                                    (overlay-get overlay 'parley-table))
+                                  (overlays-in begin end)))
+            (goto-char end)
+            (should-not (search-forward parley-transcript-test--table
+                                        nil t))))))))
+
+(ert-deftest parley-transcript-test-leaves-a-truncated-table-as-it-stands ()
+  "A table `comint-truncate-buffer' cut the head off is left as it stands.
+
+Truncation is how a comint buffer is kept from growing without
+end and it takes the top of the conversation away, which can be
+the first lines of a table.  What is left there is not the form
+parley wrote, and rendering the table again over it would put back
+lines the operator watched go -- so the overlay is dropped and
+what is left of the table is never touched again.
+
+That the cut landed inside the table is asserted rather than
+assumed: what the overlay covers afterwards has to be the end of
+the form and not the whole of it.
+
+The width is changed after the cut, from one the aligned form
+fits to one it does not, so a render that went ahead would have
+wrapped the table into text nothing here could mistake for what
+stands there."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn parley-transcript-test--table))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda ()
+                                 (parley-transcript-test--tables buffer))))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer 100)
+              (let ((form (parley-transcript-test--form overlay))
+                    (left nil))
+                (with-current-buffer buffer
+                  ;; Cut to the lines from the table's second line on,
+                  ;; which is the head of the conversation going and
+                  ;; the head of the table with it.
+                  (let ((comint-buffer-maximum-size
+                         (count-lines (save-excursion
+                                        (goto-char (overlay-start overlay))
+                                        (forward-line 1)
+                                        (point))
+                                      (point-max))))
+                    (comint-truncate-buffer))
+                  (setq left (parley-transcript-test--text buffer)))
+                (should (string-suffix-p (parley-transcript-test--form overlay)
+                                         form))
+                (should (< (length (parley-transcript-test--form overlay))
+                           (length form)))
+                (parley-transcript-test--resize buffer 20)
+                (should-not (parley-transcript-test--tables buffer))
+                (should (equal left (parley-transcript-test--text buffer)))))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-leaves-a-table-the-operator-edited ()
+  "A table the operator has edited is left as he left it.
+
+This is his buffer and he can type in it.  What stands in a
+region he has changed is not the form parley wrote there and is
+not parley's to write over: the overlay is dropped and the table
+is never rendered again, where a render that went ahead would take
+his edit back out at the next resize.
+
+The character goes inside the region and not at either end of it,
+which is where an overlay takes nothing in: the table is what he
+edited, not the text around it."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn parley-transcript-test--table))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda ()
+                                 (parley-transcript-test--tables buffer))))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer 100)
+              (let ((form (parley-transcript-test--form overlay))
+                    (left nil))
+                (with-current-buffer buffer
+                  (let ((inhibit-read-only t))
+                    (save-excursion
+                      (goto-char (+ 2 (overlay-start overlay)))
+                      (insert "!")))
+                  (setq left (parley-transcript-test--text buffer)))
+                (should-not (equal form (parley-transcript-test--form overlay)))
+                (parley-transcript-test--resize buffer 20)
+                (should-not (parley-transcript-test--tables buffer))
+                (should (equal left (parley-transcript-test--text buffer)))))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-renders-a-table-and-disturbs-nothing ()
+  "Rendering a table again leaves his undo, his point and comint its mark.
+
+The replacement is parley's and is none of his: `undo' reaches
+past it to his own last change, so the buffer's undo list carries
+no entry for it at all.
+
+Point stands where he left it.  comint reads point back off the
+buffer once its output filters have run -- it is the operator's,
+and a render that moved it would have moved his -- so it is
+pinned on the text it was on and not on a number.
+
+Point inside the table is pinned too, and separately: the
+deletion takes the text it stands in, so a marker is not what
+keeps it and `save-excursion' alone brings it to the head of the
+grid.  It stands the same distance into the form, which the
+table's own start is measured from because that start does not
+move.  And from a distance the next form is too short for --
+point at the end of a wrapped form, widened to an aligned one 19
+characters shorter -- it stands at the end of the table and not
+in the sentence after it.
+
+The process mark is where comint left it, which is where the
+next output the session writes goes in.
+
+The width is changed from one the aligned form fits to one it
+does not, and the buffer really does change length across it: a
+render that did nothing at all would pass every other assertion
+here."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn
+                   (concat parley-transcript-test--table "\n\nand that is all")))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda ()
+                                 (parley-transcript-test--tables buffer))))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer 100)
+              (with-current-buffer buffer
+                (let ((mark (process-mark (get-buffer-process (current-buffer))))
+                      (size (buffer-size)))
+                  (should (= (marker-position mark) (point-max)))
+                  (buffer-enable-undo)
+                  (setq buffer-undo-list nil)
+                  (goto-char (point-min))
+                  (should (search-forward "and that is all" nil t))
+                  (goto-char (match-beginning 0))
+                  (parley-transcript-test--resize buffer 20)
+                  (should (/= size (buffer-size)))
+                  (should (null buffer-undo-list))
+                  (should (looking-at-p "and that is all"))
+                  (should (= (marker-position mark) (point-max)))
+                  (goto-char (+ 5 (overlay-start overlay)))
+                  (parley-transcript-test--resize buffer 100)
+                  (should (= (point) (+ 5 (overlay-start overlay))))
+                  (parley-transcript-test--resize buffer 20)
+                  (goto-char (overlay-end overlay))
+                  (parley-transcript-test--resize buffer 100)
+                  (should (= (point) (overlay-end overlay)))
+                  (should (null buffer-undo-list)))))))
+      (set-frame-width (selected-frame) columns))))
 
 
 ;;; The imenu index

@@ -192,29 +192,62 @@ same reason the pipeline refuses colour at the source: measured over the 26 MB
 transcript not one escape byte reaches the buffer, and scanning the 1.3 MB for
 them costs 2.4 s of the 6.9 s that history takes to settle.
 
-## A table is aligned by an overlay, not by an edit
+## A table is rendered into the buffer, and the overlay keeps its source
 
 A table lines up only if the agent lined it up, and a table whose columns do not
-line up is a table nobody reads. What the operator sees is the table aligned;
-what the buffer holds under it is the text the transcript delivered, character
-for character, because the aligned form is carried by an overlay in a `display`
-property.
+line up is a table nobody reads. What stands in the buffer is the aligned form,
+written there as text — this buffer is a rendering throughout, and a table is
+the same kind of rendering as the quote around the operator's turn and the one
+line a run of tool calls collapses to.
 
-**The alignment is a rendering and not an edit**, and both halves of that are
-the reason for it:
+**The form is text and not something shown through a `display` property.** What
+a `display` property shows is not text: the buffer's own machinery never looks
+inside it, so nothing in such a table could be a button — `button-at` and
+`next-button` find one by walking buffer positions — and a node id in a cell
+could never be made clickable. Text is what the rest of the rendering can be
+grown past, and a form shown through a property is where it stops.
 
-- the rendering can be recomputed when the window changes width, which text
-  written once on the way in never could — nothing refontifies or rewrites this
-  buffer after an insertion, by design; and
-- what it is computed from is the text under the overlay, so recomputing it
-  needs no record of anything.
+**The overlay stays, carrying the table the agent wrote.** That is what a resize
+is rendered from. The buffer holds a grid this package wrote, and reading the
+cells back out of one would render the last render rather than the table: every
+line of a wrapped row parses back as a row of its own. The overlay is also what
+says where a table is, and what tracks a deletion — `comint-truncate-buffer`
+taking the top of the conversation away brings its ends together, where a text
+property would survive in both halves of what was cut.
+
+**A region that no longer holds what parley wrote there is not rendered again.**
+Truncation can take the first lines of a table away and the operator can edit in
+this buffer, and rendering from the source over either would put back text that
+is not there any more. The overlay is dropped instead and what is left stands as
+it stands. It is dropped at the next render and not when the deletion happens,
+because nothing watches this buffer for changes — by design, since watching it
+means a pass over the conversation on every append.
+
+**What this costs the operator is the source in the buffer.** A kill over a
+table copies the form he is reading and not the table the agent typed. The
+source is on the overlay, and no command hands it back.
+
+**A render takes nothing of the operator's.** It goes in under
+`with-silent-modifications`, so the undo list carries no entry for it and `undo`
+reaches past a table to his own last change; point is put back where it stood,
+which comint reads back off the buffer once its output filters have run; and the
+process mark is a marker past the end of a table — a table ends before the
+newline that closes the block around it — so it follows the replacement as the
+overlay over every other table does.
+
+**Point inside a table is put back by hand, the same distance into the form.** A
+marker is what carries point over a replacement and the deletion takes the text
+this one is in, so nothing carries it: it would come back at the head of the
+grid. The distance is the most a grid laid out again can promise — the cell that
+was under point may not exist at the new width — and the form is as far as it
+goes, so a table point stood in is a table it stays in.
 
 **Alignment only ever makes a table wider**, so a table it takes past the edge
 of the window is wrapped into it: each cell over as many lines as it needs, and
 the row as tall as its tallest cell. The width to wrap to is the width the
 rendering is already computed for, which is what makes the width of the window
 the thing the rendering is recomputed on. It costs nothing to undo — the columns
-are recomputed from the text under the overlay every time, so a wrap is never
+are recomputed from the table the overlay carries every time, so a wrap is never
 something a later render has to unpick.
 
 **A wrap never breaks a construct a bar stands in.** A cell can hold a bar that
@@ -243,20 +276,21 @@ That is the honest outcome. The floor is not what keeps a piece whole, which the
 packing does at any width; it is what stops the columns beside an incompressible
 one being packed tighter than the table they share will ever be.
 
-**The aligned form closes a row the agent left open.** The outer bar at the end
-of a row is optional, and a table written by hand leaves it off; the aligned
-form always carries it, because what is aligned is a copy of the table with
-those bars put back. Without them the aligner reads such a row as a row with one
-cell fewer, and a `display` property is all the operator has — a cell dropped
-there is a cell of the agent's he cannot read at all, where a ragged table is
-merely ragged. The row stays open in the buffer text, which is what the overlay
-covers.
+**The rendered form closes a row the agent left open.** The outer bar at the end of
+a row is optional, and a table written by hand leaves it off; the aligned form
+always carries it, because what is aligned is a copy of the table with those
+bars put back. Without them the aligner reads such a row as a row with one cell
+fewer, and a cell dropped on the way into the buffer is a cell of the agent's
+the operator cannot read at all, where a ragged table is merely ragged. The row
+stays open in the table the overlay carries, which is what every later render
+reads.
 
 **A table is what markdown-mode calls one**, which is narrower than what the
 agent may have meant. A line that does not open with a bar is not a table line
 to it, and a block of delimiter rows with no header row is a table it will not
-align — both are shown as the agent wrote them. The alignment is markdown-mode's
-own, so what it calls a table is the only thing parley can hand it.
+align — both are left in the buffer as the agent wrote them, and the overlay
+over them is dropped: what markdown-mode refuses it refuses at every width, so
+there is no width to come back for.
 
 **A table inside a fenced code block is not a table**, it is text the agent is
 showing, and aligning it would rewrite what he quoted. The difference is
@@ -269,29 +303,42 @@ an agent wrote from one it was quoting.
 comint has not inserted yet, so what it can say is how far into that string each
 table begins — the same offsets the index over the prompts is recorded from, and
 turned into buffer positions by the same output filter, because that is the
-first moment the text exists.
+first moment the text exists. Every overlay is laid before any table is rendered,
+because rendering one replaces buffer text and moves everything after it: an
+overlay follows that move and an offset into the inserted string does not.
 
-**The faces the aligned form carries are on the display string itself.** What is
-under a `display` property is not what is shown, and the `font-lock-face`
-markdown-mode left on the buffer text does not reach the screen through one. The
-string carries the face markdown-mode paints a table with and nothing finer, so
-markup inside a cell stands in the aligned form as the agent wrote it.
+**The faces the rendered form carries are in `font-lock-face`.** `face` is what
+global font lock strips in this buffer, for the reason the render pass maps it
+away, and a table is rendered with the face markdown-mode paints one with and
+nothing finer — so markup inside a cell stands in the rendered form as the agent
+wrote it.
 
-**What a realignment costs.** Measured on Emacs 28.2 in batch, byte-compiled,
-counted in CPU time and taken as the best of twenty runs of two hundred
-alignments, over a table of seven rows and four columns whose aligned form is 73
-columns wide: 2.8 ms for one that fits, nearly all of it markdown-mode's own
-aligner, and 5.0 ms for one wrapped into 50 columns — the aligner is run first
-either way, because whether the aligned form fits is what says a wrap is needed
-at all. A conversation holding forty tables therefore costs 0.11 s of blocked
-redisplay on a resize, and 0.20 s if every one of them has to be wrapped. The
-hook this runs on is called for a window added, deleted or given another buffer
-as well, and the width the tables were last aligned to is what tells a resize
-from the rest — 3.3 µs when it has not changed, which is what keeps every other
-window change free.
+That one face is also what tells a form from the table it came from. An agent
+who lined his table up himself wrote the characters the render produces, and the
+text the render pass delivered carries markdown-mode's properties over those
+characters — the `display` that hides the markers around a superscript among
+them. Compared as text the two are one and the region would be left as it
+stands, with a property in it that covers part of a table; compared with their
+properties they are not, and the region is written over. Two computations of one
+form carry the same face, so a render with nothing left to do is still free.
 
-An overlay is the buffer's and not a window's, so a buffer shown in two windows
-of different widths is aligned to whichever of them changed last.
+**What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
+in CPU time and taken as the best of twenty runs of two hundred alignments, over
+a table of seven rows and four columns whose aligned form is 73 columns wide:
+2.8 ms for one that fits, nearly all of it markdown-mode's own aligner, and
+5.0 ms for one wrapped into 50 columns — the aligner is run first either way,
+because whether the aligned form fits is what says a wrap is needed at all.
+Writing the form into the buffer is 3 µs of that: what a render costs is
+the aligner.
+A conversation holding forty tables therefore costs 0.11 s of blocked redisplay
+on a resize, and 0.20 s if every one of them has to be wrapped. The hook this
+runs on is called for a window added, deleted or given another buffer as well,
+and the width the tables were last rendered to is what tells a resize from the
+rest — 3.3 µs when it has not changed, which is what keeps every other window
+change free.
+
+A table is the buffer's text and not a window's, so a buffer shown in two
+windows of different widths is rendered to whichever of them changed last.
 
 ## A run of tool calls is one line
 
