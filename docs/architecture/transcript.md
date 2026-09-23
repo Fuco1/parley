@@ -263,9 +263,12 @@ is 12 columns and the `┌───┬───┐` over it 18. So the transcrip
 buffer every cell is measured in, carry a `char-width-table` of their own: a
 child of the environment's, which counts the drawn characters one column each
 and leaves every other width to its parent, so a CJK character in a cell is
-still the two columns it is. The parent is the table in force when the buffer
-is set up, and a buffer set up before a switch of language environment keeps
-the widths of the one it was set up under.
+still the two columns it is. A transcript buffer's parent is the table in force
+when it is set up, and one set up before a switch of language environment keeps
+the widths of the one it was set up under. The buffer cells are measured in is
+shared and outlives every transcript buffer, so its table is rebuilt whenever
+the environment's is no longer its parent: a transcript buffer set up after a
+switch has its cells measured under the widths it displays them in.
 
 **The form is text and not something shown through a `display` property.** What
 a `display` property shows is not text: the buffer's own machinery never looks

@@ -197,9 +197,16 @@ non-nil.  What it marks `invisible' it marks either way."
           (get-buffer-create " *parley-markdown*"))
     (with-current-buffer parley-transcript--markdown-buffer
       (delay-mode-hooks (markdown-mode))
-      (markdown-toggle-markup-hiding 1)
-      ;; Every cell is measured here, and a cell may hold a `│' of the
-      ;; agent's, so this buffer counts one as the transcript does.
+      (markdown-toggle-markup-hiding 1)))
+  ;; Every cell is measured here, and a cell may hold a `│' of the
+  ;; agent's, so this buffer counts one as the transcript does.  This
+  ;; buffer outlives every transcript buffer, so its table is rebuilt
+  ;; whenever the environment's is no longer the one it is a child of:
+  ;; a transcript buffer set up after a switch measures under the new one.
+  (with-current-buffer parley-transcript--markdown-buffer
+    (unless (and (local-variable-p 'char-width-table)
+                 (eq (char-table-parent char-width-table)
+                     (default-value 'char-width-table)))
       (setq-local char-width-table (parley-transcript--drawn-width-table))))
   parley-transcript--markdown-buffer)
 
@@ -1192,14 +1199,16 @@ back to the one column each character it stands for took and
 leaves every other width to the table it is a child of, so a CJK
 character in a cell is still the two columns it is.
 
-The parent is whatever `char-width-table' is when this is called.
-`set-language-environment' installs a table of its own rather
-than editing the one it finds, so a buffer set up before a switch
-keeps the widths of the environment it was set up under."
-  ;; ponytail: parent captured once; watch `char-width-table' if an
-  ;; operator switching language environment mid-session matters.
+The parent is the default value of `char-width-table' when this
+is called, and never a buffer's own, which would be a table of
+this function's.  `set-language-environment' installs a table of
+its own rather than editing the one it finds, so a transcript
+buffer set up before a switch keeps the widths of the environment
+it was set up under."
+  ;; ponytail: a transcript buffer's parent is captured once; watch
+  ;; `char-width-table' if a mid-session environment switch matters.
   (let ((table (make-char-table nil)))
-    (set-char-table-parent table char-width-table)
+    (set-char-table-parent table (default-value 'char-width-table))
     (dolist (character (string-to-list parley-transcript--drawn-characters))
       (aset table character 1))
     table))

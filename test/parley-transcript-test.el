@@ -2566,42 +2566,148 @@ show, and neither of these cells holds one."
     (should-not (string-search "|" aligned))
     (should-not (string-search "|" wrapped))))
 
-(ert-deftest parley-transcript-test-draws-the-grid-one-column-wide-under-cjk ()
-  "Under a CJK language environment the drawn grid still costs no width.
+(defconst parley-transcript-test--grid-tables
+  (list (concat "| name | what it does |\n"
+                "|---|---|\n"
+                "| bbbbbb | a much longer cell |\n"
+                "| [[target|link words]] | y |")
+        (concat "| a | b |\n"
+                "|---|---|\n"
+                "| α | 漢字 |"))
+  "The tables the drawn grid is held over in both environments.
+The first carries a wiki link whose bar is the agent's and no
+boundary, and it is the one a narrow window wraps.  The second
+holds `α', which the default environment counts one column and
+Japanese two, and `漢字', two columns a character in both.")
 
-That environment makes box-drawing characters two columns wide
-and leaves `|' and `-' at one, so a rule drawn over a row would
-stand in more columns than the row, and its junctions past the
-boundaries they stand for.  The transcript buffer counts each
-drawn character as one column, and it is in that buffer the grid
-is measured here: every line of the fixture's grid is the 31
-columns it is under the default table, and each junction stands
-in the column a boundary does.
+(defun parley-transcript-test--grids (environment width)
+  "Return the grids of `parley-transcript-test--grid-tables' under ENVIRONMENT.
+ENVIRONMENT is set before the transcript buffer is set up, and
+the tables are rendered into a window WIDTH columns wide.  Each
+grid comes back as its lines, as the operator reads them.
 
-That the environment does widen the characters is asserted first,
-outside the buffer, so a run where it did not could not pass this
-by measuring nothing."
-  (skip-unless (executable-find "jq"))
-  (let ((environment current-language-environment))
+Measured in the transcript buffer, which is where the operator
+reads it, every grid is asserted here to be drawn one column to
+each drawn character, every line as wide as every other, and
+every boundary standing in one column on every line -- rules and
+rows alike, so a junction stands where a boundary does.
+
+The environment is put back afterwards, and the fontify buffer
+is left as the last render left it: it outlives every transcript
+buffer, so a grid measured there under the previous environment
+is the thing the second call of a pair would catch."
+  (let ((environment-before current-language-environment)
+        (columns (frame-width))
+        (markdown-enable-wiki-links t))
     (unwind-protect
         (progn
-          (set-language-environment "Japanese")
-          (should (= 2 (string-width "│")))
+          (set-language-environment environment)
           (parley-transcript-test--with-session
-              (list (parley-transcript-test--text-turn
-                     parley-transcript-test--table))
-            (let* ((overlay (car (parley-transcript-test--wait
-                                  (lambda ()
-                                    (parley-transcript-test--tables buffer)))))
-                   (form (parley-transcript-test--form overlay)))
-              (with-current-buffer buffer
-                (should (equal '(31)
-                               (seq-uniq (mapcar #'string-width
-                                                 (split-string form "\n")))))
-                (should (= 1 (length (seq-uniq
-                                      (parley-transcript-test--boundaries
-                                       form)))))))))
-      (set-language-environment environment))))
+              (mapcar #'parley-transcript-test--text-turn
+                      parley-transcript-test--grid-tables)
+            (parley-transcript-test--wait
+             (lambda () (= 2 (length (parley-transcript-test--tables buffer)))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer width))
+            (with-current-buffer buffer
+              (mapcar
+               (lambda (overlay)
+                 (let* ((form (buffer-substring (overlay-start overlay)
+                                                (overlay-end overlay)))
+                        (lines (split-string form "\n")))
+                   (dolist (character (string-to-list
+                                       parley-transcript--drawn-characters))
+                     (should (= 1 (char-width character))))
+                   (should (= 1 (length (seq-uniq
+                                         (mapcar #'markdown--string-width
+                                                 lines)))))
+                   (should (= 1 (length (seq-uniq
+                                         (parley-transcript-test--boundaries
+                                          form)))))
+                   (split-string (parley-transcript-test--visible form)
+                                 "\n")))
+               (parley-transcript-test--tables buffer)))))
+      (set-frame-width (selected-frame) columns)
+      (set-language-environment environment-before))))
+
+(ert-deftest parley-transcript-test-draws-the-grid-in-both-environments ()
+  "Each of the three tables is drawn to the column in both language environments.
+
+The first table is rendered where it fits and in a window of 34,
+where the column the wiki link stands in cannot narrow past the
+link and the other wraps; the second where it fits.  Each grid is
+pinned line for line: every boundary `│', the row between the
+header and the body `├─┼─┤', a rule of `┌─┬─┐' opening it and one
+of `└─┴─┘' closing it.  In the wrapped grid every line of a row
+carries the boundaries and the rules stand above its first row
+and below its last.  `parley-transcript-test--grids' holds each
+of them to one column a drawn character and one column a boundary
+on every line, measured in the transcript buffer.
+
+The bar in `[[target|link words]]' is the agent's and stands in
+its cell as he wrote it: the line holding the link has three
+boundaries and that one bar, and nothing drawn in its place.
+
+Japanese counts box-drawing characters two columns and `α' two,
+where the default counts both one, which the environment is
+asserted to do before its grids are, so a run where it did not
+could not pass by measuring nothing.  So the `α' table is pinned
+a column wider in Japanese -- the cell is measured under the
+environment -- while its drawn characters stay one column each.
+The default runs first, because the buffer every cell is measured
+in outlives the transcript buffer, and a Japanese grid measured
+under the default's widths is what that order catches."
+  (skip-unless (executable-find "jq"))
+  (let ((wide '("┌───────────────────────┬────────────────────┐"
+                "│ name                  │ what it does       │"
+                "├───────────────────────┼────────────────────┤"
+                "│ bbbbbb                │ a much longer cell │"
+                "│ [[target|link words]] │ y                  │"
+                "└───────────────────────┴────────────────────┘"))
+        (wrapped '("┌───────────────────────┬────────┐"
+                   "│ name                  │ what   │"
+                   "│                       │ it     │"
+                   "│                       │ does   │"
+                   "├───────────────────────┼────────┤"
+                   "│ bbbbbb                │ a much │"
+                   "│                       │ longer │"
+                   "│                       │ cell   │"
+                   "│ [[target|link words]] │ y      │"
+                   "└───────────────────────┴────────┘")))
+    (dolist (case `(("English" 1
+                     ("┌───┬──────┐"
+                      "│ a │ b    │"
+                      "├───┼──────┤"
+                      "│ α │ 漢字 │"
+                      "└───┴──────┘"))
+                    ("Japanese" 2
+                     ("┌────┬──────┐"
+                      "│ a  │ b    │"
+                      "├────┼──────┤"
+                      "│ α │ 漢字 │"
+                      "└────┴──────┘"))))
+      (pcase-let ((`(,environment ,drawn ,alpha) case))
+        (let ((environment-before current-language-environment))
+          (unwind-protect
+              (progn
+                (set-language-environment environment)
+                (should (= drawn (string-width "│")))
+                (should (= drawn (string-width "α"))))
+            (set-language-environment environment-before)))
+        (should (equal (list wide alpha)
+                       (parley-transcript-test--grids environment 100)))
+        (let ((grids (parley-transcript-test--grids environment 34)))
+          (should (equal (list wrapped alpha) grids))
+          (dolist (grid grids)
+            (dolist (line grid)
+              (should-not (string-search "-" line))
+              (should-not (string-search ":" line))))
+          (let ((line (seq-find (lambda (line)
+                                  (string-search "[[target|link words]]" line))
+                                (car grids))))
+            (should (= 3 (seq-count (lambda (c) (eq c ?│)) line)))
+            (should (= 1 (seq-count (lambda (c) (eq c ?|)) line)))))))))
 
 (ert-deftest parley-transcript-test-renders-a-table-as-the-buffers-own-text ()
   "A table stands in the buffer as the text of the form parley rendered.
