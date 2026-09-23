@@ -277,6 +277,18 @@ inside it, so nothing in such a table could be a button — `button-at` and
 could never be made clickable. Text is what the rest of the rendering can be
 grown past, and a form shown through a property is where it stops.
 
+**A render rewrites its region, and takes whatever was laid over it.** A table
+is the one region of this buffer parley writes more than once — at first sight
+and again at every width the window changes to — and each write deletes the text
+there and inserts the form: an overlay over it collapses, and a text property
+leaves with its characters. Nothing outside the package can watch that happen,
+because a render goes in with the modification hooks bound away. So every render
+that writes a form ends by running `parley-transcript-table-functions` over it,
+outside that binding, and that hook is what a caller decorates the region again
+from — orc-mode's id buttons are the first, added from the operator's own
+configuration. A render that writes nothing runs nothing, and the region then
+holds what it held.
+
 **The overlay stays, carrying the table the agent wrote.** That is what a resize
 is rendered from. The buffer holds a grid this package wrote, and reading the
 cells back out of one would render the last render rather than the table: every

@@ -755,6 +755,26 @@ inserted and then rewritten in place."
 is only one of the reasons for, and this is what tells the resize
 from the rest.")
 
+(defvar-local parley-transcript-table-functions nil
+  "Functions called with the bounds of a table just rendered into the buffer.
+
+Each is called with two arguments, START and END, the positions
+the form written in place of a table's region now runs between,
+in the transcript buffer and with that buffer current.  A render
+deletes the region and inserts the form, so whatever was laid
+over the text there goes with it -- an overlay collapses and a
+text property leaves with its characters -- and this is where it
+is laid again.
+
+Called on a table's first render and on every render a change of
+window width writes, after the form is in and outside
+`with-silent-modifications', so the modification hooks are bound
+as they are anywhere else.  A render that writes nothing calls
+nothing: the region then holds what it held.
+
+Buffer local: add to it with the LOCAL argument of `add-hook',
+from `parley-transcript-mode-hook'.")
+
 (defun parley-transcript--width ()
   "Return the columns a table in this buffer has to fit in.
 
@@ -1304,7 +1324,12 @@ and it follows the replacement as the overlay over every other
 table does.  The overlay over this one is moved by hand: the
 deletion leaves it empty and it takes in nothing inserted at
 either end, which is what keeps the text around a table out of
-it."
+it.
+
+`parley-transcript-table-functions' runs last, once the overlay
+covers the form, and outside `with-silent-modifications': what is
+on it decorates the text as any other caller would, and nothing
+else can see that a render took the decoration away."
   (let* ((start (overlay-start overlay))
          (end (overlay-end overlay))
          (into (and (<= start (point) end) (- (point) start))))
@@ -1316,7 +1341,9 @@ it."
     (when into
       (goto-char (+ start (min into (length form)))))
     (move-overlay overlay start (+ start (length form)))
-    (overlay-put overlay 'parley-table-form form)))
+    (overlay-put overlay 'parley-table-form form)
+    (run-hook-with-args 'parley-transcript-table-functions
+                        start (+ start (length form)))))
 
 (defun parley-transcript--align-output (_string)
   "Lay an overlay over each table the last render pass produced, and render it.

@@ -2869,6 +2869,105 @@ makes: the source is the overlay's and no longer the buffer's."
                            (parley-transcript-test--source overlay)))))
       (set-frame-width (selected-frame) columns))))
 
+;; A test's own hook is put on through the mode hook, which is where an
+;; operator's goes: the buffer-local value is cleared on the way into
+;; the mode, and the first render comes after it.
+(defmacro parley-transcript-test--with-table-calls (&rest body)
+  "Run BODY with `calls' the list of calls to `parley-transcript-table-functions'.
+Each call is recorded as (START END TEXT INHIBITED), newest first:
+the bounds it was called with, the text between them, and the
+value `inhibit-modification-hooks' had in it."
+  (declare (indent 0) (debug (body)))
+  `(let* ((calls nil)
+          (parley-transcript-mode-hook
+           (list (lambda ()
+                   (add-hook 'parley-transcript-table-functions
+                             (lambda (start end)
+                               (push (list start end
+                                           (buffer-substring-no-properties
+                                            start end)
+                                           inhibit-modification-hooks)
+                                     calls))
+                             nil t)))))
+     ,@body))
+
+(ert-deftest parley-transcript-test-hands-a-rendered-table-to-the-hook ()
+  "Every render calls the hook with the bounds of the form it wrote.
+
+The first render, as the table arrives, and the render a change
+of width writes: each time the bounds are the overlay's, and the
+text between them is the form -- so a caller decorating from them
+decorates the table and nothing either side of it.  The width
+changes from one the aligned form fits to one it does not, so the
+second form is a different length from the first and bounds left
+over from the first render would not delimit it.
+
+The hook is called with the modification hooks bound, which is
+what says it ran outside `with-silent-modifications'."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-table-calls
+          (parley-transcript-test--with-session
+              (list (parley-transcript-test--text-turn parley-transcript-test--table))
+            (let ((overlay (car (parley-transcript-test--wait
+                                 (lambda () (parley-transcript-test--tables buffer))))))
+              (should (equal (list (list (overlay-start overlay)
+                                         (overlay-end overlay)
+                                         (parley-transcript-test--form overlay)
+                                         nil))
+                             calls))
+              (save-window-excursion
+                (set-window-buffer (selected-window) buffer)
+                (parley-transcript-test--resize buffer 100)
+                (let ((aligned (parley-transcript-test--form overlay)))
+                  (setq calls nil)
+                  (parley-transcript-test--resize buffer 20)
+                  (should-not (equal aligned
+                                     (parley-transcript-test--form overlay))))
+                (should (equal (list (list (overlay-start overlay)
+                                           (overlay-end overlay)
+                                           (parley-transcript-test--form overlay)
+                                           nil))
+                               calls))))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-hands-the-hook-nothing-it-did-not-write ()
+  "A render that writes no form calls the hook with nothing.
+
+A table of delimiter rows alone renders to nil, and a table the
+operator has edited is dropped at the next render: in neither is
+there text parley wrote for the bounds to delimit.  The table
+with rows in it arrives after the one of delimiters, so waiting
+for it is waiting past the other, and its one call is what says
+the hook was on the buffer while both were rendered."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-table-calls
+          (parley-transcript-test--with-session
+              (list (parley-transcript-test--text-turn "| --- | --- |")
+                    (parley-transcript-test--text-turn parley-transcript-test--table))
+            (let ((overlay (car (parley-transcript-test--wait
+                                 (lambda ()
+                                   (parley-transcript-test--tables buffer))))))
+              (should (= 1 (length calls)))
+              (should (equal (parley-transcript-test--form overlay)
+                             (nth 2 (car calls))))
+              (save-window-excursion
+                (set-window-buffer (selected-window) buffer)
+                (parley-transcript-test--resize buffer 100)
+                (with-current-buffer buffer
+                  (let ((inhibit-read-only t))
+                    (save-excursion
+                      (goto-char (+ 2 (overlay-start overlay)))
+                      (insert "!"))))
+                (setq calls nil)
+                (parley-transcript-test--resize buffer 20)
+                (should-not (parley-transcript-test--tables buffer))
+                (should-not calls)))))
+      (set-frame-width (selected-frame) columns))))
+
 (ert-deftest parley-transcript-test-wraps-a-cell-of-prose-into-the-width ()
   "A table a cell of prose takes past the width is wrapped into it.
 
