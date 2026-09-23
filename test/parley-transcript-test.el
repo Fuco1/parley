@@ -3701,6 +3701,122 @@ here."
       (set-frame-width (selected-frame) columns))))
 
 
+;;; The conversation is read-only
+
+(defun parley-transcript-test--type (buffer text)
+  "Type TEXT at BUFFER's process mark, one `self-insert-command' a character.
+That command inserts inheriting the sticky properties around it,
+which is how the operator's typing meets the text before the mark
+and what a bare `insert' would not test."
+  (with-current-buffer buffer
+    (goto-char (process-mark (get-buffer-process buffer)))
+    (dolist (character (string-to-list text))
+      (let ((last-command-event character))
+        (self-insert-command 1)))))
+
+(defun parley-transcript-test--refuses-deleting-back (buffer)
+  "Assert DEL at BUFFER's process mark is refused and changes nothing."
+  (with-current-buffer buffer
+    (let ((before (buffer-string)))
+      (goto-char (process-mark (get-buffer-process buffer)))
+      (should (> (point) (point-min)))
+      (should-error (delete-backward-char 1) :type 'text-read-only)
+      (should (equal-including-properties before (buffer-string))))))
+
+(defun parley-transcript-test--takes-typing (buffer)
+  "Assert text typed at BUFFER's process mark goes in and is not read-only."
+  (let ((mark (with-current-buffer buffer
+                (marker-position (process-mark (get-buffer-process buffer))))))
+    (parley-transcript-test--type buffer "typed")
+    (should (equal "typed" (parley-transcript-test--zone buffer)))
+    (with-current-buffer buffer
+      (should-not (text-property-not-all mark (point-max) 'read-only nil)))))
+
+(ert-deftest parley-transcript-test-refuses-deleting-the-conversation ()
+  "DEL at the prompt is refused, and the conversation above it stands.
+Before a turn has been sent from here, when what precedes the
+mark is the output comint inserted, and after one, when it is the
+block that turn was rewritten as."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--refuses-deleting-back buffer)
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there"))
+    (should (string-suffix-p
+             (concat parley-transcript--quote-marker "hello there\n")
+             (with-current-buffer buffer
+               (buffer-substring-no-properties
+                (point-min) (process-mark (get-buffer-process buffer))))))
+    (parley-transcript-test--refuses-deleting-back buffer)))
+
+(ert-deftest parley-transcript-test-refuses-typing-into-the-conversation ()
+  "Text typed inside the conversation, and not at the prompt, is refused.
+Comint makes `read-only' rear-nonsticky on its output, which lets
+an insertion between two of its characters through unless the
+property is front-sticky as well."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer
+      (let ((before (buffer-string)))
+        (goto-char (point-min))
+        (should (search-forward "second" nil t))
+        (should-error (let ((last-command-event ?x)) (self-insert-command 1))
+                      :type 'text-read-only)
+        (should (equal-including-properties before (buffer-string)))))))
+
+(ert-deftest parley-transcript-test-takes-typing-at-the-prompt ()
+  "Text typed at the prompt goes in, and is not read-only itself.
+Before a turn has been sent from here and after one, since the
+text before the mark is comint's output in the one case and the
+block the sent turn was rewritten as in the other."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--takes-typing buffer)
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (with-current-buffer buffer (comint-send-input)))
+    (parley-transcript-test--takes-typing buffer)))
+
+(ert-deftest parley-transcript-test-takes-typing-at-a-prompt-found-by-regexp ()
+  "Text typed at the prompt goes in under `comint-use-prompt-regexp' too.
+Comint makes its output rear-nonsticky only while it finds prompts
+by their fields, so under the regexp nothing but the sealing does."
+  (skip-unless (executable-find "jq"))
+  (let ((comint-use-prompt-regexp t))
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--takes-typing buffer))))
+
+
+(ert-deftest parley-transcript-test-keeps-a-table-rendered-again-read-only ()
+  "A table written again for a new width is as read-only as it was.
+A resize writes the grid outside comint's insertion, so nothing
+but the write itself can seal what it put there."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn parley-transcript-test--table))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda () (parley-transcript-test--tables buffer))))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (dolist (width '(100 20))
+                (parley-transcript-test--resize buffer width)
+                (with-current-buffer buffer
+                  (should-not (text-property-any (overlay-start overlay)
+                                                 (overlay-end overlay)
+                                                 'read-only nil))
+                  (goto-char (overlay-end overlay))
+                  (should-error (delete-backward-char 1)
+                                :type 'text-read-only))))))
+      (set-frame-width (selected-frame) columns))))
+
+
 ;;; The imenu index
 
 (defun parley-transcript-test--index (buffer)

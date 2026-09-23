@@ -710,6 +710,52 @@ inserted and then rewritten in place."
         (mapconcat #'identity (nreverse blocks) "")))))
 
 
+;;; The conversation is read-only
+
+;; Everything before the process mark is read-only, and every writer
+;; above the mark binds `inhibit-read-only' around its write -- see
+;; docs/architecture/transcript.md for why.  Deletion is refused by
+;; `read-only' alone and insertion by its stickiness: rear-nonsticky
+;; leaves the operator typing at the mark, and would leave him typing
+;; anywhere in the conversation were it not front-sticky as well.
+
+(defun parley-transcript--seal (start end)
+  "Make the text from START to END read-only, insertion inside it included.
+`read-only' joins the region's `front-sticky' and `rear-nonsticky',
+which comint may have already set over its own output and which
+are read at START: an insertion between two characters is refused
+only by the one after it when the one before it is rear-nonsticky,
+and an insertion after the last one, at the mark, is let through
+and not made read-only only when that one is.  Comint makes it
+rear-nonsticky itself only while `comint-use-prompt-regexp' is
+nil, so the sealing does not leave it to comint.  Silently,
+because it is no edit of the operator's and nothing for `undo' to
+reach."
+  (when (< start end)
+    (with-silent-modifications
+      (add-text-properties
+       start end
+       (mapcan (lambda (property)
+                 (let ((value (get-text-property start property)))
+                   (list property
+                         (if (eq value t) t (cons 'read-only value)))))
+               '(front-sticky rear-nonsticky)))
+      (put-text-property start end 'read-only t))))
+
+(defun parley-transcript--output (process string)
+  "Insert STRING from PROCESS as `comint-output-filter' does, then seal it.
+The process filter, and not a function on
+`comint-output-filter-functions': comint puts its own
+`front-sticky' over what it inserted after those have run, and
+would take the sealing back out."
+  (comint-output-filter process string)
+  (let ((buffer (process-buffer process)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (parley-transcript--seal comint-last-output-start
+                                 (process-mark process))))))
+
+
 ;;; Writing the tables
 
 ;; A table lines up only if the agent lined it up, and a table whose
@@ -1265,11 +1311,10 @@ would come back as three rows of a table nobody wrote.
 
 Only while the region still holds the text written there, which
 is what `parley-table-form' carries.  `comint-truncate-buffer'
-takes the top of the conversation away and the operator can edit
-in this buffer, and a region that no longer holds what parley put
-in it is not parley's to write over -- what is left of a table
-cut in half stands as it stands.  The overlay is dropped then,
-and nothing puts it back.
+takes the top of the conversation away, and a region that no
+longer holds what parley put in it is not parley's to write over
+-- what is left of a table cut in half stands as it stands.  The
+overlay is dropped then, and nothing puts it back.
 
 Dropped as well when the table renders to nothing, which
 `parley-transcript--aligned' answers at every width alike: there
@@ -1337,7 +1382,8 @@ else can see that a render took the decoration away."
       (save-excursion
         (delete-region start end)
         (goto-char start)
-        (insert form)))
+        (insert form)
+        (parley-transcript--seal start (point))))
     (when into
       (goto-char (+ start (min into (length form)))))
     (move-overlay overlay start (+ start (length form)))
@@ -1511,7 +1557,7 @@ the prompt opened with.
 Positions are kept as markers and not as the numbers they are
 now, because this buffer is deleted from as well as appended to
 -- the tool run line at the end is taken back out whenever its
-run grows -- and the operator can edit in it himself.  An entry
+run grows, and `comint-truncate-buffer' takes the top away.  An entry
 has to go on pointing at its prompt through all of that, or say
 that its prompt is gone."
   (let ((label (parley-transcript--index-label text)))
@@ -1781,6 +1827,8 @@ and history and all."
         ;; The pipeline has no state to lose, so there is nothing to
         ;; stop and ask the operator about.
         (set-process-query-on-exit-flag (get-buffer-process buffer) nil)
+        (set-process-filter (get-buffer-process buffer)
+                            #'parley-transcript--output)
         ;; Before anything has arrived, because a session whose
         ;; transcript is still empty renders nothing at all: no output
         ;; means no output filter, and the operator would be typing
@@ -2384,6 +2432,7 @@ dropped by `parley-transcript--echoed-p' when it arrives."
     (delete-region start comint-last-input-end)
     (goto-char start)
     (insert (parley-transcript--quote string))
+    (parley-transcript--seal start (point))
     (set-marker comint-last-input-end (point))
     (set-marker (process-mark process) (point))
     ;; One character into the block, past the blank line it opens
