@@ -2869,6 +2869,97 @@ makes: the source is the overlay's and no longer the buffer's."
                            (parley-transcript-test--source overlay)))))
       (set-frame-width (selected-frame) columns))))
 
+;; Batch Emacs draws every face one pixel wide, so a font twice the
+;; frame's character is stood in for the table face.
+(defmacro parley-transcript-test--with-wide-table-face (&rest body)
+  "Run BODY with the table face remapped twice as wide as the frame's character.
+`font-at' answers a font of that width for a string faced in
+`markdown-table-face' and asked about in a buffer with any face
+remapping in it -- which is what `buffer-face-mode',
+`text-scale-mode' and an operator's `face-remap-add-relative' all
+leave -- and nil, a frame with no fonts, for everything else."
+  (declare (indent 0) (debug (body)))
+  `(cl-letf* ((wide (* 2 (frame-char-width)))
+              ((symbol-function 'font-at)
+               (lambda (position &optional _window string)
+                 (and string face-remapping-alist
+                      (memq 'markdown-table-face
+                            (ensure-list (get-text-property position 'face
+                                                            string)))
+                      'parley-transcript-test--wide-font)))
+              ((symbol-function 'font-info)
+               (lambda (font &optional _frame)
+                 (should (eq font 'parley-transcript-test--wide-font))
+                 (let ((info (make-vector 12 0)))
+                   (aset info 11 wide)
+                   info))))
+     ,@body))
+
+(ert-deftest parley-transcript-test-fits-a-table-in-characters-of-its-face ()
+  "A table face twice as wide as the frame's character gets half the columns.
+
+The window is 40 columns and the grid 31, so in the frame's
+character the table is aligned; with the table face remapped
+twice as wide it has room for 20 characters, and the form is the
+one a width of 20 writes."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn parley-transcript-test--table))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda () (parley-transcript-test--tables buffer)))))
+                (half (with-current-buffer buffer
+                        (parley-transcript--aligned parley-transcript-test--table
+                                                    20))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer 40)
+              (should (= 40 (window-body-width)))
+              (let ((aligned (parley-transcript-test--form overlay)))
+                (should-not (equal half aligned))
+                (parley-transcript-test--with-wide-table-face
+                  (with-current-buffer buffer
+                    (face-remap-add-relative 'fixed-pitch :height 2.0))
+                  (parley-transcript-test--resize buffer 40)
+                  (should (equal half (parley-transcript-test--form overlay))))))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-renders-a-table-again-at-a-change-of-font ()
+  "Turning a font mode on or off renders the tables again, with no window changed.
+
+`buffer-face-mode' and `text-scale-mode' each remap the face the
+grid is drawn in, turned on the table is rendered to the half of
+the window the wider face has room for, and turned off it comes
+back to the form it had.  Nothing here runs a window hook."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--text-turn parley-transcript-test--table))
+          (let ((overlay (car (parley-transcript-test--wait
+                               (lambda () (parley-transcript-test--tables buffer)))))
+                (half (with-current-buffer buffer
+                        (parley-transcript--aligned parley-transcript-test--table
+                                                    20))))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (parley-transcript-test--resize buffer 40)
+              (let ((aligned (parley-transcript-test--form overlay)))
+                (should-not (equal half aligned))
+                (parley-transcript-test--with-wide-table-face
+                  (with-current-buffer buffer
+                    (buffer-face-mode 1)
+                    (should (equal half (parley-transcript-test--form overlay)))
+                    (buffer-face-mode -1)
+                    (should (equal aligned (parley-transcript-test--form overlay)))
+                    (text-scale-set 1)
+                    (should (equal half (parley-transcript-test--form overlay)))
+                    (text-scale-set 0)
+                    (should (equal aligned
+                                   (parley-transcript-test--form overlay)))))))))
+      (set-frame-width (selected-frame) columns))))
+
 ;; A test's own hook is put on through the mode hook, which is where an
 ;; operator's goes: the buffer-local value is cleared on the way into
 ;; the mode, and the first render comes after it.

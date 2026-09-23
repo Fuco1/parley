@@ -796,10 +796,10 @@ would take the sealing back out."
 ;; agent typed.
 
 (defvar-local parley-transcript--aligned-width nil
-  "The window width this buffer's tables were last aligned to, nil for none.
-`parley-transcript--realign-tables' runs on a hook that a resize
-is only one of the reasons for, and this is what tells the resize
-from the rest.")
+  "The width this buffer's tables were last aligned to, nil for none.
+`parley-transcript--realign-tables' runs on hooks that a resize or
+a change of font is only one of the reasons for, and this is what
+tells those from the rest.")
 
 (defvar-local parley-transcript-table-functions nil
   "Functions called with the bounds of a table just rendered into the buffer.
@@ -813,7 +813,7 @@ text property leaves with its characters -- and this is where it
 is laid again.
 
 Called on a table's first render and on every render a change of
-window width writes, after the form is in and outside
+width writes, after the form is in and outside
 `with-silent-modifications', so the modification hooks are bound
 as they are anywhere else.  A render that writes nothing calls
 nothing: the region then holds what it held.
@@ -824,14 +824,39 @@ from `parley-transcript-mode-hook'.")
 (defun parley-transcript--width ()
   "Return the columns a table in this buffer has to fit in.
 
-The body of a window showing the buffer, and the selected
-window's when none does -- which is what an alignment computed
-before the buffer was ever displayed has to stand on.
+How many characters of `markdown-table-face', as this buffer
+remaps it, fit in the body of a window showing the buffer, and in
+the selected window's when none does -- which is what an
+alignment computed before the buffer was ever displayed has to
+stand on.
 
 A rendered table is the buffer's text and not a window's, so a
 buffer shown in two windows of different widths is aligned to
 whichever of them changed last."
-  (window-body-width (get-buffer-window (current-buffer) t)))
+  (let ((window (or (get-buffer-window (current-buffer) t)
+                    (selected-window))))
+    (/ (window-body-width window t)
+       (parley-transcript--table-char-width window))))
+
+(defun parley-transcript--table-char-width (window)
+  "Return the pixels a character of the table face takes in WINDOW.
+
+The face is `markdown-table-face' merged over `default', both
+through this buffer's `face-remapping-alist', which is how
+redisplay realizes it: `window-font-width' given the face alone
+merges it over the frame's `default' and so misses a remapped
+`default' -- under `text-scale-set' 2 it answers 8 pixels where
+the grid is drawn 11 wide, measured under Emacs 28.2.  A frame
+with no fonts, a terminal's or batch Emacs's, answers nil from
+`font-at' and has one width for every face."
+  (let ((font (font-at 0 window (propertize
+                                 " " 'face
+                                 '(markdown-table-face default)))))
+    (if (not font)
+        (frame-char-width (window-frame window))
+      (let* ((info (font-info font))
+             (average (aref info 11)))
+        (if (> average 0) average (aref info 10))))))
 
 (defun parley-transcript--aligned (text width)
   "Return the grid parley writes for the table TEXT, laid out to fit WIDTH.
@@ -1440,6 +1465,10 @@ Emacs runs for each window showing the buffer once that window
 has changed its body size -- with the window selected, so the
 width read here is that window's.
 
+On `buffer-face-mode-hook' and `text-scale-mode-hook' as well,
+with the buffer current: a change of font changes the width
+without changing any window.
+
 It runs on a window being added, deleted or given another buffer
 as well, and the tables are rendered again on none of those: the
 form follows from the table the overlay carries and the width
@@ -1718,6 +1747,14 @@ and never the objects."
   ;; buffer with that window selected.
   (add-hook 'window-configuration-change-hook
             #'parley-transcript--realign-tables nil t)
+  ;; A change of font changes how many characters of the table face
+  ;; fit the same window, and changes no window.  Last in each hook,
+  ;; so a function of the operator's that remaps `fixed-pitch' along
+  ;; with the mode has done so before the width is read.
+  (add-hook 'buffer-face-mode-hook
+            #'parley-transcript--realign-tables 90 t)
+  (add-hook 'text-scale-mode-hook
+            #'parley-transcript--realign-tables 90 t)
   ;; The zone the operator types in starts at the process mark, and
   ;; comint has just moved that mark past what it inserted, so the
   ;; overlay that marks the zone is put back after every output.
