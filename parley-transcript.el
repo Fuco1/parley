@@ -1764,7 +1764,7 @@ and never the objects."
   ;; its file on a tick of its own -- see the section that starts at
   ;; `parley-transcript--status-interval'.
   (parley-transcript--watch-status)
-  (setq-local adaptive-fill-regexp "^[ \t]*\\([-*+>#·•‣⁃◦✓○●✗›][ \t]+\\)")
+  (setq-local adaptive-fill-regexp "^[ \t]*\\(\\([-*+>#·•‣⁃◦✓○●✗›]\\|[0-9]+.\\)[ \t]+\\)")
   (visual-line-mode 1)
   (declare-function adaptive-wrap-prefix-mode "adaptive-wrap")
   (when (require 'adaptive-wrap nil t)
