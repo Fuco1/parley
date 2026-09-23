@@ -715,25 +715,32 @@ inserted and then rewritten in place."
 ;; Everything before the process mark is read-only, and every writer
 ;; above the mark binds `inhibit-read-only' around its write -- see
 ;; docs/architecture/transcript.md for why.  Deletion is refused by
-;; `read-only' alone and insertion by its stickiness: comint makes it
-;; rear-nonsticky on everything it inserts, which leaves the operator
-;; typing at the mark, and would leave him typing anywhere in the
-;; conversation were it not made front-sticky as well.
+;; `read-only' alone and insertion by its stickiness: rear-nonsticky
+;; leaves the operator typing at the mark, and would leave him typing
+;; anywhere in the conversation were it not front-sticky as well.
 
 (defun parley-transcript--seal (start end)
   "Make the text from START to END read-only, insertion inside it included.
-`read-only' joins the region's `front-sticky', which comint has
-already set over its own output and which is read at START: an
-insertion between two characters is refused only by the one after
-it when the one before it is rear-nonsticky.  Silently, because
-it is no edit of the operator's and nothing for `undo' to reach."
+`read-only' joins the region's `front-sticky' and `rear-nonsticky',
+which comint may have already set over its own output and which
+are read at START: an insertion between two characters is refused
+only by the one after it when the one before it is rear-nonsticky,
+and an insertion after the last one, at the mark, is let through
+and not made read-only only when that one is.  Comint makes it
+rear-nonsticky itself only while `comint-use-prompt-regexp' is
+nil, so the sealing does not leave it to comint.  Silently,
+because it is no edit of the operator's and nothing for `undo' to
+reach."
   (when (< start end)
     (with-silent-modifications
       (add-text-properties
        start end
-       `(read-only t
-         front-sticky ,(cons 'read-only
-                             (get-text-property start 'front-sticky)))))))
+       (mapcan (lambda (property)
+                 (let ((value (get-text-property start property)))
+                   (list property
+                         (if (eq value t) t (cons 'read-only value)))))
+               '(front-sticky rear-nonsticky)))
+      (put-text-property start end 'read-only t))))
 
 (defun parley-transcript--output (process string)
   "Insert STRING from PROCESS as `comint-output-filter' does, then seal it.
@@ -2425,11 +2432,7 @@ dropped by `parley-transcript--echoed-p' when it arrives."
     (delete-region start comint-last-input-end)
     (goto-char start)
     (insert (parley-transcript--quote string))
-    ;; Rear-nonsticky, so that what the operator types next at the mark
-    ;; standing after it is neither refused nor read-only itself.
     (parley-transcript--seal start (point))
-    (with-silent-modifications
-      (put-text-property start (point) 'rear-nonsticky '(read-only)))
     (set-marker comint-last-input-end (point))
     (set-marker (process-mark process) (point))
     ;; One character into the block, past the blank line it opens

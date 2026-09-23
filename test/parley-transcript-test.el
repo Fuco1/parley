@@ -3781,6 +3781,16 @@ block the sent turn was rewritten as in the other."
       (with-current-buffer buffer (comint-send-input)))
     (parley-transcript-test--takes-typing buffer)))
 
+(ert-deftest parley-transcript-test-takes-typing-at-a-prompt-found-by-regexp ()
+  "Text typed at the prompt goes in under `comint-use-prompt-regexp' too.
+Comint makes its output rear-nonsticky only while it finds prompts
+by their fields, so under the regexp nothing but the sealing does."
+  (skip-unless (executable-find "jq"))
+  (let ((comint-use-prompt-regexp t))
+    (parley-transcript-test--with-session parley-transcript-test--lines
+      (should (parley-transcript-test--settled buffer))
+      (parley-transcript-test--takes-typing buffer))))
+
 
 (ert-deftest parley-transcript-test-keeps-a-table-rendered-again-read-only ()
   "A table written again for a new width is as read-only as it was.

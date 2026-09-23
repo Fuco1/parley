@@ -243,7 +243,8 @@ input zone, and it is sealed as it goes in.
 **Read-only is front-sticky and rear-nonsticky.** Deletion is refused by the
 property alone; insertion is refused by its stickiness. Rear-nonsticky is what
 lets the operator type at the mark without what he types inheriting it, and
-comint makes it so on everything it inserts. Front-sticky is what refuses an
+parley makes it so itself, since comint does only while it finds prompts by
+their fields and not by `comint-use-prompt-regexp`. Front-sticky is what refuses an
 insertion between two characters of the conversation, and comint writes its own
 `front-sticky` over its output after its output filters have run — so output is
 sealed by the process filter, once comint has returned.
