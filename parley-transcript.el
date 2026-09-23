@@ -710,6 +710,52 @@ inserted and then rewritten in place."
         (mapconcat #'identity (nreverse blocks) "")))))
 
 
+;;; The conversation is read-only
+
+;; Everything before the process mark is a rendering of the session's
+;; file, and nothing reads an edit of it back: an edit is lost on the
+;; next open and, over a table, only drops that table's overlay.  So it
+;; is read-only, and every writer above the mark -- comint's insertion,
+;; the run line taken back, a table rendered again, the block a sent
+;; turn becomes, `comint-truncate-buffer' -- binds `inhibit-read-only'
+;; around its write.
+;;
+;; Deletion is refused by `read-only' alone.  Insertion is refused by
+;; its stickiness, and comint makes `read-only' rear-nonsticky on
+;; everything it inserts, which is what leaves the operator typing at
+;; the mark with nothing inherited from the text before it -- and what
+;; would leave him typing anywhere in the conversation, were `read-only'
+;; not made front-sticky as well.
+
+(defun parley-transcript--seal (start end)
+  "Make the text from START to END read-only, insertion inside it included.
+`read-only' joins the region's `front-sticky', which comint has
+already set over its own output and which is read at START: an
+insertion between two characters is refused only by the one after
+it when the one before it is rear-nonsticky.  Silently, because
+it is no edit of the operator's and nothing for `undo' to reach."
+  (when (< start end)
+    (with-silent-modifications
+      (add-text-properties
+       start end
+       `(read-only t
+         front-sticky ,(cons 'read-only
+                             (get-text-property start 'front-sticky)))))))
+
+(defun parley-transcript--output (process string)
+  "Insert STRING from PROCESS as `comint-output-filter' does, then seal it.
+The process filter, and not a function on
+`comint-output-filter-functions': comint puts its own
+`front-sticky' over what it inserted after those have run, and
+would take the sealing back out."
+  (comint-output-filter process string)
+  (let ((buffer (process-buffer process)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (parley-transcript--seal comint-last-output-start
+                                 (process-mark process))))))
+
+
 ;;; Writing the tables
 
 ;; A table lines up only if the agent lined it up, and a table whose
@@ -1337,7 +1383,8 @@ else can see that a render took the decoration away."
       (save-excursion
         (delete-region start end)
         (goto-char start)
-        (insert form)))
+        (insert form)
+        (parley-transcript--seal start (point))))
     (when into
       (goto-char (+ start (min into (length form)))))
     (move-overlay overlay start (+ start (length form)))
@@ -1781,6 +1828,8 @@ and history and all."
         ;; The pipeline has no state to lose, so there is nothing to
         ;; stop and ask the operator about.
         (set-process-query-on-exit-flag (get-buffer-process buffer) nil)
+        (set-process-filter (get-buffer-process buffer)
+                            #'parley-transcript--output)
         ;; Before anything has arrived, because a session whose
         ;; transcript is still empty renders nothing at all: no output
         ;; means no output filter, and the operator would be typing
@@ -2384,6 +2433,11 @@ dropped by `parley-transcript--echoed-p' when it arrives."
     (delete-region start comint-last-input-end)
     (goto-char start)
     (insert (parley-transcript--quote string))
+    ;; Rear-nonsticky, so that what the operator types next at the mark
+    ;; standing after it is neither refused nor read-only itself.
+    (parley-transcript--seal start (point))
+    (with-silent-modifications
+      (put-text-property start (point) 'rear-nonsticky '(read-only)))
     (set-marker comint-last-input-end (point))
     (set-marker (process-mark process) (point))
     ;; One character into the block, past the blank line it opens
