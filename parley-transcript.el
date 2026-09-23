@@ -1683,6 +1683,7 @@ and never the objects."
   (parley-transcript--watch-status)
   (setq-local adaptive-fill-regexp "^[ \t]*\\([-*+>#·•‣⁃◦✓○●✗›][ \t]+\\)")
   (visual-line-mode 1)
+  (declare-function adaptive-wrap-prefix-mode "adaptive-wrap")
   (when (require 'adaptive-wrap nil t)
     (adaptive-wrap-prefix-mode 1))
   ;; An `:eval', so the line is built on every redisplay: which session
