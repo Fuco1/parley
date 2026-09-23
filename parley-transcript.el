@@ -197,7 +197,10 @@ non-nil.  What it marks `invisible' it marks either way."
           (get-buffer-create " *parley-markdown*"))
     (with-current-buffer parley-transcript--markdown-buffer
       (delay-mode-hooks (markdown-mode))
-      (markdown-toggle-markup-hiding 1)))
+      (markdown-toggle-markup-hiding 1)
+      ;; Every cell is measured here, and a cell may hold a `│' of the
+      ;; agent's, so this buffer counts one as the transcript does.
+      (setq-local char-width-table (parley-transcript--drawn-width-table))))
   parley-transcript--markdown-buffer)
 
 (defconst parley-transcript--fontified-properties
@@ -1175,6 +1178,32 @@ for took, so a rule is exactly as wide as a row of the grid."
                      widths junction)
           right))
 
+(defconst parley-transcript--drawn-characters "│─┌┬┐├┼┤└┴┘"
+  "Every character the writer draws a grid in.")
+
+(defun parley-transcript--drawn-width-table ()
+  "Return `char-width-table' with every drawn character one column wide.
+
+A CJK language environment makes box-drawing characters two
+columns wide while `|' and `-' stay one: measured on Emacs 28.2
+under Japanese, `│' is 2 and a rule of two one-column cells is 18
+columns over a row of 12.  This table takes the drawn characters
+back to the one column each character it stands for took and
+leaves every other width to the table it is a child of, so a CJK
+character in a cell is still the two columns it is.
+
+The parent is whatever `char-width-table' is when this is called.
+`set-language-environment' installs a table of its own rather
+than editing the one it finds, so a buffer set up before a switch
+keeps the widths of the environment it was set up under."
+  ;; ponytail: parent captured once; watch `char-width-table' if an
+  ;; operator switching language environment mid-session matters.
+  (let ((table (make-char-table nil)))
+    (set-char-table-parent table char-width-table)
+    (dolist (character (string-to-list parley-transcript--drawn-characters))
+      (aset table character 1))
+    table))
+
 (defun parley-transcript--padded (text width mark)
   "Return TEXT as a cell of WIDTH columns, padded as MARK says, a space each side.
 
@@ -1618,6 +1647,9 @@ and never the objects."
   (parley-transcript--watch-status)
   ;; An `:eval', so the line is built on every redisplay: which session
   ;; the buffer follows is fixed, and what it is doing is not.
+  ;; The grid is drawn in box-drawing characters, which a CJK language
+  ;; environment makes two columns wide.
+  (setq-local char-width-table (parley-transcript--drawn-width-table))
   (setq-local header-line-format '(:eval (parley-transcript--header-line))))
 
 (defun parley-transcript--buffer-name (session)

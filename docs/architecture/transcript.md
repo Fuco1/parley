@@ -254,12 +254,18 @@ the marks are read off his delimiter row once and every line the writer puts out
 is padded by them. The row itself becomes `├───┼───┤`.
 
 **The drawing costs the grid no width.** Each of those characters takes the one
-column the character it stands for took: measured with `char-width` on Emacs
-28.2, `│`, `─` and every junction and corner are one column, as `|` and `-`
-are. That is the default width table. Under the CJK one, which a Chinese,
-Japanese or Korean language environment installs, each of them is two columns
-and `|` and `-` are still one — measured on the same Emacs, a rule then stands
-in 62 columns where the row above it stands in 34.
+column the character it stands for took. Under Emacs's default width table that
+is already so: measured with `char-width` on Emacs 28.2, `│`, `─` and every
+junction and corner are one column, as `|` and `-` are. Under the CJK one,
+which a Chinese, Japanese or Korean language environment installs, each of them
+is two and `|` and `-` are still one — measured on the same Emacs, `│ a │ b │`
+is 12 columns and the `┌───┬───┐` over it 18. So the transcript buffer, and the
+buffer every cell is measured in, carry a `char-width-table` of their own: a
+child of the environment's, which counts the drawn characters one column each
+and leaves every other width to its parent, so a CJK character in a cell is
+still the two columns it is. The parent is the table in force when the buffer
+is set up, and a buffer set up before a switch of language environment keeps
+the widths of the one it was set up under.
 
 **The form is text and not something shown through a `display` property.** What
 a `display` property shows is not text: the buffer's own machinery never looks

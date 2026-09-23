@@ -2566,6 +2566,43 @@ show, and neither of these cells holds one."
     (should-not (string-search "|" aligned))
     (should-not (string-search "|" wrapped))))
 
+(ert-deftest parley-transcript-test-draws-the-grid-one-column-wide-under-cjk ()
+  "Under a CJK language environment the drawn grid still costs no width.
+
+That environment makes box-drawing characters two columns wide
+and leaves `|' and `-' at one, so a rule drawn over a row would
+stand in more columns than the row, and its junctions past the
+boundaries they stand for.  The transcript buffer counts each
+drawn character as one column, and it is in that buffer the grid
+is measured here: every line of the fixture's grid is the 31
+columns it is under the default table, and each junction stands
+in the column a boundary does.
+
+That the environment does widen the characters is asserted first,
+outside the buffer, so a run where it did not could not pass this
+by measuring nothing."
+  (skip-unless (executable-find "jq"))
+  (let ((environment current-language-environment))
+    (unwind-protect
+        (progn
+          (set-language-environment "Japanese")
+          (should (= 2 (string-width "│")))
+          (parley-transcript-test--with-session
+              (list (parley-transcript-test--text-turn
+                     parley-transcript-test--table))
+            (let* ((overlay (car (parley-transcript-test--wait
+                                  (lambda ()
+                                    (parley-transcript-test--tables buffer)))))
+                   (form (parley-transcript-test--form overlay)))
+              (with-current-buffer buffer
+                (should (equal '(31)
+                               (seq-uniq (mapcar #'string-width
+                                                 (split-string form "\n")))))
+                (should (= 1 (length (seq-uniq
+                                      (parley-transcript-test--boundaries
+                                       form)))))))))
+      (set-language-environment environment))))
+
 (ert-deftest parley-transcript-test-renders-a-table-as-the-buffers-own-text ()
   "A table stands in the buffer as the text of the form parley rendered.
 
