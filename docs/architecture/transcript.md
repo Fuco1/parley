@@ -324,10 +324,11 @@ property would survive in both halves of what was cut.
 
 **A region that no longer holds what parley wrote there is not rendered again.**
 Truncation can take the first lines of a table away, and rendering from the
-source over what is left would put back text that is not there any more. The overlay is dropped instead and what is left stands as
-it stands. It is dropped at the next render and not when the deletion happens,
-because nothing watches this buffer for changes — by design, since watching it
-means a pass over the conversation on every append.
+source over what is left would put back text that is not there any more. The
+overlay is dropped instead and what is left stands as it stands. It is dropped
+at the next render and not when the deletion happens, because nothing watches
+this buffer for changes — by design, since watching it means a pass over the
+conversation on every append.
 
 **What this costs the operator is the source in the buffer.** A kill over a
 table copies the form he is reading and not the table the agent typed. The
