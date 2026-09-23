@@ -305,7 +305,7 @@ grown past, and a form shown through a property is where it stops.
 
 **A render rewrites its region, and takes whatever was laid over it.** A table
 is the one region of this buffer parley writes more than once — at first sight
-and again at every width the window changes to — and each write deletes the text
+and again at every width it changes to — and each write deletes the text
 there and inserts the form: an overlay over it collapses, and a text property
 leaves with its characters. Nothing outside the package can watch that happen,
 because a render goes in with the modification hooks bound away. So every render
@@ -511,6 +511,23 @@ other window change free.
 
 A table is the buffer's text and not a window's, so a buffer shown in two
 windows of different widths is rendered to whichever of them changed last.
+
+**A table's width is counted in characters of the face its grid is drawn in.**
+That is `markdown-table-face` merged over `default`, both as the buffer remaps
+them, and the width is how many of its characters fit in the pixels of the
+window's body. A frame column is the wrong unit: the table face inherits
+`fixed-pitch`, which an operator's `variable-pitch-mode` setup enlarges with the
+prose, and a grid counted in frame columns then runs past the window edge and
+wraps line by line under `visual-line-mode`. The face is measured as redisplay
+realizes it rather than with `window-font-width`, which merges the face alone
+over the frame's `default` and misses a remapped one — under `text-scale-set` 2
+on Emacs 28.2 it answers 8 pixels where the grid is drawn 11 wide.
+
+**A change of font renders the tables again.** It changes the width without
+changing any window, so the window hook never hears of it; `buffer-face-mode`
+and `text-scale-mode` each run a hook of their own, and the tables are rendered
+again from that, last in it so that an operator's function remapping
+`fixed-pitch` with the mode has run first.
 
 ## A run of tool calls is one line
 
