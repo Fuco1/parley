@@ -223,6 +223,31 @@ same reason the pipeline refuses colour at the source: measured over the 26 MB
 transcript not one escape byte reaches the buffer, and scanning the 1.3 MB for
 them costs 2.4 s of the 6.9 s that history takes to settle.
 
+## The conversation above the input zone is read-only
+
+Everything before the process mark is read-only, and only the input zone after
+it takes the operator's typing. The buffer is a rendering of the session's
+JSONL file and nothing reads an edit of it back: a changed word is not in the
+session, it is gone the next time the buffer is opened, and over a table it only
+makes the next render drop that table's overlay. The prompt mark in front of
+the zone is drawn by the zone's overlay and is not buffer text, so without this
+nothing stands between the mark and the conversation, and `DEL` held at the
+prompt eats it.
+
+**parley itself still writes above the mark**, under `inhibit-read-only`:
+comint's own insertion, the run line taken back out before it is rewritten, a
+table rendered again for a new width, and `comint-truncate-buffer`. The block a
+sent turn is rewritten as needs none, since the echo it replaces was typed in the
+input zone, and it is sealed as it goes in.
+
+**Read-only is front-sticky and rear-nonsticky.** Deletion is refused by the
+property alone; insertion is refused by its stickiness. Rear-nonsticky is what
+lets the operator type at the mark without what he types inheriting it, and
+comint makes it so on everything it inserts. Front-sticky is what refuses an
+insertion between two characters of the conversation, and comint writes its own
+`front-sticky` over its output after its output filters have run — so output is
+sealed by the process filter, once comint has returned.
+
 ## A table is rendered into the buffer, and the overlay keeps its source
 
 A table lines up only if the agent lined it up, and a table whose columns do not
@@ -298,9 +323,8 @@ taking the top of the conversation away brings its ends together, where a text
 property would survive in both halves of what was cut.
 
 **A region that no longer holds what parley wrote there is not rendered again.**
-Truncation can take the first lines of a table away and the operator can edit in
-this buffer, and rendering from the source over either would put back text that
-is not there any more. The overlay is dropped instead and what is left stands as
+Truncation can take the first lines of a table away, and rendering from the
+source over what is left would put back text that is not there any more. The overlay is dropped instead and what is left stands as
 it stands. It is dropped at the next render and not when the deletion happens,
 because nothing watches this buffer for changes — by design, since watching it
 means a pass over the conversation on every append.
@@ -525,7 +549,7 @@ parsing rendered text into the structure that was in hand a moment earlier.
 
 **Positions are markers, not the numbers they were.** This buffer is deleted
 from as well as appended to — the run line at the end goes whenever its run
-grows — and the operator can edit in it himself. An entry has to keep pointing
+grows, and truncation takes the top away. An entry has to keep pointing
 at its prompt through all of that, or say that its prompt is gone, which is what
 a second marker at the end of the label's line is for: deleting that line is
 what brings the two together and nothing else does.

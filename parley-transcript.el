@@ -712,20 +712,13 @@ inserted and then rewritten in place."
 
 ;;; The conversation is read-only
 
-;; Everything before the process mark is a rendering of the session's
-;; file, and nothing reads an edit of it back: an edit is lost on the
-;; next open and, over a table, only drops that table's overlay.  So it
-;; is read-only, and every writer above the mark -- comint's insertion,
-;; the run line taken back, a table rendered again, the block a sent
-;; turn becomes, `comint-truncate-buffer' -- binds `inhibit-read-only'
-;; around its write.
-;;
-;; Deletion is refused by `read-only' alone.  Insertion is refused by
-;; its stickiness, and comint makes `read-only' rear-nonsticky on
-;; everything it inserts, which is what leaves the operator typing at
-;; the mark with nothing inherited from the text before it -- and what
-;; would leave him typing anywhere in the conversation, were `read-only'
-;; not made front-sticky as well.
+;; Everything before the process mark is read-only, and every writer
+;; above the mark binds `inhibit-read-only' around its write -- see
+;; docs/architecture/transcript.md for why.  Deletion is refused by
+;; `read-only' alone and insertion by its stickiness: comint makes it
+;; rear-nonsticky on everything it inserts, which leaves the operator
+;; typing at the mark, and would leave him typing anywhere in the
+;; conversation were it not made front-sticky as well.
 
 (defun parley-transcript--seal (start end)
   "Make the text from START to END read-only, insertion inside it included.
@@ -1311,11 +1304,10 @@ would come back as three rows of a table nobody wrote.
 
 Only while the region still holds the text written there, which
 is what `parley-table-form' carries.  `comint-truncate-buffer'
-takes the top of the conversation away and the operator can edit
-in this buffer, and a region that no longer holds what parley put
-in it is not parley's to write over -- what is left of a table
-cut in half stands as it stands.  The overlay is dropped then,
-and nothing puts it back.
+takes the top of the conversation away, and a region that no
+longer holds what parley put in it is not parley's to write over
+-- what is left of a table cut in half stands as it stands.  The
+overlay is dropped then, and nothing puts it back.
 
 Dropped as well when the table renders to nothing, which
 `parley-transcript--aligned' answers at every width alike: there
@@ -1558,7 +1550,7 @@ the prompt opened with.
 Positions are kept as markers and not as the numbers they are
 now, because this buffer is deleted from as well as appended to
 -- the tool run line at the end is taken back out whenever its
-run grows -- and the operator can edit in it himself.  An entry
+run grows, and `comint-truncate-buffer' takes the top away.  An entry
 has to go on pointing at its prompt through all of that, or say
 that its prompt is gone."
   (let ((label (parley-transcript--index-label text)))
