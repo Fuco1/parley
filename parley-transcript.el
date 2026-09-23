@@ -1654,6 +1654,10 @@ and never the objects."
   ;; its file on a tick of its own -- see the section that starts at
   ;; `parley-transcript--status-interval'.
   (parley-transcript--watch-status)
+  (setq-local adaptive-fill-regexp "^[ \t]*\\([-*+>#·•‣⁃◦✓○●✗›][ \t]+\\)")
+  (visual-line-mode 1)
+  (when (require 'adaptive-wrap nil t)
+    (adaptive-wrap-prefix-mode 1))
   ;; An `:eval', so the line is built on every redisplay: which session
   ;; the buffer follows is fixed, and what it is doing is not.
   ;; The grid is drawn in box-drawing characters, which a CJK language
