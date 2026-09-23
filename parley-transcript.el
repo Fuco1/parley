@@ -198,6 +198,16 @@ non-nil.  What it marks `invisible' it marks either way."
     (with-current-buffer parley-transcript--markdown-buffer
       (delay-mode-hooks (markdown-mode))
       (markdown-toggle-markup-hiding 1)))
+  ;; Every cell is measured here, and a cell may hold a `│' of the
+  ;; agent's, so this buffer counts one as the transcript does.  This
+  ;; buffer outlives every transcript buffer, so its table is rebuilt
+  ;; whenever the environment's is no longer the one it is a child of:
+  ;; a transcript buffer set up after a switch measures under the new one.
+  (with-current-buffer parley-transcript--markdown-buffer
+    (unless (and (local-variable-p 'char-width-table)
+                 (eq (char-table-parent char-width-table)
+                     (default-value 'char-width-table)))
+      (setq-local char-width-table (parley-transcript--drawn-width-table))))
   parley-transcript--markdown-buffer)
 
 (defconst parley-transcript--fontified-properties
@@ -709,6 +719,14 @@ inserted and then rewritten in place."
 ;; as the quote around the operator's turn and the one line a run of
 ;; tool calls collapses to.
 ;;
+;; The grid is drawn: every column boundary in it is `│', the row
+;; between the header and the body is `├─┼─┤', and a rule of `┌─┬─┐'
+;; opens it with `└─┴─┘' to close.  Those characters are what the
+;; writer emits, because the writer is what put every boundary there
+;; and is the only thing that knows where one is.  Nothing scans a
+;; finished grid for a bar, so the bar inside `[[target|link words]]'
+;; stands in the cell holding it and nowhere in the grid.
+;;
 ;; One writer for every table, the one that fits the window and the
 ;; one wrapped into it alike.  What that buys is the markup in a cell:
 ;; a character hidden by `invisible markdown-markup' costs no column,
@@ -760,8 +778,7 @@ holding a piece longer than the room the rest of the grid leaves
 it, a word or a wiki link a bar stands in -- keeps the table
 wider than WIDTH, which is the honest outcome: a word broken
 across two lines is one the operator cannot read back, and a link
-broken across two puts a bar in the grid where the table has no
-column.
+broken across two is no longer a link at all.
 
 Nil for everything `parley-transcript--written' refuses, which is
 all that either is refused for: what the operator sees is then
@@ -898,9 +915,11 @@ them whatever any width does to the grid.
 
 A cell may hold a bar that is no column boundary -- the one
 inside a wiki link, which `markdown--table-line-to-columns' reads
-over -- and what keeps that bar out of the grid is
-`parley-transcript--cell-words', which hands the wrap such a link
-whole rather than as words it may break apart."
+over.  It reaches the buffer as the agent wrote it, inside its
+cell, because the boundaries are drawn where the writer knows
+they are and nothing scans a cell for a bar.
+`parley-transcript--cell-words' is what hands the wrap such a
+link whole rather than as words it may break apart."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
     (insert (parley-transcript--table-closed text))
@@ -922,14 +941,16 @@ whole rather than as words it may break apart."
         (when (equal (parley-transcript--table-content
                       (mapconcat (lambda (row) (string-join row)) rows ""))
                      (parley-transcript--table-content text))
-          (string-join (mapcar (lambda (row)
-                                 (if row
-                                     (parley-transcript--wrapped-row
-                                      row widths marks)
-                                   (parley-transcript--delimiter-row
-                                    widths marks)))
-                               rows)
-                       "\n"))))))
+          (string-join
+           (append
+            (list (parley-transcript--table-rule widths "┌" "┬" "┐"))
+            (mapcar (lambda (row)
+                      (if row
+                          (parley-transcript--wrapped-row row widths marks)
+                        (parley-transcript--table-rule widths "├" "┼" "┤")))
+                    rows)
+            (list (parley-transcript--table-rule widths "└" "┴" "┘")))
+           "\n"))))))
 
 (defun parley-transcript--table-cells (line)
   "Return the cells LINE holds, each carrying the properties LINE carries.
@@ -967,11 +988,12 @@ cell together."
 The words, except that a wiki link holding a bar is one piece
 however many spaces stand inside it.  That bar is not a column
 boundary -- `markdown--table-line-to-columns' reads over it, so
-`[[target|link words]]' is one cell and not two -- but it is only
-read over while the link is whole.  A line carrying
-`[[target|link' alone is that construct left open, and its bar is
-a boundary again: to a reader of the wrapped form, and to the
-operator, for whom the row then has a column the table does not.
+`[[target|link words]]' is one cell and not two, and every
+boundary in the grid is a `│' the writer drew -- so it stands in
+the cell the agent put it in and the operator reads it there.
+What a break costs is the link: `[[target|link' on a line of its
+own is that construct left open, and nothing reading the form
+back has a link there any more.
 
 Whether a link is read at all is markdown-mode's own
 `markdown-enable-wiki-links', which is what
@@ -980,11 +1002,11 @@ over a bar.  With links off that bar is a boundary, what stands
 either side of it is a cell of its own, and there is nothing here
 to hold together.
 
-A link carrying no bar is broken like any other run of words.
-What a wrap may not do is put a bar where the grid has none, and
-`[[Page Name]]' split over two lines puts none -- while a piece
-held together is a piece the column it stands in cannot be
-narrowed past, which is width the table pays for."
+A link carrying no bar is broken like any other run of words,
+because it is the bar that says where the target ends and the
+words begin.  A piece held together is a piece the column it
+stands in cannot be narrowed past, which is width the table pays
+for."
   (let ((links nil)
         (from 0))
     (while (and markdown-enable-wiki-links
@@ -1070,9 +1092,9 @@ Whole pieces only: one that will not fit starts the next line
 rather than being broken across two, and one wider than WIDTH
 stands alone and over the end of it.  Breaking one is the thing
 wrapping a table may not do -- what a broken word costs the
-operator is the word and what a broken link costs him is a bar
-the grid does not have, where a table over the edge of the window
-costs him only the grid, which he can still read back.
+operator is the word and what a broken link costs him is the
+link, where a table over the edge of the window costs him only
+the grid, which he can still read back.
 
 `parley-transcript--column-widths' is what keeps a table from
 asking for that overflow at all, by never narrowing a column past
@@ -1107,9 +1129,15 @@ the window is one of them."
   "Return the lines CELLS wrapped to WIDTHS takes up, as one string.
 
 As many lines as the cell that took the most of them, and each of
-them a whole row of bars: a cell with nothing left to show on a
-line stands empty there rather than the line stopping short, so
-the bars of every line of a row are the bars of the table.
+them a whole row of boundaries: a cell with nothing left to show
+on a line stands empty there rather than the line stopping short,
+so every line of a row carries the boundaries the table has.
+
+A boundary is `│', at each end of the line as well as between two
+cells, and it takes the one column the bar it stands for took.
+A bar the operator reads in the grid is therefore one a cell
+holds -- the one inside `[[target|link words]]' among them --
+because the writer puts none anywhere else.
 
 MARKS is what `markdown-table-colfmt' read off the delimiter row,
 one for each column, and says which side of a cell its padding
@@ -1121,39 +1149,69 @@ goes on."
          (height (apply #'max 1 (mapcar #'length wrapped))))
     (mapconcat
      (lambda (line)
-       (concat "|"
+       (concat "│"
                (mapconcat (lambda (column)
                             (parley-transcript--padded
                              (or (nth line (nth column wrapped)) "")
                              (nth column widths)
                              (nth column marks)))
                           (number-sequence 0 (1- (length widths)))
-                          "|")
-               "|"))
+                          "│")
+               "│"))
      (number-sequence 0 (1- height))
      "\n")))
 
-(defun parley-transcript--delimiter-row (widths marks)
-  "Return a delimiter row of WIDTHS, carrying MARKS.
+(defun parley-transcript--table-rule (widths left junction right)
+  "Return the rule across WIDTHS that LEFT, JUNCTION and RIGHT draw.
 
-MARKS is what markdown-mode's own `markdown-table-colfmt' read
-off the delimiter row of the table as the agent wrote it, so a
-column he marked left, right or centred is still marked that way
-in the grid.  A column he marked nothing about takes plain
-dashes."
-  (concat "|"
-          (string-join
-           (seq-map-indexed
-            (lambda (width column)
-              (let ((dashes (make-string width ?-)))
-                (pcase (nth column marks)
-                  ('l (concat ":" dashes "-"))
-                  ('r (concat "-" dashes ":"))
-                  ('c (concat ":" dashes ":"))
-                  (_ (concat "-" dashes "-")))))
-            widths)
-           "|")
-          "|"))
+Three rules are drawn from this and they differ in nothing else:
+`┌┬┐' over the head of a grid, `├┼┤' between its header and its
+body, and `└┴┘' under its foot.  JUNCTION stands where a boundary
+stands, because the stretch it divides is a column's width and
+the space either side of a cell -- which is what a row spends
+there too.
+
+The row between the header and the body is drawn and not written:
+the `:---:' of the delimiter row the agent typed says how a
+column is aligned, which is not something anyone reads off a
+drawn table, and `parley-transcript--padded' is what says it in
+the grid instead.  So no dash and no colon of that row reaches
+the buffer.
+
+Every character here takes the one column the character it stands
+for took, so a rule is exactly as wide as a row of the grid."
+  (concat left
+          (mapconcat (lambda (width) (make-string (+ 2 width) ?─))
+                     widths junction)
+          right))
+
+(defconst parley-transcript--drawn-characters "│─┌┬┐├┼┤└┴┘"
+  "Every character the writer draws a grid in.")
+
+(defun parley-transcript--drawn-width-table ()
+  "Return `char-width-table' with every drawn character one column wide.
+
+A CJK language environment makes box-drawing characters two
+columns wide while `|' and `-' stay one: measured on Emacs 28.2
+under Japanese, `│' is 2 and a rule of two one-column cells is 18
+columns over a row of 12.  This table takes the drawn characters
+back to the one column each character it stands for took and
+leaves every other width to the table it is a child of, so a CJK
+character in a cell is still the two columns it is.
+
+The parent is the default value of `char-width-table' when this
+is called, and never a buffer's own, which would be a table of
+this function's.  `set-language-environment' installs a table of
+its own rather than editing the one it finds, so a transcript
+buffer set up before a switch keeps the widths of the environment
+it was set up under."
+  ;; ponytail: a transcript buffer's parent is captured once; watch
+  ;; `char-width-table' if a mid-session environment switch matters.
+  (let ((table (make-char-table nil)))
+    (set-char-table-parent table (default-value 'char-width-table))
+    (dolist (character (string-to-list parley-transcript--drawn-characters))
+      (aset table character 1))
+    table))
 
 (defun parley-transcript--padded (text width mark)
   "Return TEXT as a cell of WIDTH columns, padded as MARK says, a space each side.
@@ -1198,21 +1256,17 @@ Dropped as well when the table renders to nothing, which
 is no width to come back for.
 
 The region is written over unless it already holds this form with
-its properties, which is what tells the form from the table it
-was rendered from.  A table the agent had already aligned renders
-to the characters he wrote, and the text the render pass
-delivered carries markdown-mode's own properties over those
-characters -- the `display' over the digit of `x^2^' among them,
-which the grid does not take.  `equal' passes over a property, so
-it would leave that text standing as the table and that `display'
-in it.
+its properties.  A form is never the table it was rendered from,
+whatever the agent lined up himself: the grid is drawn and the
+table is his bars and his dashes, so the first render of one
+always writes.
 
 `equal-including-properties' compares two property values with
 `eq', and a face markdown-mode painted a cell with is a fresh
 list every fontification, so two computations of one form do not
-agree under it: what a width that changes the window without
-changing the grid costs is the write, and not the render, which
-has happened by then either way."
+agree under it either: what a width that changes the window
+without changing the grid costs is the write, and not the render,
+which has happened by then either way."
   (let ((form (and (equal (buffer-substring-no-properties (overlay-start overlay)
                                                           (overlay-end overlay))
                           (overlay-get overlay 'parley-table-form))
@@ -1602,6 +1656,9 @@ and never the objects."
   (parley-transcript--watch-status)
   ;; An `:eval', so the line is built on every redisplay: which session
   ;; the buffer follows is fixed, and what it is doing is not.
+  ;; The grid is drawn in box-drawing characters, which a CJK language
+  ;; environment makes two columns wide.
+  (setq-local char-width-table (parley-transcript--drawn-width-table))
   (setq-local header-line-format '(:eval (parley-transcript--header-line))))
 
 (defun parley-transcript--buffer-name (session)
