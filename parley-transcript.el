@@ -20,35 +20,11 @@
 
 ;;; Commentary:
 
-;; A session's transcript is an append-only JSONL file, so the buffer
-;; that shows the session is a comint buffer whose process reads it.
-;;
-;; One process, not two.  `tail -c +1 -F FILE' starts at byte zero and
-;; then follows, so the history and every later append come down the
-;; same pipe.  Reading the file and then starting a `tail -n0' loses
-;; whatever is appended between the read finishing and the tail
-;; starting, and there is no way to notice that it did.
-;;
-;; jq does the filtering, because Emacs is single threaded.  Measured
-;; on a 26 MB transcript: 23502 lines in, 8651 of them a message, and a
-;; pure elisp pass over all of them costs 2.72 s of blocked UI.  The
-;; same transcript through this pipeline projects to 5300 lines and
-;; 1.3 MB, which settle in the buffer in 5.2 s -- and the tool
-;; payloads, which are the bulk of those 26 MB, never enter the Emacs
-;; process at all.
-;;
-;; What arrives is one object per line, and the render pass turns each
-;; into buffer text: markdown for what the agent said, a quote for what
-;; the operator said, and a single line for a run of tool calls however
-;; many calls went into it.  A turn the harness injected under the
-;; operator's role is marked as such in the transcript, and of those
-;; only a skill load reaches the buffer -- as one line naming the skill.
-;;
-;; comint requires a live process, since `comint-send-input' errors
-;; without one, and this pipeline is it.  Nothing is ever written to
-;; its stdin: `comint-input-sender' takes what the operator submitted
-;; and types it into the session's tmux pane instead, which is the only
-;; door into a session parley did not start.
+;; The buffer that shows a session: a comint buffer over the
+;; session's JSONL transcript, fed by a `tail'/`jq' pipeline, rendered
+;; into conversation on the way in, and typing into the session's tmux
+;; pane.  Why it is shaped this way is docs/architecture/transcript.md,
+;; and why typing goes where it does is docs/architecture/typing.md.
 
 ;;; Code:
 
@@ -172,12 +148,8 @@ skill load collapses to."
 (defun parley-transcript--fontify-buffer ()
   "Return the buffer assistant text is fontified in, creating it if there is none.
 
-One buffer for every message of every session, because turning
-markdown-mode on costs about as much as fontifying the paragraph
-does and a fresh temporary buffer per message pays it thousands
-of times over a long conversation.  Measured over 300 messages of
-a paragraph each: 0.84 s with a temporary buffer per message
-against 0.44 s with one buffer reused.
+One buffer for every message of every session, reused rather than
+made per message -- docs/architecture/transcript.md says why.
 
 `delay-mode-hooks' keeps the operator's `markdown-mode-hook' out
 of a buffer he will never see.  With the leading space in the
@@ -1724,9 +1696,10 @@ and never the objects."
   ;; imenu from re-parsing a large buffer, and there is nothing here to
   ;; parse -- the index is recorded as the conversation arrives and the
   ;; function above only hands it over.  A transcript grows for as long
-  ;; as its session runs, and the 26 MB one renders to 1.3 MB of buffer
-  ;; against a 600 KB default, so the operator would be reading a
-  ;; conversation whose index stopped at the message he opened it on.
+  ;; as its session runs, and the one measured on
+  ;; docs/architecture/transcript.md renders to more than twice the
+  ;; 600 KB default, so the operator would be reading a conversation whose
+  ;; index stopped at the message he opened it on.
   (setq-local imenu-auto-rescan t)
   (setq-local imenu-auto-rescan-maxout most-positive-fixnum)
   ;; After `comint-output-filter-functions' has been given its local
@@ -1845,18 +1818,7 @@ and history and all."
         ;; `process-connection-type', so whatever it happens to be is
         ;; what parley would get.
         ;;
-        ;; A pipe rather than a pty for two measured reasons.  It is
-        ;; what makes `--unbuffered' mean anything: to a terminal jq
-        ;; line buffers on its own, so on a pty the flag is dead and
-        ;; its absence cannot be noticed until the day something else
-        ;; changes.  And it is much the faster of the two -- the 26 MB
-        ;; transcript settles in 4.5 s over a pipe against 10.1 s over
-        ;; a pty, which is the cost of a terminal line discipline
-        ;; between jq and Emacs.
-        ;;
-        ;; Killing the buffer stops the pipeline either way: Emacs puts
-        ;; the process in a group of its own whichever it allocates,
-        ;; and signals the group, so `sh', `tail' and `jq' go together.
+        ;; Why a pipe and not a pty is docs/architecture/transcript.md.
         (let ((process-connection-type nil))
           (make-comint-in-buffer
            (buffer-name) buffer "sh" nil "-c"
@@ -2536,11 +2498,8 @@ into at all, and this is where the operator finds that out."
                                    "-b" "parley" "-t" pane))
       (parley-transcript--tmux
        nil "send-keys" "-t" pane "-l" "--"
-       ;; tmux reads a trailing semicolon in an argument as the
-       ;; separator between two of its own commands and drops it,
-       ;; leaving a backslash before it as the way to write one.  A
-       ;; line of SQL is a line that ends in a semicolon.  Measured
-       ;; against tmux 3.2a: `foo;' arrives as `foo'.
+       ;; tmux drops a trailing semicolon unless a backslash escapes
+       ;; it -- docs/architecture/typing.md has the measurement.
        (replace-regexp-in-string ";\\'" "\\\\;" string)))
     (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
     (push (string-trim string) parley-transcript--sent)

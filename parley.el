@@ -227,38 +227,15 @@ children -- a lane running `claude -p' -- and are left out."
 
 (defun parley-session-tag (session)
   "Return what tells SESSION apart from every other live session.
-Something has to: two sessions in sibling worktrees come back
-under one name, and a switcher row or a buffer name that cannot
-tell them apart lands in the wrong conversation.
+That is its whole session id, and before it, when there is one,
+the SESSION:WINDOW.PANE that `parley--pane-location' resolves the
+record's `:pane' to and a space.  A session outside tmux, or one
+whose pane tmux no longer reports, is tagged by its id alone.  The
+pane id itself is never in the tag, so a `%' in one is the tmux
+session name's own -- see `parley--tmux-pane-locations'.
 
-Its session id, which is the only thing a record carries that
-another record cannot also carry, and where its pane is before
-that when it has one: the SESSION:WINDOW.PANE that
-`parley--pane-location' resolves the record's `:pane' to.  The
-location is what the operator recognises a session by and what he
-searches the switcher with, but it is not enough on its own:
-suspend the session running in a pane, start another there, and
-`claude agents' reports two live sessions in one location.
-
-The pane id is in neither the tag nor anything built from it.  It
-is what `tmux send-keys -t' takes, typing is the only thing that
-needs it, and `:pane' is where it stays.  A `%' in a tag is
-therefore the tmux session name's own and never a pane id, tmux
-allowing one there -- see `parley--tmux-pane-locations'.
-
-A session outside tmux has no pane and so no location, and
-neither has one whose pane tmux no longer reports: the tag of
-each is its session id alone.
-
-The id whole, and not a head of it: a head is a prefix, two ids
-can share one, and two sessions that share a name, a location and
-a prefix are then two the tag cannot tell apart at all -- which
-is the one thing it exists to do.  A long tag is the price, and
-it is the last column of a row and the tail of a buffer name.
-
-It is here rather than in either of the files that need it,
-because both do: the switcher lists it as a column and the
-transcript buffer is named with it."
+Why a name is not enough, why the location is not either, and
+why the id goes in whole is docs/architecture/discovery.md."
   (let* ((id (or (plist-get session :session-id) ""))
          (pane (plist-get session :pane))
          (location (and pane (parley--pane-location pane))))
