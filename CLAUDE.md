@@ -80,10 +80,9 @@ need goes down into `parley.el`, because the other direction closes a cycle and
 
 ### A claim about cost or about another tool is measured
 
-The comments in this tree carry numbers because the numbers are the argument:
-2.72 s of blocked UI against 0.44 s, 26 MB in and 1.3 MB out, 4.5 s over a pipe
-against 10.1 s over a pty, `send-keys -l -- 'foo;'` arriving as `foo` under tmux
-3.2a. **Take the measurement or do not make the claim.** A number nobody took is
+The architecture pages carry numbers because the numbers are the argument —
+`docs/architecture/transcript.md` and `typing.md` are where to see the shape of
+one. **Take the measurement or do not make the claim.** A number nobody took is
 a number nobody can check, and "this looks expensive" is not one.
 
 ## No tombstones
