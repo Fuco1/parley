@@ -3558,6 +3558,28 @@ nothing here to hold together."
       (should (member (list "" link)
                       (mapcar #'parley-transcript-test--cells lines))))))
 
+(ert-deftest parley-transcript-test-keeps-an-escaped-bar-inside-its-cell ()
+  "A bar escaped with a backslash stands inside its cell, and the grid around it.
+
+`\\|' is how an agent puts a bar into a cell of a table, and it is
+no column boundary: `x \\| y' is one cell and not two.  Every line
+of the grid is read back by the boundaries the writer drew, so a
+reader that split at the escaped bar puts a third cell on the row
+it is on, where the header has two.
+
+The escaped bar is counted in the whole of the grid, and it is
+the only one there: the writer draws every boundary in `│', so a
+`|' in a grid is one an agent typed inside a cell."
+  (let* ((form (parley-transcript-test--unnarrowed
+                "| name | note |\n|---|---|\n| x \\| y | z |"))
+         (rows (seq-remove #'null
+                           (mapcar #'parley-transcript-test--cells
+                                   (split-string form "\n")))))
+    (should (equal '(("name" "note") ("x \\| y" "z")) rows))
+    (should (= 1 (seq-count (lambda (character) (eq character ?|))
+                            (string-to-list form))))
+    (should (= 1 (length (seq-uniq (parley-transcript-test--boundaries form)))))))
+
 (ert-deftest parley-transcript-test-shows-a-table-with-no-data-row-as-written ()
   "A table of nothing but delimiter rows is shown as the agent wrote it.
 
