@@ -19,10 +19,10 @@ every page is held to.
 
 **`docs/architecture/` is where architecture goes, and it is the only place it
 goes.** One page owns each subject. When you find something architectural —
-which decision lives where, which constraint forces it, what a measurement came
-to — put it on the page that owns that subject. A commit body is read once and
-a code comment only by whoever opens that file; neither is where the next person
-looks, and both go stale silently because nothing checks prose against code.
+which decision lives where, which constraint forces it — put it on the page
+that owns that subject. A commit body is read once and a code comment only by
+whoever opens that file; neither is where the next person looks, and both go
+stale silently because nothing checks prose against code.
 
 **The tie-breaker between a page and a comment is what the argument is about.**
 Could the sentence have been written before the file existed, and would it still
@@ -86,12 +86,18 @@ loads the library at compile time, so the call compiles clean either way.
   even though a pipe would not get it anyway; a `user-error` on a session with
   no pane rather than a silent no-op.
 
-### A claim about cost or about another tool is measured
+### A cost a decision rests on is measured before the decision
 
-The architecture pages carry numbers because the numbers are the argument —
-`docs/architecture/transcript.md` and `typing.md` are where to see the shape of
-one. **Take the measurement or do not make the claim.** A number nobody took is
-a number nobody can check, and "this looks expensive" is not one.
+**Take the measurement before making the decision, and put the number in the
+commit that makes it.** A number nobody took is a number nobody can check, and
+"this looks expensive" is not one. The commit is where the number stays true:
+it names the tree the number was taken on.
+
+**A page or a comment states the decision and the constraint that forces it,
+and carries no figure.** A number taken on one tree says nothing about the tree
+as it stands, nobody reading it later can recheck it, and the decision it argued
+for is already made. A value the code sets, such as a timer's interval, is not a
+figure in this sense.
 
 ## No tombstones
 
