@@ -64,10 +64,9 @@ lives in a `tool_result' block and in a top-level
 harness injected carries and no turn the operator typed does.  It
 is compared against true rather than emitted as it stands,
 because the field is absent far more often than it is written and
-an absent one would come through as null: measured over the 917
-transcripts on this machine, `isMeta' is true on 929 `user'
-records, absent from the other 215405 messages, and written false
-only on `system' lines, which this projection drops.
+an absent one would come through as null: outside the turns the
+harness injected it is absent, or written false on a `system'
+line, which this projection drops.
 
 A message that renders to nothing is dropped rather than emitted
 empty, which is what becomes of a `tool_result' turn and of an
@@ -98,10 +97,9 @@ stays one line too.
 when its stdout is a terminal and this one is a pipe, so it would
 not colourise anyway -- but `parley-transcript-mode' has taken
 the escape stripping out of the buffer, and `-M' is what keeps
-that safe if the pipeline ever ran on a terminal again.  Measured
-over the 26 MB transcript it leaves no escape byte in the stream
-at all: a control character inside a JSON string is written as
-the six characters \\u001b."
+that safe if the pipeline ever ran on a terminal again.  It
+leaves no escape byte in the stream at all: a control character
+inside a JSON string is written as the six characters \\u001b."
   (concat "tail -c +1 -F " (shell-quote-argument file)
           " | jq -M -c --unbuffered "
           (shell-quote-argument parley-transcript--projection)))
@@ -415,19 +413,16 @@ the phrase further down is a skill quoting one.")
   "What a task notification opens with, and nothing else does.
 Anchored at the very first character and tolerating nothing in
 front of it -- not a space and above all not a newline.  The
-harness writes the tag as the whole of the record's opening:
-every one of the 1622 notifications in the transcripts on this
-machine opens with it at character zero.  So anything standing in
-front of the tag was typed by the operator, and a turn of his
-that quotes it on any line but the first is his own words.")
+harness writes the tag as the whole of the record's opening: a
+notification opens with it at character zero.  So anything
+standing in front of the tag was typed by the operator, and a turn
+of his that quotes it on any line but the first is his own words.")
 
 (defconst parley-transcript--notification-summary-rx
   "<summary>\\(.*\\)</summary>"
   "The tag a task notification's summary reaches the transcript in.
 The group does not cross a newline because the summary does not:
-measured over the 1622 notifications in the transcripts on this
-machine, 1619 carry a summary and every one of those sits on one
-line.")
+a notification carrying one holds it on one line.")
 
 (defun parley-transcript--injection (text)
   "Return the block of buffer text the harness injection TEXT renders to.
@@ -1599,12 +1594,11 @@ name would be."
   ;; this runs on every `M-x imenu' -- `imenu-auto-rescan' is on in
   ;; this buffer -- and the conversation it is here for is the one
   ;; with hundreds of prompts in it.  `names' answers what `assoc'
-  ;; over that list would: 5000 prompts no two of which share a label
-  ;; cost 459 ms that way against 61 ms here.  `counts' holds the
-  ;; number the last prompt of a label took, so the next of them
-  ;; builds one candidate instead of every candidate from 2 up: 200
-  ;; prompts under one label cost 321 ms without it, and 1000 of
-  ;; them 6.8 s.
+  ;; over that list would, without the walk per prompt that would
+  ;; make the pass quadratic in the prompts.  `counts' holds the number the
+  ;; last prompt of a label took, so the next of them builds one
+  ;; candidate instead of every candidate from 2 up, which is
+  ;; quadratic again in the prompts under one label.
   (let ((index nil)
         (names (make-hash-table :test 'equal))
         (counts (make-hash-table :test 'equal)))
@@ -1642,11 +1636,10 @@ that stands for it, so what the buffer holds is the conversation
 and never the objects."
   ;; `ansi-color-process-output' is in the default value of
   ;; `comint-output-filter-functions' as of Emacs 28, and `jq -M'
-  ;; leaves it nothing to find: measured over the 26 MB transcript, not
-  ;; one escape byte reaches the buffer.  Scanning the 1.3 MB for them
-  ;; anyway costs 2.4 s of the 6.9 s that history takes to settle, and
-  ;; not spending Emacs's one thread on a search that cannot succeed is
-  ;; the whole reason jq is in this pipeline.
+  ;; leaves it nothing to find: not one escape byte reaches the
+  ;; buffer.  Scanning the whole history for them anyway spends
+  ;; Emacs's one thread on a search that cannot succeed, and not
+  ;; spending it is the whole reason jq is in this pipeline.
   (setq-local comint-output-filter-functions
               (remq 'ansi-color-process-output comint-output-filter-functions))
   ;; The markup markdown-mode marked `invisible markdown-markup' is
@@ -1673,10 +1666,9 @@ and never the objects."
   ;; imenu from re-parsing a large buffer, and there is nothing here to
   ;; parse -- the index is recorded as the conversation arrives and the
   ;; function above only hands it over.  A transcript grows for as long
-  ;; as its session runs, and the one measured on
-  ;; docs/architecture/transcript.md renders to more than twice the
-  ;; 600 KB default, so the operator would be reading a conversation whose
-  ;; index stopped at the message he opened it on.
+  ;; as its session runs and a long one renders past that limit, so
+  ;; the operator would be reading a conversation whose index stopped
+  ;; at the message he opened it on.
   (setq-local imenu-auto-rescan t)
   (setq-local imenu-auto-rescan-maxout most-positive-fixnum)
   ;; After `comint-output-filter-functions' has been given its local

@@ -4,8 +4,8 @@
 here and any other document disagree, this one wins.
 
 A page carries what the code cannot say about itself: which decision lives
-where, which constraint forces it, what a measurement came to, an alternative
-that fails and the one reason it fails.
+where, which constraint forces it, an alternative that fails and the one reason
+it fails.
 
 ## The pages
 
@@ -28,10 +28,9 @@ against code.
 moment one of them is edited. If the page that owns a subject is wrong, fix that
 page in the same change that made it wrong.
 
-**A measurement is quoted with what it measured.** parley's design turns on
-numbers — what a pure Elisp pass costs against a jq pipeline, what a pty costs
-against a pipe — and a number with no stated tree, transcript size or tool
-version cannot be rechecked.
+**No figures.** A page states a decision and the constraint that forces it, and
+the number a cost came to is in the commit that made the decision; `CLAUDE.md`
+has the rule and it binds here too.
 
 **No tombstones.** A page states what is true now; `CLAUDE.md` has the rule and
 it binds here too.

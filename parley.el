@@ -246,9 +246,9 @@ why the id goes in whole is docs/architecture/discovery.md."
 
 ;; A session writes what it is doing to `PID.json' under
 ;; `parley-sessions-directory', and that file is where this is read
-;; from: `claude agents --json' reads the same files and costs 0.38 s a
-;; call, which is 0.38 s of the one thread Emacs has, and all it adds
-;; is the liveness filter that the two comparisons below make anyway.
+;; from: `claude agents --json' reads the same files and costs a
+;; subprocess on the one thread Emacs has, and all it adds is the
+;; liveness filter that the two comparisons below make anyway.
 ;;
 ;; There is no heartbeat in the file -- it is written in place when the
 ;; session changes what it is doing and not otherwise, so a `busy' with
