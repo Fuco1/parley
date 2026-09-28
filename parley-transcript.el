@@ -30,6 +30,7 @@
 
 (require 'comint)
 (require 'imenu)
+(require 'seq)
 (require 'subr-x)
 (require 'markdown-mode)
 (require 'parley)

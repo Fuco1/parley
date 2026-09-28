@@ -49,6 +49,11 @@ the view, and the view requires neither. Anything both the picker and the view
 need goes down into `parley.el`, because the other direction closes a cycle and
 `require` does not survive one.
 
+**Every file requires each library it calls**, even one another file already
+loads. A function reached through someone else's `require` is a dependency on
+that file's imports, and the byte compiler cannot see it: `(require 'parley)`
+loads the library at compile time, so the call compiles clean either way.
+
 ### Where a new thing goes
 
 - **A `defcustom` goes beside what reads it** — at the top of the file when the
