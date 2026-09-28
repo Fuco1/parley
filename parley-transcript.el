@@ -882,61 +882,14 @@ only thing left for it to do."
         (setq position next))))
   form)
 
-(defun parley-transcript--table-closed (text)
-  "Return TEXT with a bar on the end of every row that ends without one.
-
-The outer bar at the end of a row is optional and an agent
-writing a table by hand leaves it off, and
-`markdown--table-line-to-columns' counts the characters of a line
-against a position in a buffer, so it drops a last cell of one
-column when no bar closes it: measured against the repository's
-markdown-mode, `| a' and `| 1' come back with no cell at all, and
-the last row of `| a | b |', `|---|---|', `| 1 | 2' comes back as
-`(\"1\")'.
-
-It is the copy the grid is written from that is closed and never
-the table itself, so the row the agent left open is still open in
-the table the overlay carries.  What is written into the buffer
-in its place is one grid, and a grid has an edge."
-  (mapconcat (lambda (line)
-               (if (string-suffix-p "|" (string-trim-right line))
-                   line
-                 (concat line " |")))
-             (split-string text "\n")
-             "\n"))
-
-(defun parley-transcript--table-content (text)
-  "Return what TEXT says, with everything a reading of it may drop taken out.
-
-The spaces around a cell, the bars between two of them, the
-dashes and colons a delimiter row is written from, and the line
-breaks -- so a table and the cells read out of it answer this the
-same way exactly when the cells say what the table says.
-
-The line breaks go because the cells are compared joined with
-nothing between them, and a delimiter row goes with them: it is
-dashes and colons and bars throughout, and it carries no cell to
-compare.
-
-A cell's own dashes and colons go with them, which can only make
-two readings agree and never make them differ: what this is asked
-is whether the reading dropped anything, and the answer may not
-be yes when it did not.
-
-What TEXT says is its characters, so the properties come off
-before the scan rather than being carried through it: the cells
-are joined with what the fontification marked still on them, and
-rebuilding that run by run is the greater part of the work here."
-  (replace-regexp-in-string "[ \t\n|:-]" "" (substring-no-properties text)))
-
 (defun parley-transcript--delimiter-row-p (line)
   "Non-nil if LINE is a delimiter row, the one under a table's header.
 
 It opens with a bar and a dash or a colon, blanks allowed either
 side of the bar, and holds nothing but bars, dashes, colons and
-blanks.  The blank after the bar is the case to get right: `| ---
-| --- |' is a delimiter row, and a predicate reading only the
-character after the bar takes it for a row of data."
+blanks.  The blank after the bar is the case to get right:
+`| --- | --- |' is a delimiter row, and a predicate reading only
+the character after the bar takes it for a row of data."
   (string-match-p "\\`[ \t]*|[ \t]*[-:][-:| \t]*\\'" line))
 
 (defun parley-transcript--written (text width)
@@ -957,13 +910,6 @@ reads `buffer-invisibility-spec' to know what is hidden -- the spec
 that names `markdown-markup' is that buffer's, put there by
 `markdown-toggle-markup-hiding'.
 
-What goes into that buffer is the copy
-`parley-transcript--table-closed' returns and never TEXT itself,
-because a row that ends without a bar loses its last cell to the
-cell reader.  Asking that copy whether it is a table answers for
-TEXT too: a table line is one that starts with a bar, and a bar
-put on the end of a line moves nothing at the start of it.
-
 Nil if TEXT is not a table, which is markdown-mode's own
 question.  Nil as well for a table of nothing but delimiter rows,
 which has nothing in it to line up: the widths come from the
@@ -973,29 +919,17 @@ a row of two bars.  Whether a row is a delimiter row is
 refused for holding nothing else is the table every row would be
 sorted out of.
 
-Nil, last, when the cells do not say what TEXT says.  Where a
-cell begins and ends is markdown-mode's own
-`markdown--table-line-to-columns' and which markdown-mode is
-under this buffer is the operator's business, so a version of it
-that dropped a cell would put that cell's row in the buffer
-without it -- and a cell the operator cannot read at all is worse
-than a table that is merely ragged.  It is the cells that are
-held to TEXT and not the grid written from them, because a wrap
-takes a cell down the lines its row spreads over: read back
-across a line the grid says its columns in one order and TEXT
-says them in another, where the cells are in the order TEXT has
-them whatever any width does to the grid.
-
-A cell may hold a bar that is no column boundary -- the one
-inside a wiki link, which `markdown--table-line-to-columns' reads
-over.  It reaches the buffer as the agent wrote it, inside its
-cell, because the boundaries are drawn where the writer knows
-they are and nothing scans a cell for a bar.
-`parley-transcript--cell-words' is what hands the wrap such a
-link whole rather than as words it may break apart."
+A cell may hold a bar that is no column boundary -- one escaped
+with a backslash, and the one inside a wiki link, both of which
+`parley-transcript--table-cells' reads over.  It reaches the
+buffer as the agent wrote it, inside its cell, because the
+boundaries are drawn where the writer knows they are and nothing
+scans a cell for a bar.  `parley-transcript--cell-words' is what
+hands the wrap such a link whole rather than as words it may
+break apart."
   (with-current-buffer (parley-transcript--fontify-buffer)
     (erase-buffer)
-    (insert (parley-transcript--table-closed text))
+    (insert text)
     (font-lock-ensure)
     (goto-char (point-min))
     (when (and (markdown-table-at-point-p)
@@ -1011,75 +945,60 @@ link whole rather than as words it may break apart."
              (widths (parley-transcript--column-widths (remq nil rows) width))
              (marks (markdown-table-colfmt
                      (seq-find #'parley-transcript--delimiter-row-p lines))))
-        (when (equal (parley-transcript--table-content
-                      (mapconcat (lambda (row) (string-join row)) rows ""))
-                     (parley-transcript--table-content text))
-          (string-join
-           (append
-            (list (parley-transcript--table-rule widths "┌" "┬" "┐"))
-            (mapcar (lambda (row)
-                      (if row
-                          (parley-transcript--wrapped-row row widths marks)
-                        (parley-transcript--table-rule widths "├" "┼" "┤")))
-                    rows)
-            (list (parley-transcript--table-rule widths "└" "┴" "┘")))
-           "\n"))))))
+        (string-join
+         (append
+          (list (parley-transcript--table-rule widths "┌" "┬" "┐"))
+          (mapcar (lambda (row)
+                    (if row
+                        (parley-transcript--wrapped-row row widths marks)
+                      (parley-transcript--table-rule widths "├" "┼" "┤")))
+                  rows)
+          (list (parley-transcript--table-rule widths "└" "┴" "┘")))
+         "\n")))))
 
 (defun parley-transcript--table-cells (line)
   "Return the cells LINE holds, each carrying the properties LINE carries.
 
-Where a cell begins and ends is `markdown--table-line-to-columns',
-because that is what reads over the bar inside a wiki link and
-the escaped bar -- and it hands back text with nothing on it.  A
-cell is a verbatim substring of the line it was read from, so
-what the fontification marked is taken back off LINE by position.
+LINE is split at every bar but three: the one it opens with, one
+escaped with a backslash, and one inside a wiki link --
+`[[target|link words]]' is one cell and not two, and
+`parley-transcript--wiki-links' is where such a link stands.  The
+blanks either side of a cell go with the bar.
 
-Each search starts where the last cell ended, so two cells of one
-text are two cells and not one found twice.  What stands between
-them is the run of spaces and the bar the reader consumed, and a
-cell begins with neither -- the reader trims the space around a
-cell away -- so no search can land inside one.
+A last cell no bar closes is a cell like any other.  The bar at
+the end of a row is optional and an agent writing a table by hand
+leaves it off, and a cell lost on the way into the grid is a cell
+the operator cannot read at all.
 
-A cell the reader did not take verbatim off LINE comes back
-unpainted rather than signalling, because this runs in an output
-filter.  Whether such a table is written at all is
-`parley-transcript--written''s question, and it asks it of every
-cell together."
-  (let ((at 0))
-    (mapcar (lambda (cell)
-              (let ((from (string-search cell line at)))
-                (if (not from)
-                    cell
-                  (setq at (+ from (length cell)))
-                  (substring line from at))))
-            (markdown--table-line-to-columns
-             (substring-no-properties line)))))
+A cell is a substring of LINE, so what the fontification marked
+is on it, taken from the cell's own place in the row."
+  (let ((links (parley-transcript--wiki-links line))
+        (cells nil)
+        (from 0)
+        (at 0))
+    (while (string-match "|" line at)
+      (let ((bar (match-beginning 0)))
+        (setq at (1+ bar))
+        (unless (or (and (> bar 0) (eq (aref line (1- bar)) ?\\))
+                    (seq-some (lambda (link) (< (car link) bar (cdr link)))
+                              links))
+          (let ((cell (string-trim (substring line from bar))))
+            (unless (and (= from 0) (string-empty-p cell))
+              (push cell cells)))
+          (setq from at))))
+    (let ((cell (string-trim (substring line from))))
+      (unless (string-empty-p cell)
+        (push cell cells)))
+    (nreverse cells)))
 
-(defun parley-transcript--cell-words (text)
-  "Return the pieces of TEXT a wrap may put on lines of their own.
+(defun parley-transcript--wiki-links (text)
+  "Return where each wiki link in TEXT holding a bar stands, as (START . END).
 
-The words, except that a wiki link holding a bar is one piece
-however many spaces stand inside it.  That bar is not a column
-boundary -- `markdown--table-line-to-columns' reads over it, so
-`[[target|link words]]' is one cell and not two, and every
-boundary in the grid is a `│' the writer drew -- so it stands in
-the cell the agent put it in and the operator reads it there.
-What a break costs is the link: `[[target|link' on a line of its
-own is that construct left open, and nothing reading the form
-back has a link there any more.
-
-Whether a link is read at all is markdown-mode's own
-`markdown-enable-wiki-links', which is what
-`markdown--thing-at-wiki-link' asks before the cell reader passes
-over a bar.  With links off that bar is a boundary, what stands
-either side of it is a cell of its own, and there is nothing here
-to hold together.
-
-A link carrying no bar is broken like any other run of words,
-because it is the bar that says where the target ends and the
-words begin.  A piece held together is a piece the column it
-stands in cannot be narrowed past, which is width the table pays
-for."
+The bar is what says where the target ends and the words begin,
+and it is no column boundary while the link is whole.  None while
+`markdown-enable-wiki-links' is off, which is markdown-mode's own
+switch: with links off that bar is a boundary, what stands either
+side of it is a cell of its own, and no link holds it."
   (let ((links nil)
         (from 0))
     (while (and markdown-enable-wiki-links
@@ -1087,22 +1006,48 @@ for."
       (setq from (match-end 1))
       (when (match-beginning 4)
         (push (cons (match-beginning 1) (match-end 1)) links)))
-    (let ((words nil)
-          (cut 0)
-          (at 0))
-      (while (string-match "[ \t]+" text at)
-        (let ((beginning (match-beginning 0))
-              (end (match-end 0)))
-          (setq at end)
-          (unless (seq-some (lambda (link)
-                              (and (< (car link) beginning) (< end (cdr link))))
-                            links)
-            (when (< cut beginning)
-              (push (substring text cut beginning) words))
-            (setq cut end))))
-      (when (< cut (length text))
-        (push (substring text cut) words))
-      (nreverse words))))
+    links))
+
+(defun parley-transcript--cell-words (text)
+  "Return the pieces of TEXT a wrap may put on lines of their own.
+
+The words, except that a wiki link holding a bar is one piece
+however many spaces stand inside it.  That bar is not a column
+boundary -- `parley-transcript--table-cells' reads over it, so
+`[[target|link words]]' is one cell and not two, and every
+boundary in the grid is a `│' the writer drew -- so it stands in
+the cell the agent put it in and the operator reads it there.
+What a break costs is the link: `[[target|link' on a line of its
+own is that construct left open, and nothing reading the form
+back has a link there any more.
+
+The links held together are `parley-transcript--wiki-links', the
+ones the cell reader reads over, so there is none while
+`markdown-enable-wiki-links' is off: that bar is then a boundary
+and there is nothing here to hold together.
+
+A link carrying no bar is broken like any other run of words,
+because it is the bar that says where the target ends and the
+words begin.  A piece held together is a piece the column it
+stands in cannot be narrowed past, which is width the table pays
+for."
+  (let ((links (parley-transcript--wiki-links text))
+        (words nil)
+        (cut 0)
+        (at 0))
+    (while (string-match "[ \t]+" text at)
+      (let ((beginning (match-beginning 0))
+            (end (match-end 0)))
+        (setq at end)
+        (unless (seq-some (lambda (link)
+                            (and (< (car link) beginning) (< end (cdr link))))
+                          links)
+          (when (< cut beginning)
+            (push (substring text cut beginning) words))
+          (setq cut end))))
+    (when (< cut (length text))
+      (push (substring text cut) words))
+    (nreverse words)))
 
 (defun parley-transcript--string-width (text)
   "Return the columns TEXT takes on screen, a hidden character taking none.

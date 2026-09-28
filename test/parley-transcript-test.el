@@ -2761,11 +2761,11 @@ the wrong text and pass everything else here.
 
 The rows of that second one end without the closing bar the first
 one's have, which is the other way an agent writes a table, and
-its last cell is one column wide -- which is the cell the cell
-reader drops when no bar closes it, unless the copy it is given
-has that bar put back.  Every cell of it is read out of what was rendered
-for that reason, and each of those one-column cells is a
-character the rest of the table does not hold."
+its last cell is one column wide -- which is the cell a reader
+loses first when it takes the closing bar for granted.  Every
+cell of it is read out of what was rendered for that reason, and
+each of those one-column cells is a character the rest of the
+table does not hold."
   (skip-unless (executable-find "jq"))
   (let ((other (concat "| id | flag\n"
                        "|---|---\n"
@@ -3144,11 +3144,7 @@ from it."
 A wrap takes the cells of one row down the lines it spreads over,
 so read across a line the grid says the head of the first cell,
 the head of the second and the head of the third where the table
-says the whole of the first before the second begins.  What holds
-the grid to the table is therefore asked of the cells the reader
-handed over and not of the grid written from them: asked across a
-line it would refuse every table with two columns wrapped, which
-is what this fixture is.
+says the whole of the first before the second begins.
 
 Each column is read back down the lines of the grid here and
 joined, which is the order that survives a wrap, and has to say
@@ -3342,13 +3338,12 @@ strips."
 (ert-deftest parley-transcript-test-paints-a-cell-from-its-own-place-in-the-row ()
   "Two cells of one text are each painted from where it stands.
 
-The cell reader hands back text with nothing on it, so what the
-fontification marked is taken off the line the cell was read from
-by position -- and a row holding `**bold**' in one column and
-`bold' in the next is the case that says whose position it is.
-Searched from the head of the line every time, the plain cell
-would come back painted bold, with the hidden markers of the
-other cell either side of it.
+A cell carries what the fontification marked on the line it was
+read from at its own place in that line -- and a row holding
+`**bold**' in one column and `bold' in the next is the case that
+says whose place it is.  Painted from the first place its text
+stands on the line, the plain cell would come back bold, with the
+hidden markers of the other cell either side of it.
 
 The cells are read back out of the grid by its boundaries, which
 is where the writer put them, so a reading that painted the wrong
@@ -3471,7 +3466,7 @@ and ragged on screen."
 (ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
   "A bar standing inside a cell is the agent's, and the grid is drawn around it.
 
-The bar inside a wiki link is one markdown-mode reads over, so
+The bar inside a wiki link is one the cell reader reads over, so
 `[[target|link words]]' is one cell and not two -- and it is read
 over only while the link is whole.  A wrap that broke the link at
 its space would leave `[[target|link' standing on a line of its
@@ -3572,15 +3567,14 @@ guard tightened until nothing at all is aligned fails here."
   "A table whose rows leave the closing bar off is aligned, and all of it is there.
 
 The outer bar at the end of a row is optional, which is how an
-agent writes a table by hand, and
-`markdown--table-line-to-columns' drops a last cell of one column
-when no bar closes it -- so what the cells are read out of is a
-copy with those bars put back.  Every cell of the text has to
-stand in the grid, because a grid that lost a cell is a cell of
-the agent's the operator cannot read at all.
+agent writes a table by hand, so a last cell no bar closes is a
+cell like any other.  Every cell of the text has to stand in the
+grid, because a grid that lost a cell is a cell of the agent's
+the operator cannot read at all.
 
-The last of them is a table of one column, where the cell that
-would be dropped is the only cell there is.
+The last of them is a table of one column of one character each,
+where a reader that lost the cell no bar closes loses the only
+cell there is.
 
 The grid stands two lines taller than the table it was written
 from, which are the rule over its head and the rule under its
@@ -3596,30 +3590,6 @@ foot."
                  (length (split-string aligned "\n"))))
       (dolist (cell (cdr case))
         (should (string-search cell aligned))))))
-
-(ert-deftest parley-transcript-test-shows-a-table-a-reader-would-cut-as-written ()
-  "A table whose grid does not say what the text says is shown as written.
-
-Where a cell begins and ends is markdown-mode's own
-`markdown--table-line-to-columns', and which markdown-mode is
-under the buffer is the operator's business: a version of it that
-dropped a cell would write that cell's row into the buffer
-without it.  The reader is stood in for here because the one in
-this tree keeps every cell of a table the closing bars were put
-back on, and what is under test is what becomes of a grid written
-from a reading that does not.
-
-A reader that keeps every cell is stood in the same way, so that
-what refuses the first is the cell it dropped and not the
-standing in."
-  (let ((text "| a | b |\n|---|---|\n| 1 | 2 |")
-        (reader (symbol-function 'markdown--table-line-to-columns)))
-    (cl-letf (((symbol-function 'markdown--table-line-to-columns)
-               (lambda (line) (butlast (funcall reader line)))))
-      (should-not (parley-transcript--aligned text 80)))
-    (cl-letf (((symbol-function 'markdown--table-line-to-columns)
-               (lambda (line) (funcall reader line))))
-      (should (parley-transcript--aligned text 80)))))
 
 (ert-deftest parley-transcript-test-leaves-a-table-in-a-fence-as-written ()
   "A table inside a fenced code block is shown as the agent wrote it.
