@@ -370,9 +370,11 @@ to thirteen characters on every line of the table, and the line the bold is on
 then stands in eleven columns where every other line stands in fifteen.
 
 **Every width the grid is written to is measured on what the rendering shows.**
-`markdown--string-width` is markdown-mode's own answer for that width, and it is
-what a column's width, the floor under it, the room a wrapped line is packed
-into and the padding that fills a cell out are all taken with. It reads
+That width is `string-width` over what is left of the text once every character
+the buffer's invisibility spec hides is taken out, and it is what a column's
+width, the floor under it, the room a wrapped line is packed into and the
+padding that fills a cell out are all taken with. markdown-mode's measure of it
+is private to markdown-mode, so parley carries the few lines itself. It reads
 `buffer-invisibility-spec` to know what is hidden, which is the other reason the
 grid is written in the buffer the fontification happens in: that spec is the one
 `markdown-toggle-markup-hiding` put `markdown-markup` into.

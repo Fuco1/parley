@@ -3557,11 +3557,10 @@ grid or nil, because this is called from an output filter and
 from a hook run during redisplay, where a signal is a
 conversation that stops rendering and says nothing about why.
 
-A delimiter row is what markdown-mode calls one and is asked with
-markdown-mode's own predicate, because that is the predicate the
-cells are sorted out by: `| --- | --- |' is a delimiter row with
-a space after the bar, which reads as a row of data to anything
-matching on the character after it.
+A delimiter row is asked with the predicate the cells are sorted
+out by: `| --- | --- |' is a delimiter row with a space after the
+bar, which reads as a row of data to anything matching on the
+character after it.
 
 The table with rows in it is aligned in the same breath, so a
 guard tightened until nothing at all is aligned fails here."
