@@ -69,6 +69,9 @@ loads the library at compile time, so the call compiles clean either way.
 
 - **`parley--` for what only its own file calls, `parley-` for what another file
   may.** Two dashes mean private, and nothing outside that file may reach it.
+  Another package's double-dash names are private to that package in the same
+  way: parley calls its public surface or owns the few lines itself, and reaches
+  a private only where neither will do, with the reason written at the call.
 - **`` `foo' `` quoting for a symbol inside a docstring**, which is what Emacs
   renders as a link.
 - **Two spaces after a period**, in docstrings and in comments.
