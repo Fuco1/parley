@@ -30,11 +30,10 @@ header names it, and it is the one dependency parley has that is soft.
 ## Without sallet the pick is the minibuffer reader
 
 **With sallet not on the load path, `parley-switch` picks with
-`parley-read-session`**: one `completing-read` over one row per session, the
-same row the sallet renderer draws, with every column in it. The rows, their
-order and their colours are the same in both frontends, and
-[discovery](discovery.md) owns why. What the fallback loses is the aim: a token
-is matched against the whole row, as above.
+`parley-read-session`**, a `completing-read` over the sessions. What a row
+holds and how the two frontends draw it is [discovery](discovery.md)'s. What the
+fallback loses is the aim: a token is matched against the whole of a row, as
+above.
 
 The reader is in `parley.el` rather than beside the picker, and `CLAUDE.md`
 says why.
