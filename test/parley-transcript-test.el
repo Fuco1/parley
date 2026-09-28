@@ -2435,8 +2435,9 @@ is given, and the set to give is `|' -- the table an agent wrote
 is the case that says a test of this can fail, its bars standing
 in a different place on every line.
 
-A column and not a character, which is `markdown--string-width'
-over what stands before the boundary: a character hidden by
+A column and not a character, which is
+`parley-transcript-test--width' over what stands before the
+boundary: a character hidden by
 `invisible markdown-markup' takes no column, so a boundary behind
 a cell of `**bold**' stands four characters further along its
 line than the column it is in."
@@ -2445,7 +2446,8 @@ line than the column it is in."
               (let ((columns nil))
                 (dotimes (position (length line))
                   (when (seq-contains-p characters (aref line position))
-                    (push (markdown--string-width (substring line 0 position))
+                    (push (parley-transcript-test--width
+                           (substring line 0 position))
                           columns)))
                 (nreverse columns)))
             (split-string text "\n"))))
@@ -2468,20 +2470,13 @@ carries no cell."
 
 (defun parley-transcript-test--columns (text)
   "Return how many columns the widest line of TEXT takes up on screen.
-`markdown--string-width' and not `length', because a table of CJK
-text is aligned in columns and lines up in none, and because a
-character hidden by `invisible markdown-markup' is a character
-that takes up none of them -- which is the measure the writer
-takes every width in a grid with.
-
-It reads the current buffer's `buffer-invisibility-spec' to know
-what is hidden, and answers as the operator reads only where that
-spec names `markdown-markup'.  Batch Emacs leaves the default of
-t, under which every `invisible' hides, so a test asking this
-outside a transcript buffer is asking it under that default.
-
-"
-  (apply #'max 0 (mapcar #'markdown--string-width (split-string text "\n"))))
+`parley-transcript-test--width' and not `length', because a table
+of CJK text is aligned in columns and lines up in none, and
+because a character hidden by `invisible markdown-markup' is a
+character that takes up none of them -- which is the measure the
+writer takes every width in a grid with."
+  (apply #'max 0 (mapcar #'parley-transcript-test--width
+                         (split-string text "\n"))))
 
 (defun parley-transcript-test--unnarrowed (text)
   "Return the grid parley writes for TEXT with no column narrowed.
@@ -2492,9 +2487,28 @@ cell."
 
 (defun parley-transcript-test--visible (text)
   "Return TEXT as the operator reads it, with the hidden markup taken out.
-`markdown--remove-invisible-markup' is markdown-mode's own, and
-takes out what it marked `invisible markdown-markup'."
-  (markdown--remove-invisible-markup text))
+What markdown-mode hides it marks `invisible markdown-markup', and
+that value is what is taken out.  It is asked of the property and
+not of `invisible-p', which is how the writer asks, so the writer
+and the test measuring it are not one question asked twice."
+  (let ((shown nil)
+        (at 0)
+        (end (length text)))
+    (while (< at end)
+      (let ((next (next-single-property-change at 'invisible text end)))
+        (unless (eq 'markdown-markup (get-text-property at 'invisible text))
+          (push (substring text at next) shown))
+        (setq at next)))
+    (apply #'concat (nreverse shown))))
+
+(defun parley-transcript-test--width (text)
+  "Return the columns TEXT takes up on screen, its hidden markup taking none.
+`string-width' over `parley-transcript-test--visible', so a CJK
+character is two columns and a character marked `invisible
+markdown-markup' is none.  That markup is hidden wherever a test
+asks this: a transcript buffer's `buffer-invisibility-spec' names
+it, and batch Emacs's default of t hides every `invisible'."
+  (string-width (parley-transcript-test--visible text)))
 
 (defun parley-transcript-test--face-at (text string)
   "Return the faces TEXT carries where STRING first stands in it, as a list.
@@ -2643,9 +2657,10 @@ is the thing the second call of a pair would catch."
                    (dolist (character (string-to-list
                                        parley-transcript--drawn-characters))
                      (should (= 1 (char-width character))))
-                   (should (= 1 (length (seq-uniq
-                                         (mapcar #'markdown--string-width
-                                                 lines)))))
+                   (should (= 1 (length
+                                (seq-uniq
+                                 (mapcar #'parley-transcript-test--width
+                                         lines)))))
                    (should (= 1 (length (seq-uniq
                                          (parley-transcript-test--boundaries
                                           form)))))
@@ -3275,13 +3290,13 @@ Everywhere else in a message `**bold**' shows as bold and
 on and the render pass copies what markdown-mode marked
 `invisible'.  A cell is no exception, and what it takes is one
 writer: a character hidden by `invisible markdown-markup' costs
-no column, and `markdown--string-width' is what every width in
-the grid is measured with so that it costs none.
+no column, and every width in the grid is measured so that it
+costs none.
 
-The markers are read back out of the form with markdown-mode's
-own `markdown--remove-invisible-markup', which is what the
-operator sees, and the faces are read off the text the markers
-stand around.
+The markers are read back out of the form with
+`parley-transcript-test--visible', which is what the operator
+sees, and the faces are read off the text the markers stand
+around.
 
 The first column is what says the measurement is the rendering's:
 `**bold**' is eight characters and four columns, `plainlonger' is
@@ -3367,8 +3382,8 @@ the rule under that come first."
 
 A grid is characters standing in columns and a `display' property
 is a width no measurement of those characters can take: the `2'
-of `x^2^' is one character and `markdown--string-width' counts it
-as one column, where the property markdown-mode raises and
+of `x^2^' is one character and the writer's measure counts it as
+one column, where the property markdown-mode raises and
 shrinks it with puts it on screen as less than one.  So
 `parley-transcript--cell-properties' leaves that property behind
 and takes what hides the markers around it, which is `invisible'
@@ -3460,7 +3475,8 @@ and ragged on screen."
                      "└────┴─────────────────┘")
                    (split-string (parley-transcript-test--visible form) "\n")))
     (should (= 24 (parley-transcript-test--columns form)))
-    (should (= 1 (length (seq-uniq (mapcar #'markdown--string-width lines)))))
+    (should (= 1 (length (seq-uniq (mapcar #'parley-transcript-test--width
+                                           lines)))))
     (should (< 1 (length (seq-uniq (mapcar #'length lines)))))))
 
 (ert-deftest parley-transcript-test-keeps-a-bar-inside-a-cell-out-of-the-grid ()
