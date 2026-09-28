@@ -269,10 +269,10 @@ every render is computed from.
 finished form.** parley writes every grid itself, so the writer is what puts
 each boundary where it is and the only thing that knows where one is. A pass
 over the finished form could not: a cell can hold a bar of its own —
-`[[target|link words]]` is one cell to markdown-mode's reader — and that bar
-stands where no column ends, so a substitution would draw a boundary inside the
-cell. Nothing scans a cell for a bar, and a bar inside one reaches the buffer
-exactly as the agent wrote it.
+`[[target|link words]]` is one cell to the reader — and that bar stands where no
+column ends, so a substitution would draw a boundary inside the cell. Nothing
+scans a cell for a bar, and a bar inside one reaches the buffer exactly as the
+agent wrote it.
 
 **The `:---:` of a delimiter row is said by the padding.** How a column is
 aligned is not something anyone reads off a drawn table, and it is not lost:
@@ -370,9 +370,11 @@ to thirteen characters on every line of the table, and the line the bold is on
 then stands in eleven columns where every other line stands in fifteen.
 
 **Every width the grid is written to is measured on what the rendering shows.**
-`markdown--string-width` is markdown-mode's own answer for that width, and it is
-what a column's width, the floor under it, the room a wrapped line is packed
-into and the padding that fills a cell out are all taken with. It reads
+That width is `string-width` over what is left of the text once every character
+the buffer's invisibility spec hides is taken out, and it is what a column's
+width, the floor under it, the room a wrapped line is packed into and the
+padding that fills a cell out are all taken with. markdown-mode's measure of it
+is private to markdown-mode, so parley carries the few lines itself. It reads
 `buffer-invisibility-spec` to know what is hidden, which is the other reason the
 grid is written in the buffer the fontification happens in: that spec is the one
 `markdown-toggle-markup-hiding` put `markdown-markup` into.
@@ -387,11 +389,11 @@ character is the one thing done to a cell that the measurement and the screen
 agree the width of.
 
 **The cells reach the writer with what the fontification marked still on them.**
-Where a cell begins and ends is markdown-mode's own cell reader, because that is
-what reads over the bar inside a wiki link and the escaped bar — and it hands
-back text with nothing on it. A cell is a verbatim substring of the line it was
-read from, so what the fontification marked is taken back off that line by
-position, each cell searched for from where the last one ended.
+parley reads them itself, off the fontified line: a row is split at every bar
+but the one it opens with, one escaped with a backslash and one inside a wiki
+link holding a bar, and a cell is a substring of that line, so what the
+fontification marked is on it at its own place in the row. markdown-mode's own
+reader is private to markdown-mode, and it hands back text with nothing on it.
 
 **A column the delimiter row marks is padded the way it is marked.** Right puts
 the padding in front of the cell and centred splits it either side; a column
@@ -407,13 +409,12 @@ and all. That is every cell of every table that fits the window, and it is the
 cheaper answer as well.
 
 **A wrap never breaks a construct a bar stands in.** A cell can hold a bar that
-is no column boundary — the one inside a wiki link, which markdown-mode's own
-cell reader passes over — and it is read over only while the link is whole. A
-line carrying `[[target|link` alone is that construct left open, and what the
-break costs is the link: nothing reading the form back has one there any more.
-So a link holding a bar is one piece of the wrap however many spaces stand
-inside it, and the column it is in is floored by it exactly as a long word
-floors one.
+is no column boundary — the one inside a wiki link, which the cell reader passes
+over — and it is read over only while the link is whole. A line carrying
+`[[target|link` alone is that construct left open, and what the break costs is
+the link: nothing reading the form back has one there any more. So a link
+holding a bar is one piece of the wrap however many spaces stand inside it, and
+the column it is in is floored by it exactly as a long word floors one.
 
 **A cell nothing can narrow sets a floor under its column.** Wrapping packs the
 pieces of a cell — its words, and a wiki link holding a bar entire — and breaks
@@ -426,23 +427,12 @@ packing does at any width; it is what stops the columns beside an incompressible
 one being packed tighter than the table they share will ever be.
 
 **The rendered form closes a row the agent left open.** The outer bar at the end
-of a row is optional, and a table written by hand leaves it off; the grid always
-draws that boundary, because what the cells are read out of is a copy of the
-table with those bars put back. Without them the reader takes such a row as a row with one
-cell fewer, and a cell dropped on the way into the buffer is a cell of the
-agent's the operator cannot read at all, where a ragged table is merely ragged.
-The row stays open in the table the overlay carries, which is what every later
-render reads.
-
-**The cells are held to the table, and the grid written from them is not.** The
-cell reader is markdown-mode's, and which markdown-mode is under the buffer is
-the operator's business: a version of it that dropped a cell would put that
-cell's row in the buffer without it. So what it handed back is compared with
-what the agent typed, with everything either may space or bar or break
-differently taken out, before anything is written. It is the cells that are
-compared and not the grid, because a wrap takes a cell down the lines its row
-spreads over: read back across a line the grid says the head of every cell where
-the table says the whole of the first before the second begins.
+of a row is optional, and a table written by hand leaves it off. The reader
+takes the last cell of such a row as a cell like any other, and the grid draws
+the boundary after it as it draws every boundary: a cell dropped on the way into
+the buffer is a cell of the agent's the operator cannot read at all, where a
+ragged table is merely ragged. The row stays open in the table the overlay
+carries, which is what every later render reads.
 
 **A table is what markdown-mode calls one**, which is narrower than what the
 agent may have meant. A line that does not open with a bar is not a table line
