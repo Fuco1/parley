@@ -29,21 +29,8 @@
 ;; the view.  A dozen or two sessions is the whole list, so nothing
 ;; here is asynchronous.
 ;;
-;; sallet is what this file is for.  The five columns of
-;; `parley-session-fields' are a vector it matches and renders one
-;; column at a time, which is the reason to reach for it here; without
-;; it the pick is `parley-read-session', which matches the same five
-;; baked into one flat row.  Both offer the sessions
-;; `parley-sessions-by-status' ordered.
-;;
-;; The list, the columns and that reader are in `parley' because
-;; `parley-transcript' reads a session too -- it is a command as well,
-;; and one called with no session in hand has to ask for one.  The
-;; requiring goes one way only: the picker knows the view, the view
-;; knows nothing of the picker, so what both need is below both.
-;;
-;; sallet is optional.  It is required with noerror and its functions
-;; are declared, so nothing in the package headers names it.
+;; docs/architecture/switcher.md says why the picker is built on
+;; sallet, why sallet is optional, and what the pick is without it.
 
 ;;; Code:
 
