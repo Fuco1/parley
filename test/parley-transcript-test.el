@@ -1078,6 +1078,30 @@ was asked for."
       (delete-file (plist-get one :transcript))
       (delete-file (plist-get two :transcript)))))
 
+(ert-deftest parley-transcript-test-keeps-the-pipeline-for-a-newer-record ()
+  "Called again for a session it follows, the buffer keeps its pipeline.
+The second call hands over a record of its own -- the same
+session as `claude agents' reports it a moment later -- so
+finding the buffer by the record rather than by the session it
+names would open a second one.  The process is the one the first
+call started, so the history already in the buffer is still there
+and no second pipeline runs, and the record the buffer follows is
+the newer one, because what `claude agents' said goes stale."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (let ((process (get-buffer-process buffer))
+          (again (plist-put (copy-sequence
+                             (buffer-local-value 'parley-transcript-session
+                                                 buffer))
+                            :status "busy")))
+      (should (process-live-p process))
+      (save-window-excursion (parley-transcript again))
+      (should (equal (parley-transcript-test--buffers) (list buffer)))
+      (should (eq (get-buffer-process buffer) process))
+      (should (process-live-p process))
+      (should (eq (buffer-local-value 'parley-transcript-session buffer)
+                  again)))))
+
 
 ;;; The session's live status
 
