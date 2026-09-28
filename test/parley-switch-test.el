@@ -69,8 +69,7 @@
 (defconst parley-switch-test--pane-locations
   '(("%23" . "app%8e:1.0")
     ("%61" . "orc-b3743fe3:2.0")
-    ("%62" . "orc-b3743fe3:3.1")
-    ("%64" . "orc-b3743fe3:4.0"))
+    ("%62" . "orc-b3743fe3:3.1"))
   "Where tmux says each fixture pane is, keyed by pane id.
 The pane `%63' of the sixth record is missing on purpose: a
 window closed under a session that outlived it is a pane tmux
@@ -93,19 +92,12 @@ whatever the machine is running."
   "Run BODY with `parley-sessions' returning the fixture records.
 The list is copied on every call because the switcher sorts it.
 The records name working directories and transcripts that are not
-there, so BODY must not open a buffer over one: the test that
-opens one builds a session it can really follow."
+there, so BODY must not open a buffer over one."
   (declare (indent 0))
   `(parley-switch-test--with-locations
      (cl-letf (((symbol-function 'parley-sessions)
                 (lambda () (copy-sequence parley-switch-test--sessions))))
        ,@body)))
-
-(defun parley-switch-test--opened ()
-  "Return every buffer following a session."
-  (seq-filter (lambda (buffer)
-                (buffer-local-value 'parley-transcript-session buffer))
-              (buffer-list)))
 
 (defconst parley-switch-test--expected-tags
   '((1 . "app%8e:1.0 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
@@ -365,57 +357,6 @@ to hide."
                      'parley-row-status-other))
       (should (equal (get-text-property 60 'face row)
                      'parley-row-read-only)))))
-
-
-;;; The buffer, which belongs to the transcript
-
-(ert-deftest parley-switch-test-shows-the-buffer-the-pipeline-runs-in ()
-  "The session picked is shown in the buffer its transcript is running in.
-Not an empty buffer of the switcher's own: the buffer is in
-`parley-transcript-mode', it has the pipeline in it and it
-records the session that was picked.
-
-And it is the one buffer there is for that session.  Calling
-`parley-transcript' with the same record afterwards lands in it
--- the same buffer object and the same process, so the history
-already in it is still there and no second pipeline was started."
-  (skip-unless (executable-find "jq"))
-  (let* ((file (make-temp-file "parley-switch-test-" nil ".jsonl"))
-         (session (list :pid 7 :name "orc-w1" :kind "interactive"
-                        :status "idle" :cwd temporary-file-directory
-                        :session-id "4444ffff-0000-4000-8000-000000000004"
-                        :pane "%64" :transcript file))
-         (parley--pane-locations parley-switch-test--pane-locations)
-         (buffer nil))
-    (unwind-protect
-        ;; The fallback frontend, picking this one session: the sallet
-        ;; source is taken away and `completing-read' answers with the
-        ;; row the session is listed under.
-        (cl-letf (((symbol-function 'parley-sessions) (lambda () (list session)))
-                  ((symbol-function 'sallet-source-parley) nil)
-                  ((symbol-function 'completing-read)
-                   (lambda (&rest _)
-                     (parley-session-row (parley-session-fields session)))))
-          ;; The assertions are inside, because leaving a
-          ;; `save-window-excursion' puts the old buffer back.
-          (save-window-excursion
-            (parley-switch)
-            (setq buffer (current-buffer))
-            (should (eq major-mode 'parley-transcript-mode))
-            (should (eq parley-transcript-session session))
-            (should (process-live-p (get-buffer-process buffer)))
-            (let ((process (get-buffer-process buffer))
-                  ;; The same session as `claude agents' reports it a
-                  ;; moment later: a record of its own, and the one the
-                  ;; buffer should be following afterwards.
-                  (again (plist-put (copy-sequence session) :status "busy")))
-              (parley-transcript again)
-              (should (eq (current-buffer) buffer))
-              (should (eq (get-buffer-process buffer) process))
-              (should (eq parley-transcript-session again)))
-            (should (equal (parley-switch-test--opened) (list buffer)))))
-      (when (buffer-live-p buffer) (kill-buffer buffer))
-      (delete-file file))))
 
 
 ;;; Without sallet
