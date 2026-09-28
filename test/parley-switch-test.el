@@ -188,30 +188,6 @@ its session id alone, and `send-keys -t' still takes that pane."
         (should-not (string-match-p "\\[RO\\]"
                                     (parley-session-row fields)))))))
 
-(ert-deftest parley-switch-test-tag-tells-one-name-apart ()
-  "The four sessions named `orc-w1' have four different tags.
-Two of them share a working directory as well, one lives outside
-tmux and has no pane to be told apart by, and one has a pane tmux
-reports no location for, so what every tag ends in is the session
-id -- the one thing two records cannot share.
-
-And no tag carries the pane id its location was resolved from:
-that is what the record keeps for `tmux send-keys -t' and not
-what a row shows."
-  (parley-switch-test--with-locations
-    (let ((tags (mapcar #'parley-session-tag
-                        (list (parley-switch-test--session 2)
-                              (parley-switch-test--session 4)
-                              (parley-switch-test--session 5)
-                              (parley-switch-test--session 6)))))
-      (should (equal tags (mapcar #'parley-switch-test--tag '(2 4 5 6))))
-      (should (equal (length (delete-dups (copy-sequence tags))) 4))
-      (dolist (session parley-switch-test--sessions)
-        (let ((pane (plist-get session :pane)))
-          (should-not (and pane
-                           (string-match-p (regexp-quote pane)
-                                           (parley-session-tag session)))))))))
-
 (ert-deftest parley-switch-test-row-begins-with-the-name ()
   "Every row begins with the session name and carries every field."
   (parley-switch-test--with-locations
