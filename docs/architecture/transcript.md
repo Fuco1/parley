@@ -21,11 +21,10 @@ the render pass has to survive one that is not.
 
 ## jq does the filtering, because Emacs is single threaded
 
-Measured on a 26 MB transcript: 23502 lines in, 8651 of them a message, and a
-pure Elisp pass over all of them costs 2.72 s of blocked UI. The same transcript
-through the pipeline projects to 5300 lines and 1.3 MB, which settle in the
-buffer in 5.2 s — and the tool payloads, which are the bulk of those 26 MB,
-never enter the Emacs process at all.
+An Elisp pass over a transcript blocks the UI for as long as it runs, and the
+bulk of a transcript is tool payloads parley never shows. Through the pipeline
+those payloads never enter the Emacs process at all: what reaches it is the
+projection, a fraction of the file.
 
 **The projection is built from scratch rather than pruned.** A tool result lives
 in a `tool_result` block and again in a top-level `toolUseResult` field;
@@ -45,11 +44,11 @@ is the business of the call that builds the pipeline; the docstring of
 `parley-transcript--command` carries them.
 
 **The pipeline runs on a pipe and not a pty**, bound at the call rather than
-inherited, for two measured reasons. To a terminal jq line buffers on its own,
-so on a pty the flag that stops it block buffering is dead and its absence could
-not be noticed until something else changed. And a pipe is much the faster of
-the two: the 26 MB transcript settles in 4.5 s against 10.1 s, which is the cost
-of a terminal line discipline between jq and Emacs.
+inherited, for two reasons. To a terminal jq line buffers on its own, so on a
+pty the flag that stops it block buffering is dead and its absence could not be
+noticed until something else changed. And a pipe is much the faster of the two,
+because a pty puts a terminal line discipline between jq and Emacs and the whole
+history crosses it.
 
 Killing the buffer stops the pipeline either way. Emacs puts the process in a
 group of its own whichever it allocates and signals the group, so `sh`, `tail`
@@ -118,9 +117,8 @@ the whole of what such a record says the operator can act on — the two ids and
 the path are addressed to the agent, and `<status>` says nothing the summary does
 not already say in its own words — so the line is the summary and nothing else. A
 notification carrying no summary renders nothing at all, having nothing to say.
-Measured over the 1622 notifications in the transcripts on this machine: 1619
-carry a `<summary>` and every one of those sits on one line, `<status>` is on 384
-of them, and the 3 with no summary are `<fork-source>` notices.
+A summary sits on one line, and a notification carrying none is a
+`<fork-source>` notice.
 
 **Every other injection renders nothing at all.** A constant line saying an
 injection happened carries no information, and the caveat and the command
@@ -175,11 +173,10 @@ no whitespace tolerated in front of it — a space would be nothing the harness
 writes, and a newline would make the second line of a turn of his decide that
 the first one was never his. So a turn of the operator's that quotes the tag on
 any line but the first is his own words: quoted whole, tag and all, and indexed
-under its first line. He writes one: of the 1624 records holding the tag on this
-machine, 1622 are notifications opening with it at character zero, and the 2 that
-do not are prose quoting one. Anywhere but the head, the text would be deciding
-about his words instead of the harness's, which is what `isMeta` is for and what
-it stays for.
+under its first line. He does write one: a notification opens with the tag at
+character zero, and a record holding it anywhere else is prose quoting one.
+Anywhere but the head, the text would be deciding about his words instead of
+the harness's, which is what `isMeta` is for and what it stays for.
 
 ### Fontification happens in another buffer, twice over
 
@@ -190,9 +187,8 @@ Font lock in the transcript buffer itself would refontify the whole conversation
 on every append.
 
 **One reused buffer, not a temporary one per message.** Turning markdown-mode on
-costs about as much as fontifying a paragraph does. Measured over 300 messages
-of a paragraph each: 0.84 s with a temporary buffer per message against 0.44 s
-with one buffer reused.
+costs about as much as fontifying a paragraph does, and a temporary buffer per
+message would pay it again for every message.
 
 **The markdown is rendered with its markup hidden.** The operator wants to read
 the answer and not the asterisks around a bold word or the markers around a
@@ -219,9 +215,9 @@ is what comint itself puts on its prompt and its input. So do `invisible` and
 what the hiding rests on, and is asserted in a live transcript buffer.
 
 `ansi-color-process-output` is taken out of the buffer's output filters for the
-same reason the pipeline refuses colour at the source: measured over the 26 MB
-transcript not one escape byte reaches the buffer, and scanning the 1.3 MB for
-them costs 2.4 s of the 6.9 s that history takes to settle.
+same reason the pipeline refuses colour at the source: no escape byte reaches
+the buffer, and scanning the whole history for one spends Emacs's one thread on
+a search that cannot succeed.
 
 ## The conversation above the input zone is read-only
 
@@ -473,31 +469,16 @@ markdown-mode painted a cell with is a fresh list every fontification, so two
 computations of one form do not compare equal either: a resize that leaves a
 table's grid unchanged still writes it into the buffer. What that costs is the
 write and never the render, which has happened by the time the comparison is
-made — 87 µs against 4.5 ms, so the saving a comparison could win back is 2% of
-the resize.
+made, and the write is the small part of the two.
 
-**What a render costs.** Measured on Emacs 28.2 in batch, byte-compiled, counted
-in CPU time from `get-internal-run-time` and taken as the best of twenty runs of
-two hundred renders, over a table of seven rows and four columns whose grid is
-71 columns wide: 4.5 ms to write the grid for one that fits, 6.0 ms for one
-wrapped into 50 columns, and 87 µs on top of either to put it in the buffer.
-That last is nearly all properties — inserting the form costs 76 µs where
-inserting the same characters with nothing on them costs 1.2 µs, because a form
-carrying markup carries 49 runs of text properties over those seven rows and
-each run is an interval the insertion has to build. A conversation holding forty tables therefore costs
-0.18 s of blocked redisplay on a resize, and 0.24 s if every one of them has to
-be wrapped.
-
-That is around 1.6 times what handing a table that fits to `markdown-table-align`
-costs, measured the same way on the same table: 2.7 ms and a 3 µs write. The
-difference is the markup — the fontification the cells are read out of, and the
-property runs the form is written with — and it buys every table the rendering
-the rest of a message gets.
+**A render costs more than handing the table to `markdown-table-align` would.**
+The difference is the markup — the fontification the cells are read out of, and
+the property runs the form is written with, each run an interval the insertion
+has to build — and it buys every table the rendering the rest of a message gets.
 
 The hook this runs on is called for a window added, deleted or given another
 buffer as well, and the width the tables were last rendered to is what tells a
-resize from the rest — 0.7 µs when it has not changed, which is what keeps every
-other window change free.
+resize from the rest, so every other window change costs one comparison.
 
 A table is the buffer's text and not a window's, so a buffer shown in two
 windows of different widths is rendered to whichever of them changed last.

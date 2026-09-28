@@ -176,24 +176,14 @@ the status, so a value the reentry has to wait for a status tick to put back is
 most of a second of a spinner stopped under a session that never stopped
 working.
 
-**Ten frames a second costs one to two percent of a core, and what it costs is
-the redisplay and not the arithmetic.** Measured on Emacs 28.2 under tmux, over
-a buffer of 564,628 bytes and 6,000 lines rendered from a 3,000 record
-transcript: seven rounds of 300 forced redisplays each, the first discarded and
-the median of the rest quoted, and CPU time rather than wall — the machine
-carries other work, and wall time on it measures that work too. With the
-transcript in a window 10 rows deep in an 80 column pane, a redisplay that
-advances the frame and redraws it costs 1.18 ms against 0.08 ms for one with
-nothing changed; in a window 28 rows deep in a 120 column pane, 2.34 ms against
-0.11 ms. Building the string and putting it on the overlay is 0.006 ms of
-either, so what a frame buys is the redisplay the changed string forces, and
-that grows with the window it is drawn in.
+**What a frame costs is the redisplay and not the arithmetic.** Building the
+string and putting it on the overlay is nothing beside the redisplay the changed
+string forces, and that grows with the window it is drawn in.
 
-**So a spinner is 11 to 22 ms of CPU a second**, which is the argument for
-stopping it the moment the buffer goes off screen rather than for slowing it
-down: a rate the operator reads as motion is worth one percent of a core in the
-transcript he is watching, and the same timer left running in ten transcripts
-nobody is looking at is a fifth of a core drawn for no one.
+**So a spinner is stopped the moment the buffer goes off screen rather than
+slowed down**: a rate the operator reads as motion is worth what it costs in the
+transcript he is watching, and the same timer left running in every transcript
+nobody is looking at is redisplay drawn for no one.
 
 ## Two send shapes, and the newline is what chooses
 

@@ -80,8 +80,8 @@ Nothing here reads the file. What the path is for belongs to
 
 **Every session writes what it is doing to `~/.claude/sessions/<pid>.json`**,
 beside the `sessionId` it is running, its `cwd` and a `procStart`. The pid is
-what a record already carries, so nothing has to be searched for, and one read
-of some 600 bytes answers every question parley asks about that session.
+what a record already carries, so nothing has to be searched for, and one small
+read answers every question parley asks about that session.
 
 **The status is four-valued: working, waiting, idle and unknown.** The file says
 `busy`, `waiting` or `idle`, and **waiting is not a slower kind of idle**: an
@@ -102,34 +102,27 @@ busy leaves one saying `busy` with nothing in it to say otherwise. Two
 comparisons settle it on the same read, and both are needed. The `sessionId` has
 to be the one being asked about, a pane being reused and the next session in it
 being a different conversation. And the `procStart` has to equal the start time
-`/proc` reports for that pid — field 22 of `/proc/<pid>/stat`, equal on all 14
-of the live pids the directory held when it was checked — because `/proc/<pid>`
-existing on its own reads `busy` forever the moment an unrelated process
-inherits the pid. A stale file is not hypothetical: a session with no process
-left sat on disk saying `idle`.
+`/proc` reports for that pid — field 22 of `/proc/<pid>/stat` — because
+`/proc/<pid>` existing on its own reads `busy` forever the moment an unrelated
+process inherits the pid. A stale file is not hypothetical: a session with no
+process left sat on disk saying `idle`.
 
 ### The file rather than `claude agents --json`
 
 `claude agents --json` reads these same files, and the liveness filter is the
-whole of what it adds. Measured on this machine on 2026-09-21, over a directory
-of 14 session files: it costs **0.38 s a call** over three calls, and it
-reported **13 live sessions** against those 14 files. Emacs has one thread, so a
-second of reading a conversation that shelled out for a status would be a third
-of a second not drawing anything — for a filter the two comparisons above make
-anyway.
+whole of what it adds. Emacs has one thread, so a buffer that shelled out to it
+for a status would spend every read of one waiting on a subprocess and not
+drawing anything — for a filter the two comparisons above make anyway.
 
 ### A tick, and no watch
 
 **The file carries no heartbeat.** It is written in place when a session changes
-what it is doing and not otherwise: `inotifywait` over the directory for 75 s
-saw six `MODIFY` events across two of its fourteen files, each an
-`OPEN`/`MODIFY`/`CLOSE_WRITE` on the file itself, and no create, no rename and
-no replacement. One session sat at `busy` with a status **2.5 hours** old while
-its transcript had been appended to 8 minutes earlier, and another with one
-452 s old while its transcript was being appended to as the measurement was
-taken. **So the file is what a session says about itself until it says
-otherwise**, and a reader of it is never behind the session by more than its own
-interval.
+what it is doing and not otherwise: under `inotifywait` a write is an
+`OPEN`/`MODIFY`/`CLOSE_WRITE` on the file itself, with no create, no rename and
+no replacement. A session stays at `busy` while its transcript goes on being
+appended to, however old the status in its file. **So the file is what a session
+says about itself until it says otherwise**, and a reader of it is never behind
+the session by more than its own interval.
 
 **Nothing but a buffer someone is looking at consumes a status.** The switcher
 is current by construction — `parley-sessions` runs `claude agents --json` on
