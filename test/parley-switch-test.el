@@ -230,7 +230,8 @@ differ."
     (let ((row (parley-session-row
                 (parley-session-fields (parley-switch-test--session 1)))))
       (should (equal (get-text-property 0 'face row) 'parley-row-name))
-      (should (equal (get-text-property 52 'face row) 'parley-row-status-busy))
+      (should (equal (get-text-property 52 'face row)
+                     'parley-row-status-working))
       (should (equal (get-text-property 66 'face row) 'parley-row-directory))
       (should (equal (get-text-property 108 'face row) 'parley-row-tag))
       ;; Where each run ends: the name at 50, the status at 64 and
@@ -247,24 +248,34 @@ differ."
       (dolist (gap '(50 51 64 65 106 107))
         (should-not (get-text-property gap 'face row))))))
 
-(ert-deftest parley-switch-test-a-status-is-faced-by-its-value ()
-  "The status column is coloured by the status it holds.
-`idle', `busy' and `waiting' are the three the operator scans a
-list for and no two of them look alike; a status parley does not
-name is a fourth colour rather than one of theirs."
-  (let ((faces (mapcar (lambda (status)
-                         (get-text-property
-                          52 'face
-                          (parley-session-row
-                           (list :name "orc-w1" :status status :mark ""
-                                 :directory "/srv/orc" :tag "tag"))))
-                       '("idle" "busy" "waiting" "unknown" "compacting"))))
-    (should (equal faces '(parley-row-status-idle
-                           parley-row-status-busy
-                           parley-row-status-waiting
-                           parley-row-status-other
-                           parley-row-status-other)))
-    (should (equal (length (delete-dups (copy-sequence faces))) 4))))
+(ert-deftest parley-switch-test-a-status-is-shown-and-faced-by-its-value ()
+  "The status column holds the value a status is read as, in its face.
+A session that wrote `busy' is listed `working', the word the
+transcript's header line shows for it, and a status parley does
+not name -- or none at all -- is listed `unknown'.  The word and
+the colour both follow from that value, so a row cannot keep its
+colour and lose its word or the other way round.
+
+`idle', `working' and `waiting' are the three the operator scans
+a list for and no two of them look alike; `unknown' is a fourth
+colour rather than one of theirs."
+  (parley-switch-test--with-locations
+    (let ((columns
+           (mapcar (lambda (status)
+                     (let ((row (parley-session-row
+                                 (parley-session-fields
+                                  (plist-put (copy-sequence
+                                              (parley-switch-test--session 2))
+                                             :status status)))))
+                       (list (car (split-string (substring row 52 64)))
+                             (get-text-property 52 'face row))))
+                   '("idle" "busy" "waiting" "compacting" nil))))
+      (should (equal columns '(("idle" parley-row-status-idle)
+                               ("working" parley-row-status-working)
+                               ("waiting" parley-row-status-waiting)
+                               ("unknown" parley-row-status-other)
+                               ("unknown" parley-row-status-other))))
+      (should (equal (length (delete-dups (mapcar #'cadr columns))) 4)))))
 
 (ert-deftest parley-switch-test-the-name-column-is-fifty-wide ()
   "A short name puts the status where a fifty-character name does.
@@ -482,11 +493,14 @@ matcher test below is skipped."
                             (funcall (parley-switch--field-filter key)
                                      candidates indices pattern))))
           (should (equal (pids :name "app") '(1)))
-          (should (equal (pids :status "busy") '(1 5)))
+          (should (equal (pids :status "working") '(1 5)))
+          ;; The column holds the value and not the string the
+          ;; session wrote, so that string finds nothing.
+          (should-not (pids :status "busy"))
           (should (equal (pids :mark "[RO]") '(5 3)))
           (should (equal (pids :directory "/worker-2") '(4)))
           (should (equal (pids :tag "orc-b3743fe3") '(2 4)))
-          (dolist (pattern '("busy" "[RO]" "/worker-2" "orc-b3743fe3"))
+          (dolist (pattern '("working" "[RO]" "/worker-2" "orc-b3743fe3"))
             (should-not (pids :name pattern))))))))
 
 (ert-deftest parley-switch-test-matcher-matches-columns ()
@@ -522,8 +536,9 @@ matcher test below is skipped."
         ;; And a pane id finds nothing at all: no column carries one,
         ;; so a % token is matched against the name like any other.
         (should (equal (tags "%61") nil))
-        (should (equal (tags ":busy")
+        (should (equal (tags ":working")
                        (mapcar #'parley-switch-test--tag '(1 5))))
+        (should (equal (tags ":busy") nil))
         (should (equal (tags ":idle")
                        (mapcar #'parley-switch-test--tag '(2 4 6))))
         (should (equal (tags "orc-w1 /worker-1")

@@ -265,6 +265,13 @@ and the `procStart' of the process writing it."
   "What each status a session writes about itself is read as.
 A status not named here is read as `unknown'.")
 
+(defun parley--status-value (status)
+  "Return the value STATUS, as a session writes it, is read as.
+The value `parley--statuses' maps STATUS to, and `unknown' for a
+STATUS that table does not name -- including the nil `claude
+agents' reports for a session it knows no status for."
+  (or (cdr (assoc status parley--statuses)) 'unknown))
+
 (defun parley--status-file (pid)
   "Return what session PID says about itself, nil if it says nothing.
 The contents of `PID.json' under `parley-sessions-directory' as
@@ -357,18 +364,15 @@ it does.")
 
 (defun parley--status-rank (session)
   "Return the rank of SESSION in `parley-status-order'.
-SESSION's status is mapped through `parley--statuses' and the
-value it maps to is what the order is over: `claude agents'
-reports a status out of the session's own file, which is the file
-that table reads, so the two spell one status alike.
+SESSION's status is read by `parley--status-value' and the value
+it is read as is what the order is over: `claude agents' reports
+a status out of the session's own file, which is the file
+`parley--statuses' reads, so the two spell one status alike.
 
-A status neither the order nor that table names -- including the
-nil `claude agents' reports for a session it knows no status for
--- maps to nothing, is in no order, and ranks after every status
-they do."
+A value the order does not name -- `unknown' among them -- ranks
+after every value it does."
   (or (seq-position parley-status-order
-                    (cdr (assoc (plist-get session :status)
-                                parley--statuses)))
+                    (parley--status-value (plist-get session :status)))
       (length parley-status-order)))
 
 (defun parley-sessions-by-status ()
@@ -414,12 +418,18 @@ does not own, and so does a session started outside tmux --
 `:kind' names the first and says nothing at all about the second,
 so it is not what the mark can be read from.
 
-Nothing in a session record is guaranteed to be there, so the
-placeholder for a status `claude agents' did not report is chosen
-once here rather than by each frontend, and the one for a name it
-did not report is `parley-session-no-name'."
+The status is the name of the value `parley--status-value' reads
+the record's status as, and not the string the session wrote: a
+session that wrote \"busy\" is listed `working', which is the word
+the transcript's header line shows for it, and one whose status
+parley does not name, or that `claude agents' reported none for,
+is listed `unknown'.  Nothing in a session record is guaranteed
+to be there, so that placeholder is chosen once here rather than
+by each frontend, and the one for a name it did not report is
+`parley-session-no-name'."
   (list :name (or (plist-get session :name) parley-session-no-name)
-        :status (or (plist-get session :status) "unknown")
+        :status (symbol-name
+                 (parley--status-value (plist-get session :status)))
         :mark (if (plist-get session :pane) "" parley-session-read-only-mark)
         :directory (abbreviate-file-name (plist-get session :cwd))
         :tag (parley-session-tag session)))
@@ -435,8 +445,8 @@ did not report is `parley-session-no-name'."
 (defface parley-row-status-idle '((t :inherit success))
   "Face for the status column of a session that is idle.")
 
-(defface parley-row-status-busy '((t :inherit warning))
-  "Face for the status column of a session that is busy.")
+(defface parley-row-status-working '((t :inherit warning))
+  "Face for the status column of a session that is working.")
 
 (defface parley-row-status-waiting '((t :inherit error))
   "Face for the status column of a session that is waiting.")
@@ -453,17 +463,17 @@ did not report is `parley-session-no-name'."
 (defface parley-row-tag '((t :inherit font-lock-comment-face))
   "Face for the tag column of a session row.")
 
-(defun parley--status-face (status)
-  "Return the face the status column draws STATUS in.
-\"idle\", \"busy\" and \"waiting\" are what the operator scans a
-list for, so each has a colour of its own.  Any other status --
-including the \"unknown\" placeholder for a session `claude
-agents' reports none for -- is drawn in
+(defun parley--status-face (value)
+  "Return the face the status column draws VALUE in.
+VALUE is what `parley--status-value' reads a status as.  `idle',
+`working' and `waiting' are what the operator scans a list for,
+so each has a colour of its own, and `unknown' is drawn in
 `parley-row-status-other'."
-  (cond ((equal status "idle") 'parley-row-status-idle)
-        ((equal status "busy") 'parley-row-status-busy)
-        ((equal status "waiting") 'parley-row-status-waiting)
-        (t 'parley-row-status-other)))
+  (pcase value
+    ('idle 'parley-row-status-idle)
+    ('working 'parley-row-status-working)
+    ('waiting 'parley-row-status-waiting)
+    (_ 'parley-row-status-other)))
 
 (defun parley--column (string width face &optional cut)
   "Return STRING as a column WIDTH wide, padded with spaces in FACE.
@@ -509,7 +519,7 @@ after it out of line."
          (mark (plist-get fields :mark))
          (directory (plist-get fields :directory))
          (tag (plist-get fields :tag))
-         (status-face (parley--status-face status)))
+         (status-face (parley--status-face (intern status))))
     (concat
      (parley--column (propertize name 'face 'parley-row-name)
                      50 'parley-row-name)
