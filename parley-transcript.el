@@ -58,17 +58,32 @@
 
 (defconst parley-transcript--projection
   (concat
-   "select(.type == \"user\" or .type == \"assistant\")"
-   " | { role: .type,"
-   "     meta: (.isMeta == true),"
-   "     text: ((.message.content // \"\")"
-   "            | if type == \"string\" then ."
-   "              else [.[] | select(.type == \"text\") | .text] | join(\"\\n\") end),"
-   "     tools: ((.message.content // \"\")"
-   "             | if type == \"array\""
-   "               then [.[] | select(.type == \"tool_use\")] | length"
-   "               else 0 end) }"
-   " | select(.text != \"\" or .tools > 0)")
+   "def joined: if type == \"string\" then ."
+   "  else [.[] | select(.type == \"text\") | .text] | join(\"\\n\") end;"
+   " def ended: if startswith(\"<task-notification>\")"
+   "  then [scan(\"<task-id>([^<]+)</task-id>\")[0]] else [] end;"
+   " if .type == \"user\" or .type == \"assistant\" then"
+   "   (.message.content // \"\") as $content"
+   "   | [$content | arrays | .[] | select(.type == \"tool_result\")"
+   "      | .content // \"\" | joined] as $results"
+   "   | { role: .type,"
+   "       meta: (.isMeta == true),"
+   "       text: ($content | joined),"
+   "       tools: ($content | if type == \"array\""
+   "                          then [.[] | select(.type == \"tool_use\")] | length"
+   "                          else 0 end),"
+   "       shells: [$results[] | select(startswith(\"Command \"))"
+   "                | capture(\"\\\\A.*background.*?ID: (?<id>[0-9a-z]+)\").id],"
+   "       agents: [$results[] | select(startswith(\"Async agent launched\"))"
+   "                | capture(\"agentId: (?<id>[0-9a-z]+)\").id] }"
+   "   | .ended = (if .role == \"user\" then .text | ended else [] end)"
+   "   | select(.text != \"\" or .tools > 0 or .shells != [] or .agents != [])"
+   "   | del(.[] | select(. == []))"
+   " elif .type == \"queue-operation\" and .operation == \"enqueue\" then"
+   "   {ended: (.content | strings | ended)} | select(.ended != [])"
+   " elif .type == \"attachment\" and .attachment.type == \"queued_command\" then"
+   "   {ended: (.attachment.prompt | strings | ended)} | select(.ended != [])"
+   " else empty end")
   "The jq program every line of a transcript is passed through.
 
 It emits what parley renders and no more: the role, whether the
@@ -77,6 +92,20 @@ message made.  A tool result never reaches Emacs, because the
 object is built from scratch rather than pruned -- the payload
 lives in a `tool_result' block and in a top-level
 `toolUseResult' field, and neither is read.
+
+The one thing taken out of a tool result is the id of a task it
+launched: `shells' for a background shell, whichever of the three
+ways the harness words one -- run in the background, moved there
+at a timeout, or backgrounded by the operator -- and `agents' for
+a subagent.  The shell's wording is matched on the result's first
+line only, which `\\A' and a `.' that stops at a newline hold it
+to.  `ended' is the id a task notification carries, read from
+each record the harness writes one into: the `user' turn it
+delivers, the queue it enqueues it on and the attachment a turn
+absorbs it as.  Every one is matched at the first character, as
+`parley-transcript--notification-rx' is.  An id list that comes
+out empty is deleted rather than emitted, so a message launching
+nothing costs the pipe what it did before.
 
 `meta' is the transcript's own `isMeta', which every turn the
 harness injected carries and no turn the operator typed does.  It
@@ -584,6 +613,26 @@ Offsets into the string that pass returned, for the reason
 overlay over each table by `parley-transcript--align-output' once
 comint has inserted that string.")
 
+(defvar-local parley-transcript--tasks nil
+  "The background tasks the transcript has started or ended, as an alist.
+Each entry is (ID . STATE): STATE is `shell' or `agent' while the
+task runs, and `ended' once a task notification carrying ID has
+arrived.  An ended task is kept rather than dropped, because a
+shell that finishes at once can have its notification written
+before its launch, and the launch arriving second must not start
+it again.  What `parley-transcript--header-line' counts.")
+
+(defun parley-transcript--track-tasks (record)
+  "Note on `parley-transcript--tasks' what RECORD launched and what it ended."
+  (dolist (kind '((shells . shell) (agents . agent)))
+    (mapc (lambda (id)
+            (unless (assoc id parley-transcript--tasks)
+              (push (cons id (cdr kind)) parley-transcript--tasks)))
+          (alist-get (car kind) record)))
+  (mapc (lambda (id)
+          (setf (alist-get id parley-transcript--tasks nil nil #'equal) 'ended))
+        (alist-get 'ended record)))
+
 (defun parley-transcript--take-back-run ()
   "Delete the tool run block at the end of the buffer, and say if it went.
 
@@ -691,7 +740,8 @@ inserted and then rewritten in place."
                         parley-transcript--pending-tables)))
               (push speech blocks)
               (setq offset (+ offset (length speech))))
-            (setq run (+ run (or (alist-get 'tools record) 0)))))
+            (setq run (+ run (or (alist-get 'tools record) 0)))
+            (parley-transcript--track-tasks record)))
         (setq parley-transcript--run run)
         (when (> run 0)
           (push (parley-transcript--tool-run run) blocks))
@@ -1958,10 +2008,21 @@ tick would otherwise leave that one running for good."
 ;; redisplay, so it says what is true now -- and a mode line says none
 ;; of this, being configured by whoever owns the Emacs.
 
+(defun parley-transcript--running (state noun)
+  "Return how many tasks in STATE are running, counted in NOUN.
+Nil when none is, so a line with nothing running says nothing
+about it.  STATE is `shell' or `agent', as
+`parley-transcript--tasks' holds them."
+  (let ((count (seq-count (lambda (task) (eq (cdr task) state))
+                          parley-transcript--tasks)))
+    (and (> count 0)
+         (format "%d %s%s" count noun (if (= count 1) "" "s")))))
+
 (defun parley-transcript--header-line ()
   "Return what the top line of this buffer says about the session it follows.
-Its name, what it is doing, where its pane is, and the mark
-saying it cannot be typed into.  The name is taken from
+Its name, what it is doing, how many background shells and
+subagents it has running, where its pane is, and the mark saying
+it cannot be typed into.  The name is taken from
 `parley-session-name' and the mark from `parley-session-mark',
 which is where the switcher row takes them from too.
 
@@ -1970,6 +2031,11 @@ session is doing now: the record carries what `claude agents'
 said when the buffer was opened, and a conversation is read for
 minutes.  All four states are told apart, `waiting' from `idle'
 above all -- see `parley-session-status'.
+
+What it has running is counted off `parley-transcript--tasks',
+which the render pass keeps, and a count of none is left off the
+line.  No id is shown: like the pane id, it locates nothing the
+operator can act on.
 
 The location is `parley-known-pane-location', which looks the
 pane up in what tmux last answered, and is not asked of
@@ -1997,6 +2063,8 @@ already is spends a line on nothing."
     (string-join
      (delq nil (list (parley-session-name session)
                      (symbol-name parley-transcript-status)
+                     (parley-transcript--running 'shell "background shell")
+                     (parley-transcript--running 'agent "subagent")
                      location
                      (parley-session-mark session)))
      "  ")))

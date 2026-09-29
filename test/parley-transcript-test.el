@@ -121,30 +121,96 @@ what `unslop', `ponytail-review' and `ponytail-audit' do."
           (if heading (concat "# " heading "\n\n") "")
           parley-transcript-test--skill-body "\n"))
 
-(defun parley-transcript-test--notification-text (summary)
+(defun parley-transcript-test--notification-text (summary &optional id)
   "Return the text a task notification carrying SUMMARY arrives as.
 Six lines of XML as the harness writes them -- a task id, a
 tool-use id, the path the output was left at, a status and the
 summary -- of which only the summary is the operator's to act on.
 SUMMARY is nil for a notification carrying none, which is what a
-`<fork-source>' notice is."
-  (concat "<task-notification>\n"
-          "<task-id>b6v36vu3p</task-id>\n"
-          "<tool-use-id>toolu_013evn7VG22QBizmAxQKcKfk</tool-use-id>\n"
-          "<output-file>/tmp/claude-1000/-home-x-dev-orc/ef8159c3/tasks/"
-          "b6v36vu3p.output</output-file>\n"
-          "<status>completed</status>\n"
-          (if summary (concat "<summary>" summary "</summary>\n") "")
-          "</task-notification>"))
+`<fork-source>' notice is.  ID is the task's, a shell's by default."
+  (let ((id (or id "b6v36vu3p")))
+    (concat "<task-notification>\n"
+            "<task-id>" id "</task-id>\n"
+            "<tool-use-id>toolu_013evn7VG22QBizmAxQKcKfk</tool-use-id>\n"
+            "<output-file>/tmp/claude-1000/-home-x-dev-orc/ef8159c3/tasks/"
+            id ".output</output-file>\n"
+            "<status>completed</status>\n"
+            (if summary (concat "<summary>" summary "</summary>\n") "")
+            "</task-notification>")))
 
-(defun parley-transcript-test--notification (summary)
+(defun parley-transcript-test--notification (summary &optional id)
   "Return a transcript line for a task notification carrying SUMMARY.
 Under the operator's role and unmarked, as the harness writes it:
 it is an injection carrying no `isMeta', which is why the render
-pass has to know the tag."
+pass has to know the tag.  ID is the task's, as
+`parley-transcript-test--notification-text' takes it."
   (format (concat "{\"type\":\"user\",\"message\":"
                   "{\"role\":\"user\",\"content\":%s}}")
-          (json-serialize (parley-transcript-test--notification-text summary))))
+          (json-serialize
+           (parley-transcript-test--notification-text summary id))))
+
+(defun parley-transcript-test--enqueued (text)
+  "Return the transcript line the harness queues the notification TEXT on.
+It writes one for every notification the moment the task ends,
+before the notification is delivered as a turn or absorbed into
+one."
+  (format (concat "{\"type\":\"queue-operation\",\"operation\":\"enqueue\","
+                  "\"sessionId\":\"ef8159c3\",\"content\":%s}")
+          (json-serialize text)))
+
+(defun parley-transcript-test--absorbed (text)
+  "Return the transcript line a turn absorbing the notification TEXT writes.
+A notification that arrives while the agent is mid-turn reaches
+it as this attachment, and never as a `user' turn of its own."
+  (format (concat "{\"type\":\"attachment\",\"attachment\":"
+                  "{\"type\":\"queued_command\",\"prompt\":%s,"
+                  "\"commandMode\":\"task-notification\"}}")
+          (json-serialize text)))
+
+(defun parley-transcript-test--result-turn (content)
+  "Return a transcript line for the `tool_result' turn answering in CONTENT.
+CONTENT is a string, or a list of the text blocks an answer in
+parts is -- the first is how a shell's launch comes back and the
+second how a subagent's does."
+  (format (concat "{\"type\":\"user\",\"message\":{\"role\":\"user\","
+                  "\"content\":[{\"tool_use_id\":\"toolu_1\","
+                  "\"type\":\"tool_result\",\"content\":%s}]}}")
+          (json-serialize
+           (if (stringp content)
+               content
+             (vconcat (mapcar (lambda (text) `((type . "text") (text . ,text)))
+                              content))))))
+
+(defconst parley-transcript-test--shell-launches
+  '("Command running in background with ID: %s. Output is being written to: %s. You will be notified when it completes."
+    "Command did not complete within its 120s timeout and was moved to the background (ID: %s). Output is being written to: %s. You will be notified when it completes."
+    "Command was manually backgrounded by user with ID: %s. Output is being written to: %s.")
+  "The three ways the harness words a shell going to the background.
+Run there from the start, moved there at a timeout, and moved
+there by the operator.  Each takes the id and the output path.")
+
+(defun parley-transcript-test--shell-launch (id &optional wording)
+  "Return a transcript line for a background shell ID launched in WORDING.
+WORDING is one of `parley-transcript-test--shell-launches', the
+first by default.  The output path carries the payload, so a
+result that reached Emacs is one a test can find."
+  (parley-transcript-test--result-turn
+   (format (or wording (car parley-transcript-test--shell-launches))
+           id
+           (format "/tmp/claude-1000/%s/tasks/%s.output"
+                   parley-transcript-test--payload id))))
+
+(defun parley-transcript-test--agent-launch (id)
+  "Return a transcript line for a subagent ID launched in the background.
+In parts, as the harness writes it, the id on a line of its own
+under the one saying the launch worked."
+  (parley-transcript-test--result-turn
+   (list (concat "Async agent launched successfully. (This tool result is"
+                 " internal metadata.)\n"
+                 "agentId: " id " (internal ID - do not mention to user.)\n"
+                 "The agent is working in the background.\n"
+                 "output_file: /tmp/claude-1000/"
+                 parley-transcript-test--payload "/tasks/" id ".output"))))
 
 (defconst parley-transcript-test--caveat
   (concat "<local-command-caveat>Caveat: The messages below were generated"
@@ -298,6 +364,39 @@ point of the last test -- is the pipeline."
     (with-current-buffer buffer
       (goto-char (point-min))
       (should-not (search-forward parley-transcript-test--payload nil t)))))
+
+(ert-deftest parley-transcript-test-projects-a-task-id-and-not-its-result ()
+  "A launch and a notification cross the pipe as the id each carries, alone.
+The `tool_result' a task was launched in is a payload like any
+other, and the queue and the attachment a notification is written
+into are records the render pass has no text to take from.  So
+what the projection emits for each is the id and nothing it was
+read out of: no wording, and no output path."
+  (skip-unless (executable-find "jq"))
+  (let ((projected
+         (with-temp-buffer
+           (insert
+            (mapconcat
+             (lambda (line) (concat line "\n"))
+             (list (parley-transcript-test--shell-launch "blyeiflqe")
+                   (parley-transcript-test--agent-launch "a50ad8c674992fc1f")
+                   (parley-transcript-test--enqueued
+                    (parley-transcript-test--notification-text
+                     "done" "blyeiflqe"))
+                   (parley-transcript-test--absorbed
+                    (parley-transcript-test--notification-text
+                     "done" "a50ad8c674992fc1f")))
+             ""))
+           (call-process-region (point-min) (point-max) "jq" t t nil
+                                "-M" "-c" parley-transcript--projection)
+           (split-string (buffer-string) "\n" t))))
+    (should (equal projected
+                   (list (concat "{\"role\":\"user\",\"meta\":false,\"text\":\"\","
+                                 "\"tools\":0,\"shells\":[\"blyeiflqe\"]}")
+                         (concat "{\"role\":\"user\",\"meta\":false,\"text\":\"\","
+                                 "\"tools\":0,\"agents\":[\"a50ad8c674992fc1f\"]}")
+                         "{\"ended\":[\"blyeiflqe\"]}"
+                         "{\"ended\":[\"a50ad8c674992fc1f\"]}")))))
 
 (ert-deftest parley-transcript-test-follows-the-file ()
   "A line appended after the history has arrived arrives too.
@@ -1283,6 +1382,117 @@ record would read `idle' at both of the reads below."
                (lambda ()
                  (equal (parley-transcript-test--header buffer)
                         "test  waiting  [RO]")))))))
+
+(defun parley-transcript-test--header-becomes (buffer line)
+  "Wait for BUFFER's header line to say LINE, and say whether it did."
+  (parley-transcript-test--wait
+   (lambda () (equal (parley-transcript-test--header buffer) line))))
+
+(ert-deftest parley-transcript-test-header-line-counts-a-task-as-it-launches ()
+  "A background shell or a subagent joins the count when its launch arrives.
+Each of the three ways the harness words a shell going to the
+background counts as one more shell, and a subagent is counted
+apart from them.  What the launch carried stays off the line: not
+the id, and not the path the output is written to."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--user-turn "go"))
+    (should (parley-transcript-test--wait
+             (lambda () (equal (parley-transcript-test--shown buffer)
+                               (list "❯ go")))))
+    (should (equal (parley-transcript-test--header buffer)
+                   "test  unknown  [RO]"))
+    (cl-loop for wording in parley-transcript-test--shell-launches
+             for id in '("blyeiflqe" "b11qzpn54" "b8hzi3m6z")
+             for line in '("test  unknown  1 background shell  [RO]"
+                           "test  unknown  2 background shells  [RO]"
+                           "test  unknown  3 background shells  [RO]")
+             do (parley-transcript-test--write
+                 file (list (parley-transcript-test--shell-launch id wording)))
+             (should (parley-transcript-test--header-becomes buffer line)))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--agent-launch "a50ad8c674992fc1f")))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  3 background shells  1 subagent  [RO]"))))
+
+(ert-deftest parley-transcript-test-header-line-drops-a-task-at-its-notification ()
+  "A task leaves the count when a notification carrying its id arrives.
+Wherever the harness wrote it: as a turn of its own, on the queue
+alone, or in the attachment a turn absorbed it as.  Each is one
+shell's only notification, so each is the one thing that can take
+that shell off the line.  A notification for a task nothing
+launched here -- a `Monitor', say -- takes nothing off it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--shell-launch "blyeiflqe")
+            (parley-transcript-test--shell-launch "b11qzpn54")
+            (parley-transcript-test--shell-launch "b8hzi3m6z")
+            (parley-transcript-test--agent-launch "a50ad8c674992fc1f"))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  3 background shells  1 subagent  [RO]"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--notification
+                 "Monitor event: \"suite finished\"" "birwrrg8x")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "● Monitor event: \"suite finished\""
+                                (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--header buffer)
+                   "test  unknown  3 background shells  1 subagent  [RO]"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--notification "done" "blyeiflqe")))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  2 background shells  1 subagent  [RO]"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--enqueued
+                 (parley-transcript-test--notification-text "done" "b11qzpn54"))))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  1 background shell  1 subagent  [RO]"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--absorbed
+                 (parley-transcript-test--notification-text "done" "b8hzi3m6z"))))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  1 subagent  [RO]"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--notification
+                 "done" "a50ad8c674992fc1f")))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  [RO]"))))
+
+(ert-deftest parley-transcript-test-header-line-says-nothing-while-nothing-runs ()
+  "A session with no task running says nothing about tasks at all.
+Not a count of none for either: the line is the one a session
+that never launched anything shows.  Every task here was launched
+and heard back from before the buffer was opened, and the turn
+after them is what says the render pass has read them all."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--shell-launch "blyeiflqe")
+            (parley-transcript-test--agent-launch "a50ad8c674992fc1f")
+            (parley-transcript-test--notification "done" "blyeiflqe")
+            (parley-transcript-test--notification "done" "a50ad8c674992fc1f")
+            (parley-transcript-test--user-turn "and now"))
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ and now"
+                                (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--header buffer)
+                   "test  unknown  [RO]"))))
+
+(ert-deftest parley-transcript-test-header-line-never-counts-a-task-that-ended-first ()
+  "A shell whose notification came before its launch is never counted.
+A shell that finishes at once can be enqueued as done before the
+harness writes the result saying it was launched, and the launch
+then arriving must not start a task that has already ended."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--enqueued
+             (parley-transcript-test--notification-text "done" "bzo35q6ta"))
+            (parley-transcript-test--shell-launch "bzo35q6ta")
+            (parley-transcript-test--user-turn "and now"))
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ and now"
+                                (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--header buffer)
+                   "test  unknown  [RO]"))))
 
 
 
