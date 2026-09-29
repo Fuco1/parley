@@ -9,11 +9,21 @@
 # and parley requires markdown-mode. It is a path rather than a fetch on purpose:
 # a check that installed a package would need the network to go green.
 #
-# `-l bytecomp` comes before the `--eval` and has to. `--eval` evaluates
+# `-l bytecomp` comes before the second `--eval` and has to. `--eval` evaluates
 # lexically, so a `let` over `byte-compile-error-on-warn` before anything has
 # defined it binds a LEXICAL variable -- and the `defcustom` that runs when
 # `byte-compile-file` then pulls bytecomp in refuses to redefine one as dynamic.
 # The compiler never runs and emacs exits 255.
+#
+# The first `--eval` deletes every `.elc` under the tree, and it has to run
+# before anything is compiled.  `require` loads a `.elc` in preference to a
+# newer `.el`, every file here requires another of parley's, and a worktree
+# keeps its bytecode between runs -- so with the old `.elc` in place each file
+# compiles against the previous run's source.  A definition added to parley.el
+# then fails the run that adds it, and one removed from it passes that run and
+# fails the next.  It deletes rather than setting `load-prefer-newer`, which
+# trusts an mtime, and rather than compiling in dependency order, which the glob
+# does not give and a written list would need an edit here for every new file.
 #
 # `byte-compile-file` does not signal when a file fails to compile: it prints
 # the error and returns nil. Under a bare `mapc` that is a pass -- emacs exits
@@ -26,7 +36,7 @@ target = "master"
 
 [checks.compile]
 commands = [
-  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(let ((byte-compile-error-on-warn t)) (when (memq nil (mapcar (quote byte-compile-file) (directory-files-recursively default-directory "[.]el$"))) (kill-emacs 1)))' ''',
+  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(mapc (quote delete-file) (directory-files-recursively default-directory "[.]elc$"))' --eval '(let ((byte-compile-error-on-warn t)) (when (memq nil (mapcar (quote byte-compile-file) (directory-files-recursively default-directory "[.]el$"))) (kill-emacs 1)))' ''',
 ]
 
 [checks.test]
