@@ -47,23 +47,6 @@
   :group 'tools
   :prefix "parley-")
 
-(defcustom parley-claude-program "claude"
-  "The `claude' executable session discovery asks for the live sessions."
-  :type 'string)
-
-(defcustom parley-projects-directory "~/.claude/projects"
-  "Directory Claude Code keeps session transcripts under.
-Each session's transcript is SESSION-ID.jsonl in the
-subdirectory named after the session's working directory."
-  :type 'directory)
-
-(defcustom parley-sessions-directory "~/.claude/sessions"
-  "Directory Claude Code keeps one file per session under.
-Each session's file is PID.json and holds that session's own
-account of itself: its `status', the `sessionId' it is running
-and the `procStart' of the process writing it."
-  :type 'directory)
-
 
 ;;; Discovery
 
@@ -73,6 +56,10 @@ and the `procStart' of the process writing it."
 ;; is reported as interactive too.  Standard input is the discriminator
 ;; that holds -- a session someone types at has a terminal on fd 0, a
 ;; headless child has a pipe.
+
+(defcustom parley-claude-program "claude"
+  "The `claude' executable session discovery asks for the live sessions."
+  :type 'string)
 
 (defun parley--agents-json ()
   "Return the raw output of `claude agents --json'."
@@ -174,6 +161,12 @@ typed into is still one to read."
     (setq parley--pane-locations (parley--tmux-pane-locations)))
   (cdr (assoc pane parley--pane-locations)))
 
+(defcustom parley-projects-directory "~/.claude/projects"
+  "Directory Claude Code keeps session transcripts under.
+Each session's transcript is SESSION-ID.jsonl in the
+subdirectory named after the session's working directory."
+  :type 'directory)
+
 (defun parley--transcript-file (cwd session-id)
   "Return the absolute path of the transcript of SESSION-ID run in CWD.
 Claude Code names the directory after CWD with every character
@@ -259,6 +252,13 @@ why the id goes in whole is docs/architecture/discovery.md."
 ;; `procStart' has to be the one /proc reports, because a pid that has
 ;; been handed to an unrelated process would otherwise read as that
 ;; session forever.
+
+(defcustom parley-sessions-directory "~/.claude/sessions"
+  "Directory Claude Code keeps one file per session under.
+Each session's file is PID.json and holds that session's own
+account of itself: its `status', the `sessionId' it is running
+and the `procStart' of the process writing it."
+  :type 'directory)
 
 (defconst parley--statuses
   '(("busy" . working) ("waiting" . waiting) ("idle" . idle))
