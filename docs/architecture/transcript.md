@@ -255,7 +255,7 @@ one line a run of tool calls collapses to.
 
 **The grid is drawn, and the source behind it is the agent's bars and dashes.**
 Every column boundary in a rendered table is `│`, at each end of a line as well
-as between two cells; the row between the header and the body is `├─┼─┤`, with
+as between two cells; the rule between the header and the body is `╞═╪═╡`, with
 none of his dashes or colons left in it; and a rule of `┌─┬─┐` opens the grid
 with `└─┴─┘` to close, each junction standing in the column a boundary stands
 in. What the overlay carries is the `|` and the `---` he typed, which is what
@@ -270,27 +270,55 @@ column ends, so a substitution would draw a boundary inside the cell. Nothing
 scans a cell for a bar, and a bar inside one reaches the buffer exactly as the
 agent wrote it.
 
+**A body with a row over two lines tall is ruled between every two rows.** A
+wrapped row is told from the one under it by where its cells run out, and past
+two lines that stops working: in a table of cells three and four lines tall the
+eye loses which lines are one row. So when any body row — a row under the header
+rule — runs over more than two lines, a rule of `├─┼─┤` is drawn between every
+two body rows, the short ones included; a table whose body rows each take two
+lines or fewer has none. It is one answer for the whole table, because a table
+ruled in one place and not the next reads as two tables. The header is not a
+body row: a header wrapped over four lines already has the header rule under it,
+and draws nothing between the rows below.
+
+**Whether a table is ruled is decided on each render, from the width it is
+rendered to.** How many lines a row takes is a question of that width, and the
+writer is what wraps the rows, so the writer is where it is asked. A resize
+renders every table from its source again through the same writer, so a table
+gains its rules on a narrow window and loses them on a wide one with nothing
+else changed. On a wide window most tables take a line or two a row, and a rule
+between every two of them would only take lines from the conversation.
+
+**The header rule is `╞═╪═╡` on every table, ruled or not.** Once the body rows
+are ruled apart in `├─┼─┤`, a header rule in that same line reads as one more row
+boundary; and a header rule that changed weight when a resize added the row rules
+would draw one table two ways. The row rules stay the single line.
+
 **The `:---:` of a delimiter row is said by the padding.** How a column is
 aligned is not something anyone reads off a drawn table, and it is not lost:
 the marks are read off his delimiter row once and every line the writer puts out
-is padded by them. The row itself becomes `├───┼───┤`.
+is padded by them. The row itself becomes `╞═══╪═══╡`.
 
-**The drawing costs the grid no width.** Each of those characters takes the one
-column the character it stands for took. Under Emacs's default width table that
-is already so: measured with `char-width` on Emacs 28.2, `│`, `─` and every
-junction and corner are one column, as `|` and `-` are. Under the CJK one,
-which a Chinese, Japanese or Korean language environment installs, each of them
-is two and `|` and `-` are still one — measured on the same Emacs, `│ a │ b │`
-is 12 columns and the `┌───┬───┐` over it 18. So the transcript buffer, and the
+**The drawing costs the grid no width.** Each character the grid is drawn in
+takes the one column the character it stands for took. Under Emacs's default
+width table that is already so: measured with `char-width` on Emacs 28.2, `│`,
+`─`, `═` and every junction and corner are one column, as `|` and `-` are. Under
+the CJK one, which a Chinese, Japanese or Korean language environment installs,
+`│`, `─` and the single-line junctions and corners are two and `|` and `-` are
+still one — measured on the same Emacs, `│ a │ b │` is 12 columns and the
+`┌───┬───┐` over it 18 — while the header rule's `═`, `╞`, `╪` and `╡` are one
+under Japanese, Chinese-GB and Korean alike. So the transcript buffer, and the
 buffer every cell is measured in, carry a `char-width-table` of their own: a
-child of the environment's, which counts the drawn characters one column each
-and leaves every other width to its parent, so a CJK character in a cell is
-still the two columns it is. A transcript buffer's parent is the table in force
-when it is set up, and one set up before a switch of language environment keeps
-the widths of the one it was set up under. The buffer cells are measured in is
-shared and outlives every transcript buffer, so its table is rebuilt whenever
-the environment's is no longer its parent: a transcript buffer set up after a
-switch has its cells measured under the widths it displays them in.
+child of the environment's, which counts every drawn character one column — the
+four that are one already included, since one column is what the grid needs of
+them and not what an environment happens to answer — and leaves every other
+width to its parent, so a CJK character in a cell is still the two columns it
+is. A transcript buffer's parent is the table in force when it is set up, and
+one set up before a switch of language environment keeps the widths of the one
+it was set up under. The buffer cells are measured in is shared and outlives
+every transcript buffer, so its table is rebuilt whenever the environment's is
+no longer its parent: a transcript buffer set up after a switch has its cells
+measured under the widths it displays them in.
 
 **The form is text and not something shown through a `display` property.** What
 a `display` property shows is not text: the buffer's own machinery never looks
