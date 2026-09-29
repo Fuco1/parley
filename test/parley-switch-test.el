@@ -463,6 +463,32 @@ candidate, so nothing has to find it again by a name it shares."
         (parley-switch--action nil candidate)
         (should (eq shown (parley-switch-test--session 5)))))))
 
+(ert-deftest parley-switch-test-a-field-filter-reads-its-own-column ()
+  "A field filter matches its pattern against the column its key names.
+Each pattern below is held by that one column of the fixtures, so
+a filter reading any other column finds other sessions or none.
+
+The one function of sallet's the filter calls,
+`sallet-candidate-aref', is stood in for, so this runs where the
+matcher test below is skipped."
+  (parley-switch-test--with-sessions
+    (let* ((candidates (vconcat (parley-switch--candidates)))
+           (indices (number-sequence 0 (1- (length candidates)))))
+      (cl-letf (((symbol-function 'sallet-candidate-aref)
+                 (lambda (candidates index) (car (aref candidates index)))))
+        (cl-flet ((pids (key pattern)
+                    (mapcar (lambda (index)
+                              (plist-get (cdr (aref candidates index)) :pid))
+                            (funcall (parley-switch--field-filter key)
+                                     candidates indices pattern))))
+          (should (equal (pids :name "app") '(1)))
+          (should (equal (pids :status "busy") '(1 5)))
+          (should (equal (pids :mark "[RO]") '(5 3)))
+          (should (equal (pids :directory "/worker-2") '(4)))
+          (should (equal (pids :tag "orc-b3743fe3") '(2 4)))
+          (dolist (pattern '("busy" "[RO]" "/worker-2" "orc-b3743fe3"))
+            (should-not (pids :name pattern))))))))
+
 (ert-deftest parley-switch-test-matcher-matches-columns ()
   "Each column is matched on its own, and the prompt is matched in order."
   (skip-unless (featurep 'sallet))
