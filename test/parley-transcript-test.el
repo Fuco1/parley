@@ -2616,12 +2616,15 @@ two short ones included.  At 25 its tallest takes two and there
 is none: it is the width a table is rendered to that decides, on
 the one table.  The header of the second takes four lines at 20
 and its body one each, and it has none either, because the header
-is not a body row.  The rule under the header is `╞═╪═╡' in all
-three.
+is not a body row.  Nor is either of the two rows the third holds
+above its delimiter row, so its tall body row rules its body
+apart and nothing stands between those two.  The rule under the
+header is `╞═╪═╡' in all four.
 
 Each grid is pinned line for line: a writer that ruled every
-table, or none, or ruled on the header's height, fails one of
-them, and so does one ruling on rows of two lines."
+table, or none, or ruled on the header's height, or between the
+rows of a header, fails one of them, and so does one ruling on
+rows of two lines."
   (let ((table (concat "| name | what it does |\n"
                        "|---|---|\n"
                        "| a | short |\n"
@@ -2630,6 +2633,11 @@ them, and so does one ruling on rows of two lines."
         (tall-header (concat "| a very long header cell that wraps a lot | b |\n"
                              "|---|---|\n"
                              "| x | y |\n"
+                             "| z | w |"))
+        (two-headers (concat "| h | i |\n"
+                             "| j | k |\n"
+                             "|---|---|\n"
+                             "| x | a much longer cell |\n"
                              "| z | w |")))
     (should (equal '("┌────────┬─────────┐"
                      "│ name   │ what it │"
@@ -2663,6 +2671,18 @@ them, and so does one ruling on rows of two lines."
                      "│ z            │ w │"
                      "└──────────────┴───┘")
                    (split-string (parley-transcript--aligned tall-header 20)
+                                 "\n")))
+    (should (equal '("┌───┬──────────┐"
+                     "│ h │ i        │"
+                     "│ j │ k        │"
+                     "╞═══╪══════════╡"
+                     "│ x │ a much   │"
+                     "│   │ longer   │"
+                     "│   │ cell     │"
+                     "├───┼──────────┤"
+                     "│ z │ w        │"
+                     "└───┴──────────┘")
+                   (split-string (parley-transcript--aligned two-headers 16)
                                  "\n")))))
 
 (defconst parley-transcript-test--grid-tables
