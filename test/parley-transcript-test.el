@@ -1491,6 +1491,27 @@ after them is what says the render pass has read them all."
     (should (equal (parley-transcript-test--header buffer)
                    "test  unknown  [RO]"))))
 
+(ert-deftest parley-transcript-test-header-line-keeps-the-count-across-a-mode-reentry ()
+  "A major mode reentered over the buffer leaves every running task counted.
+The pipe has delivered the launches already and does not deliver
+them again, so a count cleared with the other buffer-local
+bindings would say nothing of a shell and a subagent that are
+still running.  The notification arriving after the reentry is
+then what takes the shell off, as it would have without one."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--shell-launch "blyeiflqe")
+            (parley-transcript-test--agent-launch "a50ad8c674992fc1f"))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  1 background shell  1 subagent  [RO]"))
+    (with-current-buffer buffer (parley-transcript-mode))
+    (should (equal (parley-transcript-test--header buffer)
+                   "test  unknown  1 background shell  1 subagent  [RO]"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--notification "done" "blyeiflqe")))
+    (should (parley-transcript-test--header-becomes
+             buffer "test  unknown  1 subagent  [RO]"))))
+
 (ert-deftest parley-transcript-test-header-line-never-counts-a-task-that-ended-first ()
   "A shell whose notification came before its launch is never counted.
 A shell that finishes at once can be enqueued as done before the

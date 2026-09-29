@@ -632,6 +632,15 @@ shell that finishes at once can have its notification written
 before its launch, and the launch arriving second must not start
 it again.  What `parley-transcript--header-line' counts.")
 
+;; Permanent, because the pipe does not deliver the history again when
+;; the major mode is entered again over a live buffer: a cleared list
+;; would drop every task still running, and nothing would put one back.
+;; A pipeline that is restarted does deliver it again, from the first
+;; byte, and that is harmless: a launch already on the list is ignored
+;; and an end only ever marks a task ended, so reading one record twice
+;; leaves the list as reading it once did.
+(put 'parley-transcript--tasks 'permanent-local t)
+
 (defun parley-transcript--track-tasks (record)
   "Note on `parley-transcript--tasks' what RECORD launched and what it ended.
 RECORD is a projected object, nil for a line that held none.  A
