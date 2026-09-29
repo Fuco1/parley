@@ -314,22 +314,21 @@ session."
     (should (string-prefix-p (make-string 62 ?n) long))
     (should (= (parley-switch-test--display-column long "idle") 64))))
 
-(ert-deftest parley-switch-test-a-long-status-is-cut-to-its-column ()
-  "A status parley does not name is cut to the status column.
-`idle', `busy' and `waiting' fit it with the read only mark
-beside them, and the column is theirs; a status of any length at
-all is what `claude agents' may report tomorrow, and the one
-thing it may not do is carry every column after it out of line
-on that row.  The status is the only column cut, because it is
-the only one holding a value from a short list -- a name and a
+(ert-deftest parley-switch-test-a-status-never-runs-past-its-column ()
+  "A status of any length leaves the columns after it in line.
+A status of any length at all is what `claude agents' may report
+tomorrow, and the one thing it may not do is carry every column
+after it out of line on that row.  It is listed as the value it
+is read as, `unknown', which fits the status column with the
+read only mark beside it, so no column is cut -- a name and a
 working directory are what the operator picks a session by, and
 both are drawn whole."
   (let ((row (parley-session-row
-              (list :name "orc-w1" :status "awaiting-approval" :mark "[RO]"
-                    :directory "/srv/orc" :tag "tag"))))
-    (should (= (parley-switch-test--display-column row "/srv/orc") 66))
-    (should (equal (get-text-property 52 'face row) 'parley-row-status-other))
-    (should (equal (next-single-property-change 52 'face row) 64))
+              (parley-session-fields
+               (plist-put (copy-sequence (parley-switch-test--session 5))
+                          :status "awaiting-approval")))))
+    (should (equal (substring row 52 64) "unknown [RO]"))
+    (should (= (parley-switch-test--display-column row "/srv/go/orc") 66))
     ;; And a working directory past its own column is not cut: the
     ;; tail of a path is what tells two worktrees apart.
     (let ((deep (parley-session-row

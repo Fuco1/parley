@@ -212,11 +212,11 @@ session by — two sessions in sibling worktrees come back under one name, and a
 background agent is named after its prompt, so the tail of a name is where the
 difference often is.
 
-**The status is the one column cut to its width.** It holds one of a handful of
-values — parley names three and `claude agents` may report a fourth tomorrow —
-so a cut there loses nothing anyone picks a session by, while a status running
-long would carry every column after it out of line on that row. The name and
-the working directory are the handles, and neither is ever cut.
+**No column is cut, the status included.** The status column is as wide as the
+longest value with the read only mark beside it, and a status Claude Code starts
+writing tomorrow is listed `unknown` rather than carrying every column after it
+out of line. The working directory is drawn whole for the reason the name is:
+the tail of a path is what tells two worktrees apart.
 
 **A column is measured as it is drawn.** A width in characters is not a width
 on screen: a name in a script drawn two columns to the glyph would put that

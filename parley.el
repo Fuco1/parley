@@ -475,7 +475,7 @@ so each has a colour of its own, and `unknown' is drawn in
     ('waiting 'parley-row-status-waiting)
     (_ 'parley-row-status-other)))
 
-(defun parley--column (string width face &optional cut)
+(defun parley--column (string width face)
   "Return STRING as a column WIDTH wide, padded with spaces in FACE.
 The padding carries FACE and not the default, so a column is
 coloured across the whole of it and a theme giving one of these
@@ -487,15 +487,12 @@ WIDTH is a display width and not a count of characters: a name
 written in a script drawn two columns to the glyph lines up with
 the rest of the list only if it is measured the way it is drawn.
 
-STRING is drawn whole unless CUT, and drawing it whole is what
-pushes the columns after it along that one row.  CUT is for a
-column holding one of a handful of values -- a status -- where
-what is lost is nothing the operator picks a session by.  A name
-and a working directory are exactly that, so neither is ever
-cut."
-  (let* ((drawn (if cut (truncate-string-to-width string width) string))
-         (padding (max 0 (- width (string-width drawn)))))
-    (concat drawn (propertize (make-string padding ?\s) 'face face))))
+STRING is drawn whole, and one wider than WIDTH pushes the
+columns after it along that one row: a name and a working
+directory are what the operator picks a session by, and cutting
+either cuts the part that tells two sessions apart."
+  (let ((padding (max 0 (- width (string-width string)))))
+    (concat string (propertize (make-string padding ?\s) 'face face))))
 
 (defun parley-session-row (fields)
   "Return FIELDS as one row of faced columns, the name first.
@@ -510,10 +507,9 @@ status, and has none of its own: a column of its own is blank on
 every session that has a pane, which is nearly all of them, and
 what it holds reads as something about the status anyway.  Twelve
 columns is what the two come to together at their longest,
-\"waiting [RO]\", and a status parley does not name is cut to
-that: it is the one column here holding a value from a short
-list, and a row whose status runs long would carry every column
-after it out of line."
+\"waiting [RO]\" or \"unknown [RO]\": the column holds one of
+the values `parley--status-value' reads a status as, so a status
+parley does not name is listed `unknown' and never runs past it."
   (let* ((name (plist-get fields :name))
          (status (plist-get fields :status))
          (mark (plist-get fields :mark))
@@ -529,7 +525,7 @@ after it out of line."
           (propertize status 'face status-face)
         (concat (propertize (concat status " ") 'face status-face)
                 (propertize mark 'face 'parley-row-read-only)))
-      12 status-face t)
+      12 status-face)
      "  "
      (parley--column (propertize directory 'face 'parley-row-directory)
                      40 'parley-row-directory)
