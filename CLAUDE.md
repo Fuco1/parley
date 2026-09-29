@@ -126,8 +126,10 @@ warning is an error. `handoff` and `merge` add the ERT suite.
 Two things that will cost you a run:
 
 - **`require` prefers a `.elc` over a newer `.el`**, saying so in one line of
-  stdout. Running the test command by hand straight after a compile therefore
-  tests the *previous* source. `rm -f *.elc test/*.elc` first; the `handoff` and
-  `merge` roles are safe because they compile before they load.
+  stdout. The compile deletes every `.elc` under the tree before it compiles
+  anything, and `handoff` and `merge` run it before the tests, so no role loads
+  a stale one. The test command run by hand after an edit does: it tests the
+  package as it was last compiled. Run the compile first, or
+  `rm -f *.elc test/*.elc`.
 - **Most of the suite needs `jq` and `tmux` on `PATH`** and skips without them,
   so a green run that asserted almost nothing is possible.
