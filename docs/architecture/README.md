@@ -40,5 +40,6 @@ it binds here too.
 | Fact | Owner |
 |---|---|
 | layout, house style, where a new thing goes | `CLAUDE.md` |
+| what a function or a variable does, and the reason a caller needs, for a reader in Emacs's help | its docstring; `CLAUDE.md` has the rule |
 | the check commands and the role that runs each | `.orc/config.toml` |
 | what the package is and how to use it | `README.md` |
