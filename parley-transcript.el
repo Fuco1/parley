@@ -739,9 +739,9 @@ would take the sealing back out."
 ;; rows of it, and a rule of `┌─┬─┐' opens it with `└─┴─┘' to close.
 ;; Those characters are what the writer emits, because the writer is
 ;; what put every boundary there and is the only thing that knows
-;; where one is.  Nothing scans a
-;; finished grid for a bar, so the bar inside `[[target|link words]]'
-;; stands in the cell holding it and nowhere in the grid.
+;; where one is.  Nothing scans a finished grid for a bar, so the bar
+;; inside `[[target|link words]]' stands in the cell holding it and
+;; nowhere in the grid.
 ;;
 ;; One writer for every table, the one that fits the window and the
 ;; one wrapped into it alike.  What that buys is the markup in a cell:
