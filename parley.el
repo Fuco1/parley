@@ -396,9 +396,10 @@ operator reads the two against each other.")
 
 (defun parley-session-fields (session)
   "Return the columns SESSION is listed and matched by.
-A vector of five strings: its name, its status, the mark saying
-it cannot be typed into, its working directory and its tag --
-where its pane is and its session id, see `parley-session-tag'.
+A plist of five strings, one keyword per column: `:name', `:status',
+`:mark' saying it cannot be typed into, `:directory' for its
+working directory and `:tag' -- where its pane is and its session
+id, see `parley-session-tag'.
 The tag is matched as one string, so a token naming a tmux window
 finds the session running in it.
 
@@ -417,11 +418,11 @@ Nothing in a session record is guaranteed to be there, so the
 placeholder for a status `claude agents' did not report is chosen
 once here rather than by each frontend, and the one for a name it
 did not report is `parley-session-no-name'."
-  (vector (or (plist-get session :name) parley-session-no-name)
-          (or (plist-get session :status) "unknown")
-          (if (plist-get session :pane) "" parley-session-read-only-mark)
-          (abbreviate-file-name (plist-get session :cwd))
-          (parley-session-tag session)))
+  (list :name (or (plist-get session :name) parley-session-no-name)
+        :status (or (plist-get session :status) "unknown")
+        :mark (if (plist-get session :pane) "" parley-session-read-only-mark)
+        :directory (abbreviate-file-name (plist-get session :cwd))
+        :tag (parley-session-tag session)))
 
 ;; Both frontends draw this row, so the faces go on it:
 ;; `completing-read' displays a face on a candidate as readily as a
@@ -488,7 +489,7 @@ cut."
 
 (defun parley-session-row (fields)
   "Return FIELDS as one row of faced columns, the name first.
-FIELDS is a vector from `parley-session-fields'.  A row is what
+FIELDS is a plist from `parley-session-fields'.  A row is what
 `completing-read' completes over, because it matches one flat
 string and the annotation has to be inside it; the sallet
 renderer draws the same row from the same fields.  The faces are
@@ -503,11 +504,11 @@ columns is what the two come to together at their longest,
 that: it is the one column here holding a value from a short
 list, and a row whose status runs long would carry every column
 after it out of line."
-  (let* ((name (aref fields 0))
-         (status (aref fields 1))
-         (mark (aref fields 2))
-         (directory (aref fields 3))
-         (tag (aref fields 4))
+  (let* ((name (plist-get fields :name))
+         (status (plist-get fields :status))
+         (mark (plist-get fields :mark))
+         (directory (plist-get fields :directory))
+         (tag (plist-get fields :tag))
          (status-face (parley--status-face status)))
     (concat
      (parley--column (propertize name 'face 'parley-row-name)
