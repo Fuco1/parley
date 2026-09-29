@@ -115,7 +115,7 @@ inside a JSON string is written as the six characters \\u001b."
 of a line to the window edge, and a face that sets only
 `:background' leaves it unspecified -- measured on Emacs 28.2,
 `(face-attribute f :extend nil t)' is `unspecified' for such a
-face and `t' only when the face says so."
+face and t only when the face says so."
   :group 'parley)
 
 (defface parley-user-marker '((t :inherit (parley-user shadow)))
@@ -150,13 +150,13 @@ skill load collapses to."
 One buffer for every message of every session, reused rather than
 made per message -- docs/architecture/transcript.md says why.
 
-`delay-mode-hooks' keeps the operator's `markdown-mode-hook' out
-of a buffer he will never see.  With the leading space in the
-name it keeps font lock out too: `font-lock-mode' refuses a
-buffer whose name starts with a space, and nothing here runs
-`after-change-major-mode-hook' for `global-font-lock-mode' to act
-on -- so there is no jit-lock here and `font-lock-ensure' is the
-plain fontify-region it looks like.
+The function `delay-mode-hooks' keeps the operator's
+`markdown-mode-hook' out of a buffer he will never see.  With the
+leading space in the name it keeps font lock out too:
+`font-lock-mode' refuses a buffer whose name starts with a space,
+and nothing here runs `after-change-major-mode-hook' for
+`global-font-lock-mode' to act on -- so there is no jit-lock here
+and `font-lock-ensure' is the plain fontify-region it looks like.
 
 `markdown-toggle-markup-hiding' is on because the markup that is
 hidden with a `display' property -- a heading's `#', a
@@ -2450,7 +2450,7 @@ received."
                                arguments))
                     (apply #'call-process "tmux" nil t nil arguments))))
       (unless (eq status 0)
-        (user-error "tmux %s: %s" (car arguments)
+        (user-error "Running tmux %s failed: %s" (car arguments)
                     (string-trim (buffer-string)))))))
 
 (defun parley-transcript--send-input (_process string)
