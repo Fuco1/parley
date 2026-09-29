@@ -28,15 +28,37 @@ projection, a fraction of the file.
 
 **The projection is built from scratch rather than pruned.** A tool result lives
 in a `tool_result` block and again in a top-level `toolUseResult` field;
-emitting only the fields parley renders means neither is ever read, where a
+emitting only the fields parley uses means neither is ever emitted, where a
 filter that deleted the payloads would have to know every place one can hide.
 It carries `isMeta` for the same reason from the other side: the render pass
 cannot ask for a field the projection did not emit, and that field is what marks
 a harness injection.
 
-**A message that renders to nothing is dropped rather than emitted empty**,
-which is what becomes of a `tool_result` turn and of an assistant turn that was
-only thinking.
+**It carries the id of each task a session starts and each one it hears back
+from, and nothing else of either.** A background shell and a subagent each
+start in a `tool_result` block and end in a task notification, and the one id
+in both is all that ties the two together. Nothing else says either is running
+— `claude agents` reports neither, and a subagent's own turns never reach the
+project's transcript — so the render pass can count them only from what the
+projection emits. Emitting the block's text would put every tool result back on
+the pipe to get at one word of it, which is the cost this pipeline exists to
+keep out of Emacs. So the id is taken out in jq and the text it came out of stays
+there. The launch is matched at the head of the block, as a notification's tag
+is at the head of its record, so a tool result that quotes a launch — an agent
+reading a transcript — starts nothing.
+
+**A notification is read wherever the harness writes one, not only where it is
+shown.** One that arrives while the agent is mid-turn is absorbed into that turn
+as an attachment and never becomes a `user` record at all, and the harness
+writes a notification on the queue it waits in before delivering it either way
+— though not every one, so no one of the three records is enough on its own. The queue and the attachment hold nothing the render pass shows, so
+for them the projection emits the id alone. The queue record can land before the
+result saying the task was launched, when a shell ends at once, so an ended id
+is kept and a launch arriving after it starts nothing.
+
+**A message that says nothing and carries no id is dropped rather than emitted
+empty**, which is what becomes of every other `tool_result` turn and of an
+assistant turn that was only thinking.
 
 **jq block buffers a pipe**, and a live session whose output waits for a buffer
 to fill looks frozen. Which flags hold that off, and what each of them costs,
@@ -634,11 +656,29 @@ on every redisplay, which is what lets it say what is true now. It is also
 parley's own line: a mode line is configured by whoever owns the Emacs and may
 show none of this.
 
-**It carries the session's name, what it is doing, where its pane is and the
-mark saying it cannot be typed into.** The status is the buffer's live one
-([discovery](discovery.md)) and never the one the record carried when the buffer
-was opened; all four states are told apart in words, and waiting is a word of
-its own, because it is the state that wants the operator.
+**It carries the session's name, what it is doing, how many background shells
+and subagents it has running, where its pane is and the mark saying it cannot be
+typed into.** The status is the buffer's live one ([discovery](discovery.md))
+and never the one the record carried when the buffer was opened; all four states
+are told apart in words, and waiting is a word of its own, because it is the
+state that wants the operator.
+
+**What it has running is what the render pass saw start and not yet end.** A
+session sitting idle can still have shells and subagents working, and nothing
+else in the buffer says so. The render pass keeps the ids the projection carries
+on the buffer, and the line counts them there: no process and no file, which
+from a header line would be one per transcript on screen at every redisplay. A
+count of none is left off the line rather than written as a zero. No id is
+shown, for the reason no pane id is: it locates nothing the operator can act on.
+
+**A task stopped outside the transcript is counted until the session ends.** A
+task stopped from the UI, by a `Monitor` timeout or by the agent's teardown
+leaves no notification behind, and Claude Code notices only when the next
+session starts, in that session's transcript and not this one. So such a task is
+indistinguishable here from one still working, and the count over-reports by
+every one of them for as long as the session runs. That is the ceiling on it. A
+session's end writes nothing to its transcript either, so a buffer left open
+over an ended session goes on showing the count it last had.
 
 **The working directory is not on it.** A switcher row carries it because the
 operator is choosing between sessions; inside the buffer it is
