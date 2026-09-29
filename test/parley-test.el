@@ -532,6 +532,26 @@ come out in the order discovery returned them in."
                          :directory "/srv/matus"
                          :tag "7c1d0f9a-0003")))))
 
+(ert-deftest parley-test-a-placeholder-stands-in-only-for-what-is-missing ()
+  "The name placeholder and the read only mark each stand in for one field.
+`parley-session-name' gives the placeholder for a record with no
+name and the name for one with it, and `parley-session-mark' gives
+the mark for a record with no pane and nothing for one with a
+pane.  Every display of a session takes both from these two, so
+this is what the switcher row and the header line both show."
+  (should (equal (parley-session-name (list :name nil :pane "%61"))
+                 parley-session-no-name))
+  (should (equal (parley-session-name (list :pane nil))
+                 parley-session-no-name))
+  (should (equal (parley-session-name (list :name "orc-w1" :pane nil))
+                 "orc-w1"))
+  (should (equal (parley-session-mark (list :name "orc-w1" :pane nil))
+                 parley-session-read-only-mark))
+  (should (equal (parley-session-mark (list :name "orc-w1"))
+                 parley-session-read-only-mark))
+  (dolist (pane '("%61" "%999"))
+    (should (null (parley-session-mark (list :name nil :pane pane))))))
+
 (ert-deftest parley-test-marks-a-session-with-no-pane-read-only ()
   "A session with no pane is listed as one that cannot be typed into.
 The mark is in the row before anything has been submitted, which
