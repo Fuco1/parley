@@ -60,7 +60,18 @@ commands = [
   '''emacs -Q --batch -l checkdoc --eval '(let ((checkdoc-verb-check-experimental-flag nil) (reported nil)) (advice-add (quote checkdoc-error) :before (lambda (&rest _) (setq reported t))) (dolist (f (directory-files-recursively default-directory "[.]el$")) (unless (string-prefix-p "test/" (file-relative-name f)) (checkdoc-file f))) (when reported (kill-emacs 1)))' ''',
 ]
 
+# The manual is built into the null device.  straight and MELPA build the
+# `.info` themselves and none is committed, so the build is a check and nothing
+# it writes may land in the tree.  makeinfo exits non-zero on a menu entry or a
+# cross-reference naming a node that does not exist.  It names its file rather
+# than globbing, because the manual is one file.
+
+[checks.manual]
+commands = [
+  '''makeinfo -o /dev/null doc/parley.texi''',
+]
+
 [roles]
-inner   = ["compile", "checkdoc"]
-handoff = ["compile", "checkdoc", "test"]
-merge   = ["compile", "checkdoc", "test"]
+inner   = ["compile", "checkdoc", "manual"]
+handoff = ["compile", "checkdoc", "manual", "test"]
+merge   = ["compile", "checkdoc", "manual", "test"]
