@@ -44,7 +44,23 @@ commands = [
   '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" --eval '(dolist (f (file-expand-wildcards "test/*.el" t)) (load f))' -f ert-run-tests-batch-and-exit''',
 ]
 
+# checkdoc reads the source and loads none of it, so its quoting checks, which
+# ask whether a symbol is bound, answer from core Emacs alone and not from
+# whichever markdown-mode is on the path.  `-l checkdoc` comes before `--eval`
+# for the reason `-l bytecomp` does above.  The verb check is off because it
+# guesses: it reads "tells" in "Return what tells SESSION apart" as a verb in
+# the wrong mood.  test/ is left out because it is not what the package ships.
+#
+# `checkdoc-file` does not signal either: it warns and returns.  Every report
+# goes through `checkdoc-error`, and the advice on it is what turns one into an
+# exit code.
+
+[checks.checkdoc]
+commands = [
+  '''emacs -Q --batch -l checkdoc --eval '(let ((checkdoc-verb-check-experimental-flag nil) (reported nil)) (advice-add (quote checkdoc-error) :before (lambda (&rest _) (setq reported t))) (dolist (f (directory-files-recursively default-directory "[.]el$")) (unless (string-prefix-p "test/" (file-relative-name f)) (checkdoc-file f))) (when reported (kill-emacs 1)))' ''',
+]
+
 [roles]
-inner   = ["compile"]
-handoff = ["compile", "test"]
-merge   = ["compile", "test"]
+inner   = ["compile", "checkdoc"]
+handoff = ["compile", "checkdoc", "test"]
+merge   = ["compile", "checkdoc", "test"]

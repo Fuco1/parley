@@ -17,20 +17,25 @@ style. Why the package is shaped the way it is belongs to `docs/architecture/`.
 Start at `docs/architecture/README.md`: it carries the page table and the rule
 every page is held to.
 
-**`docs/architecture/` is where architecture goes, and it is the only place it
-goes.** One page owns each subject. When you find something architectural —
-which decision lives where, which constraint forces it — put it on the page
-that owns that subject. A commit body is read once and a code comment only by
-whoever opens that file; neither is where the next person looks, and both go
-stale silently because nothing checks prose against code.
+**`docs/architecture/` is where the architecture is argued.** One page owns
+each subject. When you find something architectural — which decision lives
+where, which constraint forces it — put it on the page that owns that subject.
+A commit body is read once and a `;;` comment only by whoever opens that file;
+neither is where the next person looks, and both go stale silently because
+nothing checks prose against code.
 
-**The tie-breaker between a page and a comment is what the argument is about.**
-Could the sentence have been written before the file existed, and would it still
-be true if the function were rewritten from scratch? Then it is the system's and
-the page owns it. Does it name a flag, the order of two forms, or what an
-external tool does at this one call? Then it is the line's, the code owns it,
-and a page that repeats it has taken the fact away from the only place it
-prevents the mistake.
+**The tie-breaker between a page and a `;;` comment is what the argument is
+about.** Could the sentence have been written before the file existed, and would
+it still be true if the function were rewritten from scratch? Then it is the
+system's and the page owns it. Does it name a flag, the order of two forms, or
+what an external tool does at this one call? Then it is the line's, the code
+owns it, and a page that repeats it has taken the fact away from the only place
+it prevents the mistake.
+
+**The tie-breaker does not reach a docstring or a `;;; Commentary:` section.**
+Those are read in Emacs, from the installed package, and the package ships no
+`docs/`. What they owe their reader is under "Docstrings and commentaries are
+read in Emacs's help" below.
 
 ## Layout
 
@@ -81,10 +86,44 @@ loads the library at compile time, so the call compiles clean either way.
   `parley-transcript-test-drops-the-tool-payloads`, never a numbered variant of
   the function's name. A helper in a test file carries `-test--`.
 - **Never shout. A run of capitals is not emphasis.** Capitals are for a token
-  spelled that way: `TMUX_PANE`, `PATH`, `JSONL`.
+  spelled that way: `TMUX_PANE`, `PATH`, `JSONL`. An argument or a
+  metasyntactic variable written in capitals is the convention of
+  `(elisp) Documentation Tips` and not shouting: `SESSION`,
+  `SESSION:WINDOW.PANE`.
 - **Prefer the form that can only fail.** `jq -M` where colour would be wrong
   even though a pipe would not get it anyway; a `user-error` on a session with
   no pane rather than a silent no-op.
+
+### Docstrings and commentaries are read in Emacs's help
+
+**A docstring and a `;;; Commentary:` section are written for a reader in
+`C-h f`, `C-h v` or `finder-commentary` who has no other file open.** Help shows
+them from the installed package, which is the `.el` files and nothing else:
+straight's default files directive and MELPA's default file list both leave
+`*.md` out.
+
+**A docstring carries the contract of what it documents** — what it does or
+means, each argument, the return value, what it signals — **and the reason for
+any behaviour a caller would not expect.** No line ceiling applies to a
+docstring or to a commentary.
+
+**It states the reason and not the evidence.** Neither a docstring nor a
+commentary carries a figure, under the rule in "A cost a decision rests on is
+measured before the decision" below.
+
+**A docstring points only where help mode follows**: a symbol quoted as
+`` `foo' ``, an Info node, a URL. It may say where a value comes from, such as
+another package's function, but it never leaves out an explanation and names a
+file to read for it. Nor does a commentary.
+
+**Docstrings follow the Emacs Lisp manual's conventions, Info node
+`(elisp) Documentation Tips`**: a first line that stands alone as a summary, the
+imperative for a function, an argument named in capitals, `\\[command]` rather
+than a literal key. `checkdoc` checks the mechanical half of them, and a check
+profile runs it.
+
+**A `;;` comment keeps the rule it has**: why and not what, and an argument
+about the system is the page's.
 
 ### A cost a decision rests on is measured before the decision
 
@@ -93,11 +132,11 @@ commit that makes it.** A number nobody took is a number nobody can check, and
 "this looks expensive" is not one. The commit is where the number stays true:
 it names the tree the number was taken on.
 
-**A page or a comment states the decision and the constraint that forces it,
-and carries no figure.** A number taken on one tree says nothing about the tree
-as it stands, nobody reading it later can recheck it, and the decision it argued
-for is already made. A value the code sets, such as a timer's interval, is not a
-figure in this sense.
+**A page, a comment, a docstring or a commentary states the decision and the
+constraint that forces it, and carries no figure.** A number taken on one tree
+says nothing about the tree as it stands, nobody reading it later can recheck
+it, and the decision it argued for is already made. A value the code sets, such
+as a timer's interval, is not a figure in this sense.
 
 ## No tombstones
 
@@ -121,8 +160,9 @@ table saying which role runs which. Read them there rather than here: a copy in
 this file is a second source of truth that drifts.
 
 `orc check --role inner` is the one to run while you work. It byte-compiles the
-tree under `byte-compile-error-on-warn`, which is the house-style gate — a
-warning is an error. `handoff` and `merge` add the ERT suite.
+tree under `byte-compile-error-on-warn` and runs `checkdoc` over every source
+file outside `test/`, which together are the house-style gate — a warning from
+either is an error. `handoff` and `merge` add the ERT suite.
 
 Two things that will cost you a run:
 
