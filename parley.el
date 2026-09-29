@@ -387,16 +387,37 @@ stay in the order `parley-sessions' discovered them in."
 
 (defconst parley-session-no-name "unnamed"
   "What stands in for the name of a session `claude agents' named none.
-One string and not one per frontend: a switcher row, a transcript
-buffer's name and that buffer's header line each show such a
-session, and three spellings of the placeholder are three
-sessions the operator has to match up himself.")
+Nothing reads it but `parley-session-name', which every display
+of a session takes its name from.")
+
+(defun parley-session-name (session)
+  "Return the name SESSION is shown under.
+That is the name `claude agents' reported for it, or
+`parley-session-no-name' for a session it named none.  A switcher
+row, a transcript buffer's name and that buffer's header line
+each show such a session, and three placeholders chosen three
+times are three sessions the operator has to match up himself."
+  (or (plist-get session :name) parley-session-no-name))
 
 (defconst parley-session-read-only-mark "[RO]"
   "The mark saying a session cannot be typed into.
-Here for the reason `parley-session-no-name' is: a switcher row
-and a transcript buffer's header line both carry it, and the
-operator reads the two against each other.")
+Nothing reads it but `parley-session-mark', which every display
+of a session takes the mark from.")
+
+(defun parley-session-mark (session)
+  "Return the mark saying SESSION cannot be typed into, or nil.
+That is `parley-session-read-only-mark' for a session with no
+pane and nil for one with a pane.  A switcher row and a
+transcript buffer's header line both carry it, and the operator
+reads the two against each other.
+
+It is read from the pane being nil, because the pane is the only
+way into a session and a record without one is a record nothing
+can be sent to.  A background agent has none, being dispatched
+from a terminal it does not own, and so does a session started
+outside tmux -- `:kind' names the first and says nothing at all
+about the second, so it is not what the mark can be read from."
+  (unless (plist-get session :pane) parley-session-read-only-mark))
 
 (defun parley-session-fields (session)
   "Return the columns SESSION is listed and matched by.
@@ -407,16 +428,12 @@ id, see `parley-session-tag'.
 The tag is matched as one string, so a token naming a tmux window
 finds the session running in it.
 
-The mark is what says a session cannot be typed into while the
-operator is still choosing which one to open; without it the
-first he hears of it is the error his first message raises, by
-which point he has written the message.  It is read from the pane
-being nil, because the pane is the only way into a session and a
-record without one is a record nothing can be sent to.  A
-background agent has none, being dispatched from a terminal it
-does not own, and so does a session started outside tmux --
-`:kind' names the first and says nothing at all about the second,
-so it is not what the mark can be read from.
+The name is taken from `parley-session-name' and the mark from
+`parley-session-mark', with the empty string for a session that
+gives no mark.  The mark is what says a session cannot be typed into
+while the operator is still choosing which one to open; without
+it the first he hears of it is the error his first message
+raises, by which point he has written the message.
 
 The status is the name of the value `parley--status-value' reads
 the record's status as, and not the string the session wrote: a
@@ -425,12 +442,11 @@ the transcript's header line shows for it, and one whose status
 parley does not name, or that `claude agents' reported none for,
 is listed `unknown'.  Nothing in a session record is guaranteed
 to be there, so that placeholder is chosen once here rather than
-by each frontend, and the one for a name it did not report is
-`parley-session-no-name'."
-  (list :name (or (plist-get session :name) parley-session-no-name)
+by each frontend."
+  (list :name (parley-session-name session)
         :status (symbol-name
                  (parley--status-value (plist-get session :status)))
-        :mark (if (plist-get session :pane) "" parley-session-read-only-mark)
+        :mark (or (parley-session-mark session) "")
         :directory (abbreviate-file-name (plist-get session :cwd))
         :tag (parley-session-tag session)))
 

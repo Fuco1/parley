@@ -1753,7 +1753,7 @@ session is not unique -- two in sibling worktrees come back under
 one, and two live sessions can even share a pane -- so what makes
 this name one session's own is `parley-session-tag'."
   (format "*parley: %s %s*"
-          (or (plist-get session :name) parley-session-no-name)
+          (parley-session-name session)
           (parley-session-tag session)))
 
 (defun parley-transcript--buffer (session)
@@ -1941,12 +1941,9 @@ tick would otherwise leave that one running for good."
 (defun parley-transcript--header-line ()
   "Return what the top line of this buffer says about the session it follows.
 Its name, what it is doing, where its pane is, and the mark
-saying it cannot be typed into -- the placeholder for a session
-`claude agents' named none and the mark itself are the switcher
-row's, `parley-session-no-name' and
-`parley-session-read-only-mark', and the mark is read from the
-record having no pane for the reason `parley-session-fields'
-reads it from there.
+saying it cannot be typed into.  The name is taken from
+`parley-session-name' and the mark from `parley-session-mark',
+which is where the switcher row takes them from too.
 
 What it is doing is `parley-transcript-status', which is what the
 session is doing now: the record carries what `claude agents'
@@ -1980,9 +1977,10 @@ already is spends a line on nothing."
                         (listp parley--pane-locations)
                         (cdr (assoc pane parley--pane-locations)))))
     (string-join
-     (delq nil (list (or (plist-get session :name) parley-session-no-name)
+     (delq nil (list (parley-session-name session)
                      (symbol-name parley-transcript-status)
-                     (if pane location parley-session-read-only-mark)))
+                     location
+                     (parley-session-mark session)))
      "  ")))
 
 

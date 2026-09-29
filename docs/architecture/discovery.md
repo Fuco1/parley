@@ -156,10 +156,12 @@ minibuffer reader alike, so neither can put a session where the other does not.
 ## Nothing in a record is guaranteed
 
 `claude agents` reports a name for most sessions and not for all, and a status
-for most and not for all. **The placeholders are chosen once, where the record
-is turned into columns, rather than by each thing that displays one** — two
-frontends that each invent their own would disagree about a session neither of
-them can describe.
+for most and not for all. **The placeholders are chosen once, in `parley.el`,
+and every display of a session takes them from there** — two displays that each
+invent their own would disagree about a session neither of them can describe.
+The read only mark is taken from there the same way, and it matters more for the
+mark: what makes a session carry it is a rule and not a string, and a rule each
+display implements for itself is a rule two displays can implement differently.
 
 **A name is not unique.** Two sessions in sibling worktrees come back under one,
 and a background agent is named after its prompt. So a switcher row and a buffer
