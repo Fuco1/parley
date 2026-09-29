@@ -1,0 +1,1461 @@
+\input texinfo
+@c %**start of header
+@setfilename parley.info
+@settitle Parley
+@documentencoding UTF-8
+@documentlanguage en
+@c %**end of header
+
+@dircategory Emacs
+@direntry
+* Parley: (parley).     The Claude Code sessions on this machine, as
+                          conversations.
+@end direntry
+
+@node Top
+@top Parley
+
+parley shows the Claude Code sessions running on this machine as
+conversations, and types into them.  It reads each session's append-only
+JSONL transcript and writes to the session's tmux pane.  It never starts
+or stops a session.
+
+This manual says why parley is shaped the way it is: which decision lives
+where, which constraint forces it, an alternative that fails and the one
+reason it fails.  What a function or a variable does, and what a caller
+of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
+
+@menu
+* Discovery::   What a session is, how one is found, why standard input
+                  is the discriminator, and where what it is doing now is
+                  read from.
+* Switcher::    Picking a session: why the switcher is built on sallet,
+                  why sallet is optional, and the minibuffer reader the
+                  pick falls back to without it.
+* Transcript::  The pipeline that reads a transcript, the projection it
+                  is filtered through, the render pass, the conversation
+                  above the input zone being read-only, a table rendered
+                  into the buffer, the index over the prompts, one buffer
+                  per session found by id, and the line at the top of the
+                  buffer.
+* Typing::      The pane as the only way into a session, the input zone
+                  and what marks it, the cell in front of the prompt
+                  saying what the session is doing, the two send shapes,
+                  a session with no pane being read only, the echo, and
+                  sending a past turn again.
+@end menu
+
+@node Discovery
+@chapter Discovery
+
+@strong{parley talks to sessions it did not start, and needs no
+cooperation from whatever did.}  A session launched by hand and one
+launched by a fleet runner are indistinguishable at this level, which is
+why this is its own package.
+
+Two facts make that possible, and everything here rests on them:
+
+@itemize @bullet
+@item
+every Claude Code session appends its transcript to
+@file{~/.claude/projects/<cwd-slug>/<session-id>.jsonl}, and
+@item
+every session started inside tmux inherits @env{TMUX_PANE}, which is
+exactly what @code{tmux send-keys -t} takes.
+@end itemize
+
+parley reads the first and writes to the second.  It never starts or
+stops a session — tmux owns that.
+
+@section Standard input is the discriminator, not the reported kind
+
+@code{claude agents --json} needs no terminal and prints one entry per
+live session.  Its @code{kind} field does not say what parley needs to
+know: a headless lane running @code{claude -p --input-format stream-json}
+is reported as interactive too, so a list built on @code{kind} would
+offer the operator sessions that no one is typing at and that will never
+read what he sends.
+
+@strong{What holds is @file{/proc/<pid>/fd/0}.}  A session someone is
+typing at has a terminal there — a @file{/dev/pts/N}.  A headless child
+has a pipe.  That is a property of how the process was started rather
+than a claim the process makes about itself, which is why it is the one
+parley trusts.
+
+@strong{The reported kind is carried on the record and not believed.}  It
+costs nothing to pass through and it is there for whoever wants to make a
+decision that @code{kind} really does answer.
+
+The discriminator does not exclude everything it might be expected to.  A
+background agent dispatched from the agent view keeps the dispatching
+terminal on @code{fd 0}, so it passes, and it carries no
+@env{TMUX_PANE} — it is readable and cannot be typed into.
+
+@section The pane comes from the environment, not from a naming convention
+
+tmux exports @env{TMUX_PANE} into the pane and every descendant inherits
+it, so the value is there whoever started the session, in the @code{%N}
+form @code{send-keys -t} takes.  @file{/proc/<pid>/environ} is a
+NUL-separated block and the entry is read out of it directly.
+
+@strong{A session outside tmux has no pane and is read only.}  So is a
+background agent.  The record carries nil there rather than pretending,
+and what that costs the operator belongs to @ref{Typing}.
+
+@section The pane id is for typing, and where the pane is for showing
+
+@strong{A pane id resolves to nothing the operator can act on.}
+@code{%15} says nothing about where that pane is, and its @code{%} reads
+as a stray format directive wherever it is displayed.  What locates a
+session is its tmux session, window and pane index —
+@code{orc-orc-b3743fe3:3.1} — so that is what the displayed forms of a
+session carry, and @code{tmux list-panes} is what maps a pane id to it.
+@strong{The pane id stays on the record} for @code{send-keys -t}, which
+is the only thing that takes it.
+
+@strong{One @code{list-panes -a} resolves the whole list.}  It prints
+every pane on the server, so the alternative — a @code{display-message -t
+<pane>} per session — would cost a dozen subprocesses to discover a dozen sessions instead of
+one.  The map is asked for when the first tag
+needs it and dropped whenever the session list is discovered again, so
+what is shown beside a list is no older than the list.
+
+@strong{A pane tmux does not report has no location}, which a session can
+outlive its window by, and a session with no pane never had one.  Neither
+is an error: what is lost is where to show the session, not the
+transcript it is read from.
+
+@section The transcript path is derived, not searched for
+
+Claude Code names the project directory after the session's working
+directory with every character outside @code{[A-Za-z0-9]} replaced by a
+dash, so @file{/home/me/a.b} keeps its transcripts in @file{-home-me-a-b}.
+Building the path is one substitution and needs no directory scan.
+
+Nothing here reads the file.  What the path is for belongs to
+@ref{Transcript}.
+
+@section A live status is read from the session's own file
+
+@strong{Every session writes what it is doing to
+@file{~/.claude/sessions/<pid>.json}}, beside the @code{sessionId} it is
+running, its @code{cwd} and a @code{procStart}.  The pid is what a record
+already carries, so nothing has to be searched for, and one small read
+answers every question parley asks about that session.
+
+@strong{The status is four-valued: working, waiting, idle and unknown.}
+The file says @code{busy}, @code{waiting} or @code{idle}, and
+@strong{waiting is not a slower kind of idle}: an idle session has
+finished and will read what is typed at it next, a waiting one has
+stopped and cannot go on until the operator answers it.  Collapsing the
+two would draw the state that most needs him as the state that needs
+nothing from him.  A waiting session's file carries a @code{waitingFor}
+as well, and the one observed on this machine reads @code{input needed};
+one sample is no vocabulary, so that field is not read and the state is
+the whole of what is held.
+
+@strong{Unknown is never working.}  A status parley does not know, a file
+that is not there, a file whose @code{sessionId} is not the one being
+asked about and a session whose process is gone all read as unknown.
+Everything downstream draws working as motion, and motion that never
+stops is worse than no indicator at all.
+
+@strong{The file alone does not say the session died}, and a session
+killed while busy leaves one saying @code{busy} with nothing in it to say
+otherwise.  Two comparisons settle it on the same read, and both are
+needed.  The @code{sessionId} has to be the one being asked about, a pane
+being reused and the next session in it being a different conversation.
+And the @code{procStart} has to equal the start time @file{/proc} reports
+for that pid — field 22 of @file{/proc/<pid>/stat} — because
+@file{/proc/<pid>} existing on its own reads @code{busy} forever the
+moment an unrelated process inherits the pid.  A stale file is not
+hypothetical: a session with no process left sat on disk saying
+@code{idle}.
+
+@subsection The file rather than @code{claude agents --json}
+
+@code{claude agents --json} reads these same files, and the liveness
+filter is the whole of what it adds.  Emacs has one thread, so a buffer
+that shelled out to it for a status would spend every read of one waiting
+on a subprocess and not drawing anything — for a filter the two
+comparisons above make anyway.
+
+@subsection A tick, and no watch
+
+@strong{The file carries no heartbeat.}  It is written in place when a
+session changes what it is doing and not otherwise: under
+@command{inotifywait} a write is an @code{OPEN}/@code{MODIFY}/@code{CLOSE_WRITE}
+on the file itself, with no create, no rename and no replacement.  A
+session stays at @code{busy} while its transcript goes on being appended
+to, however old the status in its file.  @strong{So the file is what a
+session says about itself until it says otherwise}, and a reader of it is
+never behind the session by more than its own interval.
+
+@strong{Nothing but a buffer someone is looking at consumes a status.}
+The switcher is current by construction — @code{parley-sessions} runs
+@code{claude agents --json} on every invocation and every row is built
+from what it returned — and nothing else in the package reads one.  So
+what a file watch would buy over a tick is the status of a buffer no
+window is showing, which is worth nothing to anybody.  The buffer reads
+the file itself, about once a second and only while a window is showing
+it, on a tick of its own — so killing the buffer is the whole of stopping
+it.
+
+@section Sessions are listed waiting first, then idle, then busy
+
+@strong{The order is what each status asks of the operator.}  A waiting
+session is stopped and cannot go on until he answers it; an idle one is
+not stopped — it has finished and will read what he types next.  Both
+are open to him and only one of them is blocked on him, so waiting leads
+and idle follows.  A busy session needs nothing from him at all and comes
+last, and a status parley does not name sorts after every status it does
+— including the nil @code{claude agents} reports for a session it knows
+no status for.
+
+@strong{The order is over the values a status is read as}, not over a
+second list of the strings a session writes.  @code{claude agents}
+reports the status out of the same file the status reader reads, so a
+record's status is spelled the way that file spells it and is mapped
+through the reader's table before it is ranked — otherwise
+@code{waiting} is written in two places in one file that have to agree
+about how Claude Code spells it.
+
+@strong{One sorted list is what both frontends list}, the switcher's rows
+and the minibuffer reader alike, so neither can put a session where the
+other does not.
+
+@section Nothing in a record is guaranteed
+
+@code{claude agents} reports a name for most sessions and not for all,
+and a status for most and not for all.  @strong{The placeholders are
+chosen once, in @file{parley.el}, and every display of a session takes
+them from there} — two displays that each invent their own would disagree
+about a session neither of them can describe.  The read only mark is
+taken from there the same way, and it matters more for the mark: what
+makes a session carry it is a rule and not a string, and a rule each
+display implements for itself is a rule two displays can implement
+differently.
+
+@strong{A name is not unique.}  Two sessions in sibling worktrees come
+back under one, and a background agent is named after its prompt.  So a
+switcher row and a buffer name both carry a tag instead, and the tag is
+the session id with its pane's location before it when there is one.  A
+session with no location is tagged by its id alone.
+
+@strong{The location alone is not enough}, though it is what the operator
+recognises a session by and what he searches the switcher with: suspend
+the session running in a pane, start another there, and @code{claude
+agents} reports two live sessions in one location.
+
+@strong{The id goes in whole and never as a prefix.}  Two ids can share
+one, and two sessions sharing a name, a location and a prefix would be
+two the tag could not tell apart at all — which is the one thing it
+exists to do.  A long tag is the price, and it is the last column of a
+row and the tail of a buffer name.
+
+@section A row is coloured where it is built, and the status by its value
+
+@strong{The faces go on the row itself, beside the columns.}  Both
+frontends draw that one string — sallet renders it, and
+@code{completing-read} completes over it — and @code{completing-read}
+displays a face on a candidate as readily as a sallet buffer does.  A
+face the picker owned would leave the minibuffer fallback plain, which is
+the frontend a machine without sallet has.
+
+@strong{The status column shows the value a status is read as, and is
+coloured by it}, and never the string the session wrote.  A session that
+wrote @code{busy} is listed @code{working}, and one whose status parley
+does not name, or whose record carries none, is listed @code{unknown}.
+The word and the colour follow from that one value, which is also what
+the order is over: a column holding the string would be a second place in
+one file spelling what Claude Code writes, and a spelling that moved
+would leave a row in its place but grey, or in its colour but last.
+@strong{The transcript's header line shows the same word}, since it names
+the value its buffer's status is read as, so a session the switcher lists
+as @code{working} reads @code{working} in its buffer too.
+
+@strong{The three the operator scans a dozen rows for — idle, working,
+waiting — are three colours rather than one.}  A single colour for
+``status'' tells him a row has one, which he knew; picking the working
+session out then costs him a read of every row, which is what colour was
+for.
+
+@strong{The read only mark has no column of its own.}  A column for it is
+blank on every session that has a pane, which is nearly all of them, and
+what it says is about the status: a session that cannot be typed into is
+idle in a way that matters.  So it is drawn after the status, inside that
+column.
+
+@strong{A name past its column's width is drawn whole.}  It pushes the
+columns after it along that one row, and the alternative cuts the handle
+the operator picks a session by — two sessions in sibling worktrees come
+back under one name, and a background agent is named after its prompt, so
+the tail of a name is where the difference often is.
+
+@strong{No column is cut, the status included.}  The status column is as
+wide as the longest value with the read only mark beside it, and a status
+Claude Code starts writing tomorrow is listed @code{unknown} rather than
+carrying every column after it out of line.  The working directory is
+drawn whole for the reason the name is: the tail of a path is what tells
+two worktrees apart.
+
+@strong{A column is measured as it is drawn.}  A width in characters is
+not a width on screen: a name in a script drawn two columns to the glyph
+would put that row's status past every other row's, and the columns exist
+to be read down.
+
+@strong{A column's face covers the column and not only the value in it},
+so a face given a background colours a column rather than a stripe as
+long as whatever happens to be in it.
+
+@node Switcher
+@chapter Picking a session
+
+@strong{The switcher is built on sallet because a session is listed by
+columns, and sallet lets a source match one column at a time.}  A sallet
+source brings its own matcher and its own renderer, so a candidate need
+not be a string: here it is the columns @code{parley-session-fields}
+returns, each under its own key, the matcher sends each token the
+operator types to the column it names — the name, unless a sigil says
+otherwise — and the renderer draws the columns as its row.  A word can
+then be aimed at a name without also matching every session whose
+working directory or tag happens to hold it.
+
+@strong{A flat row cannot be aimed, and the columns of one machine's
+sessions share their words.}  @code{completing-read} completes over
+strings, so the columns are baked into one and a token is matched against
+the whole of it.  Sessions working under one directory and running in one
+tmux session all carry that directory and that tmux session in their
+rows, so a word of either matches every row under the @code{substring}
+and @code{flex} completion styles; under @code{basic}, which matches the
+beginning of a row, a token reaches nothing but the head of the name.
+The sallet matcher sends the same word to the name column, and it matches
+only the sessions named with it.
+
+@section sallet is optional
+
+@strong{Only the picker gains from sallet, so parley does not require
+it.}  The view, typing into a session and finding one are the same with
+sallet or without it, and the picker has a frontend that needs none.
+Requiring sallet would make every part of parley need a package that one
+command is better with.  So no package header names it, and it is the one
+dependency parley has that is soft.
+
+@section Without sallet the pick is the minibuffer reader
+
+@strong{With sallet not on the load path, @code{parley-switch} picks with
+@code{parley-read-session}}, a @code{completing-read} over the sessions.
+What a row holds and how the two frontends draw it is the business of
+@ref{Discovery}.  What the fallback loses is the aim: a token is matched
+against the whole of a row, as above.
+
+The reader is in @file{parley.el} rather than beside the picker, because
+@code{parley-transcript} reads its session with it as well, and what the
+picker and the view both need goes in the file both of them require.
+
+@node Transcript
+@chapter The transcript
+
+A session's transcript is an append-only JSONL file.  The buffer that
+shows the session is a comint buffer whose process reads it.
+
+@section One process, not two
+
+@code{tail -c +1 -F FILE} starts at byte zero and then follows, so the
+history and every later append come down the same pipe.
+
+@strong{Reading the file and then starting a @code{tail -n0} loses
+whatever is appended between the read finishing and the tail starting,
+and there is no way to notice that it did.}  That is the whole argument
+for the shape: a gap in a conversation view is invisible, so the design
+has to make one impossible rather than make one detectable.
+
+@code{-F} rather than @code{-f} because a session that has not spoken yet
+has no transcript to open.  tail says so on stderr, which shares the
+buffer, and picks the file up when it appears — so a line in the buffer
+is not always JSON, and the render pass has to survive one that is not.
+
+@section jq does the filtering, because Emacs is single threaded
+
+An Elisp pass over a transcript blocks the UI for as long as it runs, and
+the bulk of a transcript is tool payloads parley never shows.  Through
+the pipeline those payloads never enter the Emacs process at all: what
+reaches it is the projection, a fraction of the file.
+
+@strong{The projection is built from scratch rather than pruned.}  A tool
+result lives in a @code{tool_result} block and again in a top-level
+@code{toolUseResult} field; emitting only the fields parley uses means
+neither is ever emitted, where a filter that deleted the payloads would
+have to know every place one can hide.  It carries @code{isMeta} for the
+same reason from the other side: the render pass cannot ask for a field
+the projection did not emit, and that field is what marks a harness
+injection.
+
+@strong{It carries the id of each task a session starts and each one it
+hears back from, and nothing else of either.}  A background shell and a
+subagent each start in a @code{tool_result} block and end in a task
+notification, and the one id in both is all that ties the two together.
+Nothing else says either is running — @code{claude agents} reports
+neither, and a subagent's own turns never reach the project's transcript
+— so the render pass can count them only from what the projection emits.
+Emitting the block's text would put every tool result back on the pipe to
+get at one word of it, which is the cost this pipeline exists to keep out
+of Emacs.  So the id is taken out in jq and the text it came out of stays
+there.  The launch is matched at the head of the block, as a
+notification's tag is at the head of its record, so a tool result that
+quotes a launch — an agent reading a transcript — starts nothing.
+
+@strong{A notification is read wherever the harness writes one, not only
+where it is shown.}  One that arrives while the agent is mid-turn is
+absorbed into that turn as an attachment and never becomes a @code{user}
+record at all, and the harness writes a notification on the queue it
+waits in before delivering it either way — though not every one, so no
+one of the three records is enough on its own.  The queue and the
+attachment hold nothing the render pass shows, so for them the projection
+emits the id alone.  The queue record can land before the result saying
+the task was launched, when a shell ends at once, so an ended id is kept
+and a launch arriving after it starts nothing.
+
+@strong{A message that says nothing and carries no id is dropped rather
+than emitted empty}, which is what becomes of every other
+@code{tool_result} turn and of an assistant turn that was only thinking.
+
+@strong{jq block buffers a pipe}, and a live session whose output waits
+for a buffer to fill looks frozen.  Which flags hold that off, and what
+each of them costs, is the business of the call that builds the
+pipeline; the docstring of @code{parley-transcript--command} carries
+them.
+
+@strong{The pipeline runs on a pipe and not a pty}, bound at the call
+rather than inherited, for two reasons.  To a terminal jq line buffers on
+its own, so on a pty the flag that stops it block buffering is dead and
+its absence could not be noticed until something else changed.  And a
+pipe is much the faster of the two, because a pty puts a terminal line
+discipline between jq and Emacs and the whole history crosses it.
+
+Killing the buffer stops the pipeline either way.  Emacs puts the process
+in a group of its own whichever it allocates and signals the group, so
+@command{sh}, @command{tail} and @command{jq} go together.
+
+@section The objects become conversation on the way in
+
+The render pass runs on @code{comint-preoutput-filter-functions}, so a
+projected object is replaced by the text it renders to before comint
+inserts anything — rather than inserted and then rewritten in place.
+
+What arrives holds whole lines only by luck, so the tail of a chunk after
+the last newline is held until the rest of that line arrives.
+
+@strong{An assistant turn is markdown and is fontified as markdown.  The
+operator's own turn is quoted and otherwise left alone} — what he typed
+at a terminal is not markdown, and fontifying it as though it were would
+invent emphasis he never wrote.
+
+@subsection A turn of the operator's is found by its background
+
+His own turn is what he looks for in a buffer that is markdown from top
+to bottom, and a weight is not something the eye lands on among prose.
+So a turn carries a background — and @strong{a background is a band only
+if the face extends it}.  @code{:extend} is unspecified on a face that
+sets @code{:background} alone, and the colour then stops at the last
+character of each line; what it is painted from past that character is
+the newline ending the line, so the newline that closes a turn's block
+carries the face as well as the text before it.
+
+@strong{The @code{❯ } at the head of each line takes a face of its own},
+so a theme can dim the mark the renderer added without dimming the words
+the operator wrote.  It inherits the turn's face before anything else, so
+the band under it is unbroken.
+
+@subsection A harness injection is marked, and is not his turn
+
+A skill load reaches a transcript as a @code{user} message carrying the
+whole of the skill, and so does the caveat a local command prepends, the
+expansion of a personal command, and the notice the @code{Agent} tool
+writes about a fork.  Quoted as the operator's speech, a skill load is a
+thousand lines of instructions behind a @code{>} marker in a buffer whose
+whole subject is the conversation.
+
+@strong{@code{isMeta} is what marks one, and the mark is not read off the
+body of a record.}  The transcript puts that field on every turn the
+harness injected and on nothing the operator typed — so the turn Claude
+Code writes when he invokes a skill by typing its slash command carries
+no mark, and is quoted, marked and indexed as any turn of his is.  A
+pattern in the body would decide the opposite, and would be deciding it
+about his own words.  The one injection the harness leaves unmarked says
+what it is in the first characters of its text, and the section below is
+where that is read.
+
+@strong{A skill load is worth one line, and the skill's own name is that
+line.}  Both ways into a skill — the @code{Skill} tool and the slash
+command typed for it — open with the same @code{Base directory for this
+skill: PATH} line, which is what identifies the load, and the line the
+buffer shows is named from the skill's own first @code{# } heading: that
+heading is the name because it is what the skill calls itself.  A skill
+whose body opens with no heading is named by the last segment of
+@code{PATH}.  The name is quoted in the line, so a heading of several
+words cannot read as prose an agent wrote.
+
+@strong{A task notification is worth one line too, and the line is its
+@code{<summary>}.}  Claude Code writes one when a background shell
+finishes, a @code{Monitor} fires or a subagent returns: a
+@code{<task-notification>} wrapping a task id, a tool-use id, the path
+the output was left at, a status, and a summary on one line.  The summary
+is the whole of what such a record says the operator can act on — the two
+ids and the path are addressed to the agent, and @code{<status>} says
+nothing the summary does not already say in its own words — so the line
+is the summary and nothing else.  A notification carrying no summary
+renders nothing at all, having nothing to say.  A summary sits on one
+line, and a notification carrying none is a @code{<fork-source>} notice.
+
+@strong{Every other injection renders nothing at all.}  A constant line
+saying an injection happened carries no information, and the caveat and
+the command expansion each stand under a turn of the operator's that
+already says what he did.  Rendering nothing is the empty string a turn
+that said nothing renders to, so such an injection is no break in a run
+of tool calls either.
+
+@strong{An injected turn is not a prompt, so it takes no imenu entry}
+however it renders — the operator jumping through that index is looking
+for what he typed.
+
+@subsection Three @code{user} records are a wrapper the harness wrote, not speech
+
+None of them carries @code{isMeta}, so none is an injection the
+transcript marked, and quoted as it stands each puts tags in front of the
+operator as his own words.  @strong{What the harness wrapped around the
+record is dealt with before the record is read for anything.}
+
+@strong{A slash command reaches the transcript as three tags, and renders
+to the one line he typed} — the @code{<command-name>} and the
+@code{<command-args>} on one line, and the name alone when the argument
+is empty, as it is under @code{/plugin}.  @code{<command-message>} is the
+name a second time without its slash and says nothing
+@code{<command-name>} does not.  An argument he pasted over several lines
+keeps them, each quoted as the first is.
+
+@strong{A local command's own output renders nothing at all.}  A
+@code{<local-command-stdout>} record is the terminal answering a command
+rather than a turn of the conversation, and his own turn invoking that
+command stands right above it saying what he did.  It is also the one
+place an escape byte could enter this buffer — a compaction notice
+arrives inside a real @code{ESC[2m}, and nothing strips one out here — so
+rendering nothing settles that as well.
+
+@strong{A task notification is marked as the injection it is, and its
+text is left alone.}  What it renders to is above, with the injections
+the harness does mark; the mark is what puts it there.  An injection is
+already what the render pass turns into a renderer line or into nothing,
+and already what the index passes over, so marking a notification is the
+whole of the rule and it needs no third path through the pass.  The
+summary is read out of the text where every injection's line is made.
+
+@strong{The unwrapping has to happen before the echo guard and before the
+index.}  The echo guard (@pxref{Typing}) recognises parley's own copy of
+a message by the text that was sent, so a slash command submitted at
+parley's prompt matches nothing while it is still three tags, and stands
+in the buffer twice.  The imenu entry is recorded from the record's text
+in the render pass, so a turn indexed before it is unwrapped is labelled
+@code{<command-message>one</command-message>} — one label for every slash
+command of that name, and two of them told apart by a number rather than
+by what he asked.
+
+@strong{What the text decides, it decides from the head of the record.}
+@code{<task-notification>} is matched at the very first character of the
+text, with no whitespace tolerated in front of it — a space would be
+nothing the harness writes, and a newline would make the second line of a
+turn of his decide that the first one was never his.  So a turn of the
+operator's that quotes the tag on any line but the first is his own
+words: quoted whole, tag and all, and indexed under its first line.  He
+does write one: a notification opens with the tag at character zero, and
+a record holding it anywhere else is prose quoting one.  Anywhere but the
+head, the text would be deciding about his words instead of the
+harness's, which is what @code{isMeta} is for and what it stays for.
+
+@subsection Fontification happens in another buffer, twice over
+
+Markdown fontification is not a set of keywords that can be lifted out of
+markdown-mode: fences and inline code are found by its syntax table and
+its @code{syntax-propertize-function}, so the keywords alone would give a
+broken subset.  Font lock in the transcript buffer itself would refontify
+the whole conversation on every append.
+
+@strong{One reused buffer, not a temporary one per message.}  Turning
+markdown-mode on costs about as much as fontifying a paragraph does, and
+a temporary buffer per message would pay it again for every message.
+
+@strong{The markdown is rendered with its markup hidden.}  The operator
+wants to read the answer and not the asterisks around a bold word or the
+markers around a fence, so markdown-mode's markup hiding is on in the
+fontify buffer.  Two properties carry it: @code{invisible
+markdown-markup}, which the emphasis, code, fence and link markers get,
+and @code{display}, which hides a heading's @code{#} and turns a
+blockquote's @code{>}, a list bullet and a horizontal rule into a glyph.
+Hiding is the reading buffer's decision and not the property's, so the
+transcript buffer names @code{markdown-markup} in its invisibility spec.
+
+@strong{Three properties are copied onto a clean string and nothing else
+is: @code{font-lock-face}, @code{invisible} and @code{display}.}  A
+selected set rather than the buffer string taken whole, because
+markdown-mode leaves @code{markdown-heading}, @code{font-lock-multiline}
+and a @code{syntax-table} property behind in the buffer it fontifies in,
+and the transcript buffer has business with none of them — a
+@code{syntax-table} property in a comint buffer least of all.
+
+@strong{A @code{face} property must not survive.}  comint sets
+@code{font-lock-defaults} to @code{(nil t)}, which is not nil, so global
+font lock turns font lock on in the transcript buffer with no keywords at
+all — where the only thing it can do is strip, and @code{face} is exactly
+what it removes.  @code{font-lock-face} survives it, and is what comint
+itself puts on its prompt and its input.  So do @code{invisible} and
+@code{display}, neither of which is in
+@code{font-lock-extra-managed-props} — which is what the hiding rests on,
+and is asserted in a live transcript buffer.
+
+@code{ansi-color-process-output} is taken out of the buffer's output
+filters for the same reason the pipeline refuses colour at the source: no
+escape byte reaches the buffer, and scanning the whole history for one
+spends Emacs's one thread on a search that cannot succeed.
+
+@section The conversation above the input zone is read-only
+
+Everything before the process mark is read-only, and only the input zone
+after it takes the operator's typing.  The buffer is a rendering of the
+session's JSONL file and nothing reads an edit of it back: a changed word
+is not in the session, it is gone the next time the buffer is opened, and
+over a table it only makes the next render drop that table's overlay.
+The prompt mark in front of the zone is drawn by the zone's overlay and
+is not buffer text, so without this nothing stands between the mark and
+the conversation, and @kbd{DEL} held at the prompt eats it.
+
+@strong{parley itself still writes above the mark}, under
+@code{inhibit-read-only}: comint's own insertion, the run line taken back
+out before it is rewritten, a table rendered again for a new width, and
+@code{comint-truncate-buffer}.  The block a sent turn is rewritten as
+needs none, since the echo it replaces was typed in the input zone, and
+it is sealed as it goes in.
+
+@strong{Read-only is front-sticky and rear-nonsticky.}  Deletion is
+refused by the property alone; insertion is refused by its stickiness.
+Rear-nonsticky is what lets the operator type at the mark without what he
+types inheriting it, and parley makes it so itself, since comint does
+only while it finds prompts by their fields and not by
+@code{comint-use-prompt-regexp}.  Front-sticky is what refuses an
+insertion between two characters of the conversation, and comint writes
+its own @code{front-sticky} over its output after its output filters have
+run — so output is sealed by the process filter, once comint has
+returned.
+
+@section A table is rendered into the buffer, and the overlay keeps its source
+
+A table lines up only if the agent lined it up, and a table whose columns
+do not line up is a table nobody reads.  What stands in the buffer is the
+grid parley writes, put there as text — this buffer is a rendering
+throughout, and a table is the same kind of rendering as the quote around
+the operator's turn and the one line a run of tool calls collapses to.
+
+@strong{The grid is drawn, and the source behind it is the agent's bars
+and dashes.}  Every column boundary in a rendered table is @code{│}, at
+each end of a line as well as between two cells; the rule between the
+header and the body is @code{╞═╪═╡}, with none of his dashes or colons
+left in it; and a rule of @code{┌─┬─┐} opens the grid with @code{└─┴─┘}
+to close, each junction standing in the column a boundary stands in.
+What the overlay carries is the @code{|} and the @code{---} he typed,
+which is what every render is computed from.
+
+@strong{The writer emits those characters, and nothing substitutes them
+into a finished form.}  parley writes every grid itself, so the writer is
+what puts each boundary where it is and the only thing that knows where
+one is.  A pass over the finished form could not: a cell can hold a bar
+of its own — @code{[[target|link words]]} is one cell to the reader — and
+that bar stands where no column ends, so a substitution would draw a
+boundary inside the cell.  Nothing scans a cell for a bar, and a bar
+inside one reaches the buffer exactly as the agent wrote it.
+
+@strong{A body with a row over two lines tall is ruled between every two
+rows.}  A wrapped row is told from the one under it by where its cells
+run out, and past two lines that stops working: in a table of cells three
+and four lines tall the eye loses which lines are one row.  So when any
+body row — a row under the header rule — runs over more than two lines, a
+rule of @code{├─┼─┤} is drawn between every two body rows, the short ones
+included; a table whose body rows each take two lines or fewer has none.
+It is one answer for the whole table, because a table ruled in one place
+and not the next reads as two tables.  The header is not a body row: a
+header wrapped over four lines already has the header rule under it, and
+draws nothing between the rows below.
+
+@strong{Whether a table is ruled is decided on each render, from the
+width it is rendered to.}  How many lines a row takes is a question of
+that width, and the writer is what wraps the rows, so the writer is where
+it is asked.  A resize renders every table from its source again through
+the same writer, so a table gains its rules on a narrow window and loses
+them on a wide one with nothing else changed.  On a wide window most
+tables take a line or two a row, and a rule between every two of them
+would only take lines from the conversation.
+
+@strong{The header rule is @code{╞═╪═╡} on every table, ruled or not.}
+Once the body rows are ruled apart in @code{├─┼─┤}, a header rule in that
+same line reads as one more row boundary; and a header rule that changed
+weight when a resize added the row rules would draw one table two ways.
+The row rules stay the single line.
+
+@strong{The @code{:---:} of a delimiter row is said by the padding.}  How
+a column is aligned is not something anyone reads off a drawn table, and
+it is not lost: the marks are read off his delimiter row once and every
+line the writer puts out is padded by them.  The row itself becomes
+@code{╞═══╪═══╡}.
+
+@strong{The drawing costs the grid no width.}  Each character the grid is
+drawn in takes the one column the character it stands for took.  Under
+Emacs's default width table that is already so: @code{│}, @code{─},
+@code{═} and every junction and corner are one column, as @code{|} and
+@code{-} are.  Under the CJK one, which a Chinese, Japanese or Korean
+language environment installs, @code{│}, @code{─} and the single-line
+junctions and corners are two and @code{|} and @code{-} are still one —
+so a rule stands wider than the row it rules — while the header rule's
+@code{═}, @code{╞}, @code{╪} and @code{╡} are one under Japanese,
+Chinese-GB and Korean alike.  So the transcript buffer, and the buffer
+every cell is measured in, carry a @code{char-width-table} of their own:
+a child of the environment's, which counts every drawn character one
+column — the four that are one already included, since one column is
+what the grid needs of them and not what an environment happens to
+answer — and leaves every other width to its parent, so a CJK character
+in a cell is still the two columns it is.  A transcript buffer's parent
+is the table in force when it is set up, and one set up before a switch
+of language environment keeps the widths of the one it was set up under.
+The buffer cells are measured in is shared and outlives every transcript
+buffer, so its table is rebuilt whenever the environment's is no longer
+its parent: a transcript buffer set up after a switch has its cells
+measured under the widths it displays them in.
+
+@strong{The form is text and not something shown through a
+@code{display} property.}  What a @code{display} property shows is not
+text: the buffer's own machinery never looks inside it, so nothing in
+such a table could be a button — @code{button-at} and @code{next-button}
+find one by walking buffer positions — and a node id in a cell could
+never be made clickable.  Text is what the rest of the rendering can be
+grown past, and a form shown through a property is where it stops.
+
+@strong{A render rewrites its region, and takes whatever was laid over
+it.}  A table is the one region of this buffer parley writes more than
+once — at first sight and again at every width it changes to — and each
+write deletes the text there and inserts the form: an overlay over it
+collapses, and a text property leaves with its characters.  Nothing
+outside the package can watch that happen, because a render goes in with
+the modification hooks bound away.  So every render that writes a form
+ends by running @code{parley-transcript-table-functions} over it, outside
+that binding, and that hook is what a caller decorates the region again
+from — orc-mode's id buttons are the first, added from the operator's own
+configuration.  A render that writes nothing runs nothing, and the region
+then holds what it held.
+
+@strong{The overlay stays, carrying the table the agent wrote.}  That is
+what a resize is rendered from.  The buffer holds a grid this package
+wrote, and reading the cells back out of one would render the last render
+rather than the table: every line of a wrapped row parses back as a row
+of its own.  The overlay is also what says where a table is, and what
+tracks a deletion — @code{comint-truncate-buffer} taking the top of the
+conversation away brings its ends together, where a text property would
+survive in both halves of what was cut.
+
+@strong{A region that no longer holds what parley wrote there is not
+rendered again.}  Truncation can take the first lines of a table away,
+and rendering from the source over what is left would put back text that
+is not there any more.  The overlay is dropped instead and what is left
+stands as it stands.  It is dropped at the next render and not when the
+deletion happens, because nothing watches this buffer for changes — by
+design, since watching it means a pass over the conversation on every
+append.
+
+@strong{What this costs the operator is the source in the buffer.}  A
+kill over a table copies the form he is reading and not the table the
+agent typed.  The source is on the overlay, and no command hands it back.
+
+@strong{A render takes nothing of the operator's.}  It goes in under
+@code{with-silent-modifications}, so the undo list carries no entry for
+it and @code{undo} reaches past a table to his own last change; point is
+put back where it stood, which comint reads back off the buffer once its
+output filters have run; and the process mark is a marker past the end of
+a table — a table ends before the newline that closes the block around it
+— so it follows the replacement as the overlay over every other table
+does.
+
+@strong{Point inside a table is put back by hand, the same distance into
+the form.}  A marker is what carries point over a replacement and the
+deletion takes the text this one is in, so nothing carries it: it would
+come back at the head of the grid.  The distance is the most a grid laid
+out again can promise — the cell that was under point may not exist at
+the new width — and the form is as far as it goes, so a table point stood
+in is a table it stays in.
+
+@strong{One writer for every table, parley's own.}  A table that fits the
+window is the grid with no column narrowed; a table that does not is the
+same grid with its cells wrapped, each over as many lines as it needs and
+the row as tall as its tallest cell.  There is no second path: the only
+other writer is @code{markdown-table-align}, and it cannot write a grid
+around markup that is hidden.
+
+@strong{The reason is the markup in a cell.}  Everywhere else in a
+message @code{**bold**} shows as bold and inline code as code: the
+fontification has markup hiding on and the render pass copies what
+markdown-mode marked @code{invisible}.  A cell is no exception, and what
+it takes is a writer that knows a hidden character costs no column.  The
+aligner cannot: it measures a column with @code{markdown--string-width},
+which does discount @code{invisible markdown-markup}, but it reads its
+cells with @code{buffer-substring-no-properties}, so nothing that hides a
+character ever reaches that measurement — and it pads with @code{%-Ns},
+which counts characters either way.  So with hiding on, a column holding
+@code{**bold**} is padded as though its asterisks took columns, and the
+line the bold is on stands narrower on screen than every other line of
+the table.
+
+@strong{Every width the grid is written to is measured on what the
+rendering shows.}  That width is @code{string-width} over what is left of
+the text once every character the buffer's invisibility spec hides is
+taken out, and it is what a column's width, the floor under it, the room
+a wrapped line is packed into and the padding that fills a cell out are
+all taken with.  markdown-mode's measure of it is private to
+markdown-mode, so parley carries the few lines itself.  It reads
+@code{buffer-invisibility-spec} to know what is hidden, which is the
+other reason the grid is written in the buffer the fontification happens
+in: that spec is the one @code{markdown-toggle-markup-hiding} put
+@code{markdown-markup} into.
+
+@strong{A @code{display} property is a width the grid cannot measure, so
+it stays out of one.}  A cell comes away from the fontification with what
+markdown-mode painted it and what markdown-mode hid, and without the
+@code{display} properties it also leaves behind: the @code{2} of
+@code{x^2^} is one character and one column to every measurement of it,
+where the property that raises and shrinks it puts it on screen as less
+than one.  A grid is characters standing in columns, and a hidden
+character is the one thing done to a cell that the measurement and the
+screen agree the width of.
+
+@strong{The cells reach the writer with what the fontification marked
+still on them.}  parley reads them itself, off the fontified line: a row
+is split at every bar but the one it opens with, one escaped with a
+backslash and one inside a wiki link holding a bar, and a cell is a
+substring of that line, so what the fontification marked is on it at its
+own place in the row.  markdown-mode's own reader is private to
+markdown-mode, and it hands back text with nothing on it.
+
+@strong{A column the delimiter row marks is padded the way it is
+marked.}  Right puts the padding in front of the cell and centred splits
+it either side; a column nobody marked takes it behind.  The marks are
+read once, with markdown-mode's own @code{markdown-table-colfmt}, and
+every line the writer puts out is padded by them — so the lines a cell
+was packed over stand in the same column as the line its row began on,
+and the padding is the whole of what says how a column is aligned.
+
+@strong{A cell already inside its column is not packed.}  Packing puts
+one space between two pieces, which is what a wrap has to do to a cell it
+spreads over lines; a cell nothing has to be moved in is the cell the
+agent typed, two spaces and all.  That is every cell of every table that
+fits the window, and it is the cheaper answer as well.
+
+@strong{A wrap never breaks a construct a bar stands in.}  A cell can
+hold a bar that is no column boundary — the one inside a wiki link, which
+the cell reader passes over — and it is read over only while the link is
+whole.  A line carrying @code{[[target|link} alone is that construct left
+open, and what the break costs is the link: nothing reading the form back
+has one there any more.  So a link holding a bar is one piece of the wrap
+however many spaces stand inside it, and the column it is in is floored
+by it exactly as a long word floors one.
+
+@strong{A cell nothing can narrow sets a floor under its column.}
+Wrapping packs the pieces of a cell — its words, and a wiki link holding
+a bar entire — and breaks none of them across two lines: a table past the
+edge of the window is one the operator can still read back, where a
+broken word costs him the word and a broken link costs him the link.  So
+a column holding a piece longer than the room the grid leaves it gives
+nothing, and the table settles wider than the window.  That is the honest
+outcome.  The floor is not what keeps a piece whole, which the packing
+does at any width; it is what stops the columns beside an incompressible
+one being packed tighter than the table they share will ever be.
+
+@strong{The rendered form closes a row the agent left open.}  The outer
+bar at the end of a row is optional, and a table written by hand leaves
+it off.  The reader takes the last cell of such a row as a cell like any
+other, and the grid draws the boundary after it as it draws every
+boundary: a cell dropped on the way into the buffer is a cell of the
+agent's the operator cannot read at all, where a ragged table is merely
+ragged.  The row stays open in the table the overlay carries, which is
+what every later render reads.
+
+@strong{A table is what markdown-mode calls one}, which is narrower than
+what the agent may have meant.  A line that does not open with a bar is
+not a table line to it, and a block of delimiter rows with no row of data
+has nothing in it to line up — both are left in the buffer as the agent
+wrote them, and the overlay over them is dropped: what is refused is
+refused at every width, so there is no width to come back for.
+
+@strong{A table inside a fenced code block is not a table}, it is text
+the agent is showing, and lining it up would rewrite what he quoted.  The
+difference is markdown-mode's syntax over the fence, which is known in
+the buffer the fontification happens in and nowhere after it: the
+transcript buffer holds no markdown syntax at all, so a pass over the
+finished text could not tell a table an agent wrote from one it was
+quoting.
+
+@strong{Where a table is comes from the render pass.}  That pass returns
+a string comint has not inserted yet, so what it can say is how far into
+that string each table begins — the same offsets the index over the
+prompts is recorded from, and turned into buffer positions by the same
+output filter, because that is the first moment the text exists.  Every
+overlay is laid before any table is rendered, because rendering one
+replaces buffer text and moves everything after it: an overlay follows
+that move and an offset into the inserted string does not.
+
+@strong{The faces the rendered form carries are in
+@code{font-lock-face}.}  @code{face} is what global font lock strips in
+this buffer, for the reason the render pass maps it away.  A cell carries
+the faces markdown-mode painted it with, which is
+@code{markdown-table-face} over the whole of a table line and the face of
+a construct over the construct; what comes out of the writer with no face
+at all is the grid itself — the boundaries, the rules and the padding —
+and that is what the table face is filled into.
+
+A form is never the table it came from, whatever the agent lined up
+himself: the grid is drawn and his table is bars and dashes, so the first
+render of one always writes.
+
+@code{equal-including-properties} compares two property values with
+@code{eq} and a face markdown-mode painted a cell with is a fresh list
+every fontification, so two computations of one form do not compare
+equal either: a resize that leaves a table's grid unchanged still writes
+it into the buffer.  What that costs is the write and never the render,
+which has happened by the time the comparison is made, and the write is
+the small part of the two.
+
+@strong{A render costs more than handing the table to
+@code{markdown-table-align} would.}  The difference is the markup — the
+fontification the cells are read out of, and the property runs the form
+is written with, each run an interval the insertion has to build — and it
+buys every table the rendering the rest of a message gets.
+
+The hook this runs on is called for a window added, deleted or given
+another buffer as well, and the width the tables were last rendered to is
+what tells a resize from the rest, so every other window change costs one
+comparison.
+
+A table is the buffer's text and not a window's, so a buffer shown in two
+windows of different widths is rendered to whichever of them changed
+last.
+
+@strong{A table's width is counted in characters of the face its grid is
+drawn in.}  That is @code{markdown-table-face} merged over
+@code{default}, both as the buffer remaps them, and the width is how many
+of its characters fit in the pixels of the window's body.  A frame column
+is the wrong unit: the table face inherits @code{fixed-pitch}, which an
+operator's @code{variable-pitch-mode} setup enlarges with the prose, and
+a grid counted in frame columns then runs past the window edge and wraps
+line by line under @code{visual-line-mode}.  The face is measured as
+redisplay realizes it rather than with @code{window-font-width}, which
+merges the face alone over the frame's @code{default} and misses a
+remapped one — under @code{text-scale-set} it answers the width of the
+unscaled font and not of the one the grid is drawn in.
+
+@strong{A change of font renders the tables again.}  It changes the width
+without changing any window, so the window hook never hears of it;
+@code{buffer-face-mode} and @code{text-scale-mode} each run a hook of
+their own, and the tables are rendered again from that, last in it so
+that an operator's function remapping @code{fixed-pitch} with the mode
+has run first.
+
+@section A run of tool calls is one line
+
+The operator wants the conversation.  The calls an agent made on its way
+to an answer are worth one line however many there were, and the pane is
+still there for anyone who wants to watch the work.
+
+@strong{A @code{●} heads every line the renderer wrote rather than anyone
+in the conversation}, the run of tool calls and the skill load alike, and
+they stand in one face — so a line the renderer is telling the operator
+something on cannot be read as one an agent typed.
+
+@strong{The count cannot be held back until the run ends.}  A line that
+waited for the final count would appear only once the agent had stopped
+working, which is exactly the frozen session the pipeline's buffering
+flags exist to prevent.  So the line is written as soon as the run starts
+and rewritten as the run grows: the old one is taken back out and a new
+one put in.
+
+@strong{Only if it is still there to take.}  The operator can type into
+this buffer, and comint moves the process mark past what he typed, so
+what sits at the end may not be that line at all.  Text that is not the
+block the run emitted is left alone and the count starts over, which is
+the truth about the buffer — something else is now between the calls.
+
+Anything a turn said ends the run before it, and the calls that turn went
+on to make carry into the next one.  A turn that said nothing and only
+called tools is therefore not a break in a run.
+
+@section The index over the prompts is recorded, never parsed
+
+Navigating a long conversation means jumping between its prompts, which
+is what imenu is for.
+
+@strong{The index is built as messages are inserted, because that is
+where a message's position is already known.}  The render pass has the
+record in hand and the offset of the block it made; going back over the
+finished buffer would mean parsing rendered text into the structure that
+was in hand a moment earlier.
+
+@strong{Positions are markers, not the numbers they were.}  This buffer
+is deleted from as well as appended to — the run line at the end goes
+whenever its run grows, and truncation takes the top away.  An entry has
+to keep pointing at its prompt through all of that, or say that its
+prompt is gone, which is what a second marker at the end of the label's
+line is for: deleting that line is what brings the two together and
+nothing else does.
+
+@strong{A label is the prompt's first line that says anything.}  How many
+messages ago it was is no help to the operator, so no counter goes in
+one.  The prompt is trimmed before its first line is taken, so that the
+line the label names is the line the entry points at.
+
+@strong{Two prompts with one first line are told apart in the label,
+because imenu looks nowhere else.}  A choice is carried back to an entry
+by its name — @code{assoc} on the string @code{completing-read} returned
+— so a second entry under a name the first already has cannot be
+reached: it is offered once and answers with the earlier prompt.  It gets
+@code{<2>} on the end instead, the way Emacs tells two buffers of one
+name apart, and the number says which of the entries in front of the
+operator this is rather than how many messages came before the prompt.
+
+@strong{A label no entry in the index already carries comes out of that
+untouched.}  It is already the string the operator searches for, and
+suffixing every entry to make the collision case uniform would cost the
+common case for nothing.
+
+@strong{The number is read off the index as it is built, in one pass in
+buffer order}, which is also all @code{generate-new-buffer-name} takes: a
+prompt whose own first line is @code{foo<2>} collides with the
+@code{foo<2>} an earlier duplicate of @code{foo} was handed, and is
+renamed @code{foo<2><2>} as a buffer of that name would be.  Reserving
+the distinct first lines in a pass of their own would leave that one bare
+— a different rule from the one Emacs has, and a second rule for the
+operator to learn.
+
+@strong{@code{imenu-create-index-function} is the whole of the
+interface, and parley ships no jump command of its own.}  @kbd{M-x imenu}
+is always there and @code{sallet-imenu} is another front end over the
+same index; a third would be parley's to keep working against both.  That
+is also what forces the disambiguation into the label: imenu offers no
+seam at which a choice could be resolved any other way.
+
+@section One buffer per session, found by id
+
+@strong{A session's buffer is found by the session id it records and
+never by its name.}  @code{claude agents} gives two sessions in sibling
+worktrees one name, and a lookup by name would hand the second session
+the first one's buffer.
+
+A buffer's name still has to be unique to a session, so it carries the
+tag described in @ref{Discovery}.
+
+@strong{Switching to a session again shows the buffer as it stands},
+process and history and all, and refreshes the record in it: what
+@code{claude agents} says about a session goes stale.
+
+@strong{The buffer replaces what the selected window is showing, and is
+never put in another window.}  Every way in means the same thing by
+picking a session — go to it: the sallet action, the
+@code{completing-read} fallback behind it and the command called by hand
+all reach the one call that shows the buffer.  Displaying it instead
+spends a window the request never named, because the transcript lands in
+the window the operator was not in, over whatever he had open there, and
+takes his selection with it.
+
+@section The header line says whose buffer this is, and what it is doing now
+
+@strong{The buffer name is a snapshot and the header line is not.}  The
+name is built once, when the buffer is made, and nothing renames it
+afterwards — so the operator scrolled back through a long conversation
+has nothing in front of him saying which session he is reading or what it
+is doing.  A header line is rebuilt on every redisplay, which is what
+lets it say what is true now.  It is also parley's own line: a mode line
+is configured by whoever owns the Emacs and may show none of this.
+
+@strong{It carries the session's name, what it is doing, how many
+background shells and subagents it has running, where its pane is and the
+mark saying it cannot be typed into.}  The status is the buffer's live
+one (@pxref{Discovery}) and never the one the record carried when the
+buffer was opened; all four states are told apart in words, and waiting
+is a word of its own, because it is the state that wants the operator.
+
+@strong{What it has running is what the render pass saw start and not
+yet end.}  A session sitting idle can still have shells and subagents
+working, and nothing else in the buffer says so.  The render pass keeps
+the ids the projection carries on the buffer, and the line counts them
+there: no process and no file, which from a header line would be one per
+transcript on screen at every redisplay.  A count of none is left off the
+line rather than written as a zero.  No id is shown, for the reason no
+pane id is: it locates nothing the operator can act on.
+
+@strong{A task stopped outside the transcript is counted until the
+session ends.}  A task stopped from the UI, by a @code{Monitor} timeout
+or by the agent's teardown leaves no notification behind, and Claude Code
+notices only when the next session starts, in that session's transcript
+and not this one.  So such a task is indistinguishable here from one
+still working, and the count over-reports by every one of them for as
+long as the session runs.  That is the ceiling on it.  A session's end
+writes nothing to its transcript either, so a buffer left open over an
+ended session goes on showing the count it last had.
+
+@strong{The working directory is not on it.}  A switcher row carries it
+because the operator is choosing between sessions; inside the buffer it
+is @code{default-directory}, and a line repeating what the buffer already
+is spends a line on nothing.
+
+@strong{The line and the cell in front of the prompt are not
+abbreviations of each other.}  The cell says that something is working,
+in one column, where the operator is typing (@pxref{Typing}); the line
+says which session and what it is doing, wherever in the buffer he is.
+
+@strong{Where the pane is is a bare lookup in the map, never the accessor
+over it.}  That accessor fills the map when it has not been asked, and
+filling it runs @code{tmux list-panes -a} — which from a header line is a
+subprocess per open transcript on screen, every time the session list is
+discovered again and drops the map.  The tag is no way round it, reaching
+the same accessor.  A pane the map holds nothing for shows no location at
+all, and never the pane id in its place.
+
+@strong{The bare lookup is also what keeps the location current.}  The
+map is refilled whenever the sessions are listed, so a pane the operator
+moved shows where it is now while the buffer name still carries where it
+was.
+
+@node Typing
+@chapter Typing into a session
+
+@strong{The buffer's process reads a transcript; it is not the session.}
+Its standard input reaches nobody, so input submitted in the buffer has
+to leave by another door.
+
+comint has one: bound to a function, @code{comint-input-sender} is handed
+what was submitted instead of it being written to the process.
+@strong{The pane is where it goes, and the pane is the only way into a
+session parley did not start.}
+
+comint also requires a live process — @code{comint-send-input} errors
+without one — which the pipeline satisfies whether or not anything is
+ever sent to it.
+
+@section The prompt holds a block, and not a line
+
+@strong{The input zone is a block the operator may edit before he sends
+it}: a line opened inside it with @kbd{S-<return>}, a word changed on the
+line above, point left wherever the editing ended.
+
+@strong{What makes the whole of it the input is that comint is not line
+oriented on the way out.}  @code{comint-eol-on-send} moves point to
+@code{field-end} before @code{comint-send-input} reads, and unsent input
+after the process mark carries no @code{field} property — so
+@code{field-end} is the end of the buffer however many newlines lie
+between it and point, and the input is everything from the process mark
+on.  With three lines standing at the prompt and point on the second of
+them, @code{comint-send-input} hands @code{comint-input-sender} all three
+as one string.
+
+A block therefore needs no mechanism of parley's own.  It reaches the
+sender as one string with newlines in it, which is the paste shape below,
+and so reaches the session as one message.
+
+@section The input zone is marked, and the mark is shown rather than written
+
+@strong{Nothing else in the buffer says where typing begins.}  The
+pipeline emits no prompt, so there is no prompt string in the buffer at
+all and the operator's unsent text is the tail of a buffer whose tail is
+otherwise conversation.  It moves under him as well: the transcript is
+followed, so output arrives while he types, and comint inserts it at the
+process mark and moves the mark past what it inserted.
+
+@strong{What marks it is an overlay from the process mark to the end of
+the buffer.}  A text property cannot mark the zone, because the zone
+holds no text until something is typed — and an empty zone is when he
+most needs to see where it is.  An overlay has a position whether or not
+there is text under it.
+
+@strong{Nothing the overlay shows may be buffer text.}
+@code{comint-send-input} sends @code{(buffer-substring (process-mark
+proc) (field-end))}, so a mark written into the buffer after that mark is
+a mark typed into the session.  The @code{❯ } at the head of the zone is
+the overlay's @code{before-string}: shown at a position where the buffer
+holds nothing, and it is the @code{❯ } every turn of his is quoted with,
+because what he is typing is the turn it is about to be.  The band under
+it is a face of the zone's own, so his next turn stands apart from the
+turns it will join — and the run of lines a past turn is found by reads
+the face on buffer text at the head of a line, which this mark is not, so
+no line of the zone is taken for a turn already sent.
+
+@strong{@code{line-prefix} is not what shows it}, though it is the right
+shape — it puts text at the head of a line on screen without putting it
+in the buffer.  It is read off the character at the head of the line,
+and an empty overlay covers no character: an empty overlay carrying
+@code{line-prefix} and a face shows neither of them, which loses exactly
+the case the mark exists for.
+
+@strong{The band reaches the window edge on the zone's last line by a
+stretched space.}  A background is a band only if the face extends it
+(@pxref{Transcript}), and what @code{:extend} paints from is the newline
+that ends a line.  Every line of the zone ends in one except the last,
+which is the last line of the buffer, and the colour there stops at the
+last character typed.  That line is painted by a space carrying
+@code{(space :align-to right)}, shown after the zone as the overlay's
+@code{after-string}.  Its @code{cursor} property is what keeps point
+drawn at the head of that space rather than at the far end of it, where
+the operator would be watching his cursor stand at the window edge as he
+typed.
+
+@strong{A rule closes the zone above and below}, so what he is writing is
+bounded on both sides rather than trailing off the end of a buffer whose
+tail is otherwise conversation.  One rule is a line of the
+@code{before-string}, above the mark; the other a line of the
+@code{after-string}, below the band.  Neither is buffer text, for the
+reason the mark is not.
+
+@strong{Each rule is a line drawn on a space stretched to the right
+edge}, which is what makes it run the width of the window whatever that
+is.  A line built from @code{─} would be a string as wide as the window
+when it was built, and nothing rewrites this buffer after an insertion,
+so it would still be that wide after a resize.
+
+@strong{The rule above is drawn by @code{:underline} and the one below by
+@code{:overline}}, so each stands at the edge of its own row nearest the
+zone and the zone is closed evenly.  Underlining both puts the whole of
+the lower row between the last line typed and the line closing it, which
+reads as a row the band forgot.  The cost is a terminal, where the lower
+rule is not drawn at all: an overlined stretch of space emits no SGR
+where an underlined one emits @code{ESC[4m}, because Emacs has
+@code{smul} for an underline and nothing to emit for an overline.
+
+@strong{The overlay is put back after every output}, since the mark it
+starts at has just moved; @code{comint-output-filter-functions} is where
+that is known, and @code{comint-send-input} runs the same hook with an
+empty string once the sender has returned, so the block a send leaves
+behind is covered by it too.  It is also placed when the process is
+started: a session whose transcript is still empty renders nothing at
+all, and the first message of a session would be typed into a buffer with
+nothing in it to type at.
+
+@strong{Marking the zone writes nothing into the buffer, and the line a
+run of tool calls collapses to depends on that.}  That line is rewritten
+by comparing the two lines before the process mark against the block
+last written and taking them back out only if they match
+(@pxref{Transcript}); an overlay leaves the comparison reading what it
+read before.
+
+@section One cell in front of the prompt says what the session is doing
+
+@strong{A cell stands between the rule that opens the zone and the
+@code{❯}}, on the prompt's own line.  That line is where the operator is
+looking when the question arises, because it is the line he is about to
+type on.
+
+@strong{It is a spinner while the session is working, a steady mark while
+the session is waiting for him, and a blank while it is idle or nothing
+is known about it.}  Waiting is the state that does not move, and that is
+the argument for the pair: motion says @emph{wait}, and a mark that stays
+says @emph{answer me}.  The state that wants the operator is the one that
+is not busy, so it is the one that holds still.
+
+@strong{Every cell is one column wide, so the @code{❯} stands in the same
+place in all four states.}  A mark a character shorter the moment a turn
+ends moves the prompt under the operator's hands at exactly the moment he
+starts typing at it.
+
+@strong{The frames are the operator's to set.}  A braille spinner reads
+best where the font has the glyphs, and is drawn two columns wide where
+it does not — which moves the prompt.  So they are a variable with a
+braille default, and the one column rule above is held over the set
+parley ships rather than over every string anyone could put in that
+variable.
+
+@strong{The steady mark is no glyph of the spinner's block, and not the
+@code{●} a run of tool calls collapses to.}  Otherwise a spinner stopped
+on its last frame, or a line of the conversation, could be read for a
+session asking a question.
+
+@strong{The cell goes on the mark at the head of the zone and never on
+the mark the renderer quotes a turn with.}  They are one string
+everywhere else, for the reason above: what the operator is typing is the
+turn it is about to be.  But that one is written in front of every line
+of every turn he has already taken, and a past turn is sent again by
+stripping it with a @code{^} anchored regexp — so a cell added to it
+would put a spinner down the whole conversation and leave the strip
+taking the wrong number of characters off each line.  The zone's mark is
+the one place the two differ.
+
+@strong{No character of the cell is in the buffer}, for the reason no
+character of the rest of the mark is: it is part of the same
+@code{before-string}.
+
+@strong{The animation runs while a window is showing the buffer and not
+otherwise.}  A timer redrawing a @code{before-string} in every transcript
+ever opened in this Emacs buys nothing for the ones nobody has on screen.
+Reading the status is skipped for such a buffer too (@pxref{Discovery}),
+so the status left on it still says working and the reader never reaches
+the value that would have stopped anything: the animation timer is what
+has to notice the window is gone, and it stops itself.  The tick that
+reads the status starts it again when a window comes back.
+
+@strong{Showing means a window on a frame that is up}, not a window that
+exists.  A frame goes invisible and a frame is iconified without its
+windows going anywhere, and a transcript left in one is a transcript
+nobody is reading.  The frames are asked one at a time rather than
+through a selector over all of them, because an Emacs holds frames on
+more than one terminal — a graphical frame and an @code{emacsclient -t}
+frame — and the operator is reading a frame whether or not it is on the
+terminal he last typed in.
+
+@strong{Entering the major mode again over the buffer does not stop it.}
+Nothing about the mode says which session the buffer follows or what that
+session is doing, so nothing the animation stands on is the mode's to
+reset: the record, the status read from it, the frame the spinner has got
+to, the timer and the overlay all survive a reentry.  The overlay is the
+sharpest of the five, because it belongs to the buffer and not to the
+binding — a cleared binding leaves the marker on screen with nothing able
+to redraw it.  And the gap is what the other four come to: the animation
+is a tick ten times as fast as the one that reads the status, so a value
+the reentry has to wait for a status tick to put back is most of a second
+of a spinner stopped under a session that never stopped working.
+
+@strong{What a frame costs is the redisplay and not the arithmetic.}
+Building the string and putting it on the overlay is nothing beside the
+redisplay the changed string forces, and that grows with the window it is
+drawn in.
+
+@strong{So a spinner is stopped the moment the buffer goes off screen
+rather than slowed down}: a rate the operator reads as motion is worth
+what it costs in the transcript he is watching, and the same timer left
+running in every transcript nobody is looking at is redisplay drawn for
+no one.
+
+@section Two send shapes, and the newline is what chooses
+
+@strong{A single line goes as one @code{send-keys -l}}, where @code{-l}
+is what stops tmux reading the text as key names, with an @code{Enter}
+after it to submit.
+
+@strong{Anything with a newline in it goes through a paste buffer
+instead.}  @code{send-keys} would type the newline and the CLI would
+submit at it, so a three-line message would arrive as three messages.
+@code{paste-buffer -p} wraps the text in a bracketed paste, which the CLI
+takes as one paste and so as one message however many lines it has.
+
+The text reaches tmux on standard input, so a paste is never an argument
+vector however long it is.  The paste buffer is named and deleted on the
+way out, so the operator's own paste stack is where he left it.
+
+@strong{A trailing semicolon has to be escaped.}  tmux reads one at the
+end of an argument as the separator between two of its own commands and
+drops it, leaving a backslash before it as the way to write one.  A line
+of SQL is a line that ends in a semicolon.  A semicolon in the middle of
+an argument is untouched, so only the one at the end is escaped.
+
+@strong{What tmux says is raised when it exits non-zero.}  The usual
+reason is that the pane has gone — the session was quit, or its window
+closed — and a message that vanished quietly would leave the operator
+waiting for an answer to something nobody received.
+
+@section A session with no pane is read only
+
+A session started outside tmux has no pane, and so does a background
+agent (@pxref{Discovery}).  Neither can be typed into at all.
+
+@strong{The switcher marks such a session in the row it lists it by},
+because the choice of which session to open is the last moment at which
+the operator has written nothing yet.  Hiding them would cost him a
+conversation he can read, and the transcript of one is as readable as any
+other.
+
+@strong{The mark is read from the pane being nil and not from the
+reported kind.}  The pane is what a send needs; a session outside tmux
+has none either, and @code{kind} says nothing about that one.
+
+@strong{Submitting to a session with no pane is an error naming it},
+which is what a record reached any other way — @code{parley-transcript}
+with a record in hand — runs into, and beats a silent no-op wherever it
+comes from.
+
+@section What comint echoes is rewritten into the shape the renderer emits
+
+@code{comint-send-input} puts what the operator submitted into the buffer
+itself, before the sender runs and without passing the render pass — so
+it lands with no blank line before it, no quote, and comint's
+@code{comint-highlight-input} where every other turn of his carries
+@code{parley-user}.  @strong{The sender replaces that text with the block
+a @code{user} record renders to}, and one function writes both, so his
+turn has one shape however it reached the buffer and the two cannot drift
+apart.
+
+@strong{It is rewritten rather than deleted and left to the transcript to
+render.}  The session writes the message to its transcript seconds later,
+and minutes later if it was busy when it arrived; a buffer that showed
+nothing until then would leave the operator unable to tell a message he
+had sent from one that went nowhere.
+
+@strong{The rewrite belongs in the sender and not on
+@code{comint-input-filter-functions}.}  comint puts its own properties on
+the input after that hook has run, so a block written there would be
+highlighted as input anyway.  By the time the sender runs the text
+carries them, and deleting it takes them with it.
+
+It is also where such a prompt enters the imenu index, because it is the
+one prompt the render pass never sees.
+
+@section The echo has to be deduplicated
+
+The session writes the same message to its own transcript seconds later.
+Without a guard every prompt appears twice.
+
+@strong{The guard is every message sent from this buffer that has not
+come back, and one entry of it is spent on the first user message that
+matches.}  A second message saying the very same thing was typed at the
+pane, or submitted here twice, and is shown; so is everything else typed
+at the pane, which matches nothing sent from here.
+
+@strong{Every send is outstanding and not only the last.}  A session that
+is working holds everything submitted at it until the turn it is on has
+finished, so the operator can have several messages in flight and the
+transcript delivers them together once that turn ends.
+
+@strong{There is no bound on how late the transcript's copy may be},
+because there is no bound on how late it comes — minutes, if the turn
+that was running was long — and the message has to appear exactly once
+whenever it lands.  What that costs is a message that never reaches the
+transcript at all, which leaves its entry standing: the next message of
+the same text typed at the pane is then taken for it and dropped.
+
+@section A past turn is sent again as it was written
+
+@strong{@kbd{RET} with point on a turn the operator took sends that turn
+to the pane}, with the @code{❯ } the renderer put on each of its lines
+taken off, and all of it: a prompt of four lines goes back as four lines
+and not as the line point stood on.
+
+@strong{A turn is the run of lines whose head carries
+@code{parley-user-marker}.}  One function quotes every turn of his
+whichever door it reached the buffer by, so the marked @code{❯ } heads a
+turn the transcript delivered and one submitted here alike — where
+@code{field}, which @code{comint-get-old-input-default} branches on, is
+@code{output} on the first and absent on the second, and each branch
+gives its own wrong answer.  With point in a rendered turn, the default
+returns the line point is on with the mark still in front of it on a turn
+the transcript delivered, and on one submitted here that line with a
+newline either side of it.
+
+@strong{The face and not the mark itself is what says whose turn it is.}
+Any line may open with the characters the renderer writes — a turn of the
+operator's that quoted something does — and what tells a mark the
+renderer added from text that merely looks like one is the face it
+carries.
+
+@strong{Anything that is not such a run is refused with a message.}  An
+assistant turn and the one line a run of tool calls collapsed to are what
+reach that branch, and neither is the operator's to send again; a line of
+somebody else's markdown typed into a live session is worse than an error
+saying nothing went.
+
+@bye
