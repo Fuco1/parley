@@ -371,14 +371,28 @@ The `tool_result' a task was launched in is a payload like any
 other, and the queue and the attachment a notification is written
 into are records the render pass has no text to take from.  So
 what the projection emits for each is the id and nothing it was
-read out of: no wording, and no output path."
+read out of: no wording, and no output path.
+
+A launch is the harness's wording at the head of the result, and
+a result quoting one anywhere else -- an agent reading a
+transcript -- launched nothing and projects to nothing at all."
   (skip-unless (executable-find "jq"))
   (let ((projected
          (with-temp-buffer
            (insert
             (mapconcat
              (lambda (line) (concat line "\n"))
-             (list (parley-transcript-test--shell-launch "blyeiflqe")
+             (list (parley-transcript-test--result-turn
+                    (concat "x.jsonl:3: "
+                            (format (car parley-transcript-test--shell-launches)
+                                    "bquoted01" "/tmp/out")))
+                   (parley-transcript-test--result-turn
+                    (concat "Command exited with code 1\n"
+                            (format (car parley-transcript-test--shell-launches)
+                                    "bquoted02" "/tmp/out")))
+                   (parley-transcript-test--result-turn
+                    "x.jsonl:4: Async agent launched successfully.\nagentId: aquoted03")
+                   (parley-transcript-test--shell-launch "blyeiflqe")
                    (parley-transcript-test--agent-launch "a50ad8c674992fc1f")
                    (parley-transcript-test--enqueued
                     (parley-transcript-test--notification-text
