@@ -97,15 +97,25 @@ The one thing taken out of a tool result is the id of a task it
 launched: `shells' for a background shell, whichever of the three
 ways the harness words one -- run in the background, moved there
 at a timeout, or backgrounded by the operator -- and `agents' for
-a subagent.  The shell's wording is matched on the result's first
-line only, which `\\A' and a `.' that stops at a newline hold it
-to.  `ended' is the id a task notification carries, read from
-each record the harness writes one into: the `user' turn it
-delivers, the queue it enqueues it on and the attachment a turn
-absorbs it as.  Every one is matched at the first character, as
-`parley-transcript--notification-rx' is.  An id list that comes
-out empty is deleted rather than emitted, so a message launching
-nothing costs the pipe what it did before.
+a subagent.  The id alone, because the launch is in nothing else
+a session writes and the text it came out of is a tool payload:
+emitting that would put the tool results back on the pipe to get
+at one word of each.  The shell's wording is matched on the
+result's first line only, which `\\A' and a `.' that stops at a
+newline hold it to, so a result quoting a launch further down --
+an agent reading a transcript -- launched nothing.
+
+`ended' is the id a task notification carries, read from each
+record the harness writes one into: the `user' turn it delivers,
+the queue it enqueues it on and the attachment a turn absorbs it
+as.  All three, because a notification absorbed mid-turn never
+becomes a `user' turn, and not every notification is queued.
+Every one is matched at the first character, as
+`parley-transcript--notification-rx' is.
+
+An id list that comes out empty is deleted rather than emitted,
+so a message launching nothing costs the pipe what it did
+before.
 
 `meta' is the transcript's own `isMeta', which every turn the
 harness injected carries and no turn the operator typed does.  It
@@ -623,7 +633,10 @@ before its launch, and the launch arriving second must not start
 it again.  What `parley-transcript--header-line' counts.")
 
 (defun parley-transcript--track-tasks (record)
-  "Note on `parley-transcript--tasks' what RECORD launched and what it ended."
+  "Note on `parley-transcript--tasks' what RECORD launched and what it ended.
+RECORD is a projected object, nil for a line that held none.  A
+launch whose id is already there is ignored, which is what keeps
+a task whose notification came first from starting again."
   (dolist (kind '((shells . shell) (agents . agent)))
     (mapc (lambda (id)
             (unless (assoc id parley-transcript--tasks)
@@ -2035,7 +2048,11 @@ above all -- see `parley-session-status'.
 What it has running is counted off `parley-transcript--tasks',
 which the render pass keeps, and a count of none is left off the
 line.  No id is shown: like the pane id, it locates nothing the
-operator can act on.
+operator can act on.  A task stopped from the UI, by a `Monitor'
+timeout or by an agent's teardown leaves no notification in the
+transcript, so it is counted until the session ends -- and a
+session's end writes nothing there either, so a buffer left open
+over an ended session keeps the count it last had.
 
 The location is `parley-known-pane-location', which looks the
 pane up in what tmux last answered, and is not asked of
