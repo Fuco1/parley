@@ -13,8 +13,8 @@ it fails.
 |---|---|
 | `discovery.md` | what a session is, how one is found, why standard input is the discriminator, and where what it is doing now is read from |
 | `switcher.md` | picking a session: why the switcher is built on sallet, why sallet is optional, and the minibuffer reader the pick falls back to without it |
-| `transcript.md` | the pipeline that reads a transcript, the projection it is filtered through, the render pass, the index over the prompts, and the line at the top of the buffer |
-| `typing.md` | the pane as the only way into a session, the input zone and what marks it, the two send shapes, the echo, and sending a past turn again |
+| `transcript.md` | the pipeline that reads a transcript, the projection it is filtered through, the render pass, the conversation above the input zone being read-only, a table rendered into the buffer, the index over the prompts, one buffer per session found by id, and the line at the top of the buffer |
+| `typing.md` | the pane as the only way into a session, the input zone and what marks it, the cell in front of the prompt saying what the session is doing, the two send shapes, a session with no pane being read only, the echo, and sending a past turn again |
 
 ## What may go on a page
 
