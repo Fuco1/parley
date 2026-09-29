@@ -733,11 +733,13 @@ would take the sealing back out."
 ;; as the quote around the operator's turn and the one line a run of
 ;; tool calls collapses to.
 ;;
-;; The grid is drawn: every column boundary in it is `│', the row
-;; between the header and the body is `├─┼─┤', and a rule of `┌─┬─┐'
-;; opens it with `└─┴─┘' to close.  Those characters are what the
-;; writer emits, because the writer is what put every boundary there
-;; and is the only thing that knows where one is.  Nothing scans a
+;; The grid is drawn: every column boundary in it is `│', the rule
+;; between the header and the body is `╞═╪═╡', a table whose body
+;; has a row taller than two lines has `├─┼─┤' between every two
+;; rows of it, and a rule of `┌─┬─┐' opens it with `└─┴─┘' to close.
+;; Those characters are what the writer emits, because the writer is
+;; what put every boundary there and is the only thing that knows
+;; where one is.  Nothing scans a
 ;; finished grid for a bar, so the bar inside `[[target|link words]]'
 ;; stands in the cell holding it and nowhere in the grid.
 ;;
@@ -897,6 +899,11 @@ just been written.  A table that fits WIDTH is this grid with no
 column narrowed and a table that does not is this grid with its
 cells wrapped, which is one writer and one layout for both.
 
+The body is the rows under the delimiter row, and when any of them
+wraps over more than two lines at WIDTH every two of them are
+ruled apart, the short ones too; when none does, none are.  The
+header rule under the delimiter row is `╞═╪═╡' either way.
+
 It happens in `parley-transcript--fontify-buffer' because that is
 where the cells can be read with what markdown-mode marked on
 them still there -- `parley-transcript--cell-properties' is what
@@ -939,17 +946,33 @@ break apart."
                            lines))
              (widths (parley-transcript--column-widths (remq nil rows) width))
              (marks (markdown-table-colfmt
-                     (seq-find #'parley-transcript--delimiter-row-p lines))))
-        (string-join
-         (append
-          (list (parley-transcript--table-rule widths "┌" "┬" "┐"))
-          (mapcar (lambda (row)
-                    (if row
-                        (parley-transcript--wrapped-row row widths marks)
-                      (parley-transcript--table-rule widths "├" "┼" "┤")))
-                  rows)
-          (list (parley-transcript--table-rule widths "└" "┴" "┘")))
-         "\n")))))
+                     (seq-find #'parley-transcript--delimiter-row-p lines)))
+             (drawn (mapcar (lambda (row)
+                              (and row (parley-transcript--wrapped-row
+                                        row widths marks)))
+                            rows))
+             (ruled (seq-some (lambda (row)
+                                (and row (< 2 (length (split-string
+                                                       row "\n")))))
+                              (cdr (memq nil drawn))))
+             (header-rule (parley-transcript--table-rule
+                           widths "╞" "╪" "╡" ?═))
+             (row-rule (parley-transcript--table-rule widths "├" "┼" "┤"))
+             (under-header nil)
+             (after-body-row nil)
+             (grid (list (parley-transcript--table-rule
+                          widths "┌" "┬" "┐"))))
+        (dolist (row drawn)
+          (cond ((null row)
+                 (push header-rule grid)
+                 (setq under-header t))
+                (t
+                 (when (and ruled after-body-row)
+                   (push row-rule grid))
+                 (push row grid)))
+          (setq after-body-row (and row under-header)))
+        (push (parley-transcript--table-rule widths "└" "┴" "┘") grid)
+        (string-join (nreverse grid) "\n")))))
 
 (defun parley-transcript--table-cells (line)
   "Return the cells LINE holds, each carrying the properties LINE carries.
@@ -1196,15 +1219,16 @@ goes on."
      (number-sequence 0 (1- height))
      "\n")))
 
-(defun parley-transcript--table-rule (widths left junction right)
-  "Return the rule across WIDTHS that LEFT, JUNCTION and RIGHT draw.
+(defun parley-transcript--table-rule (widths left junction right &optional line)
+  "Return the rule across WIDTHS that LEFT, JUNCTION, RIGHT and LINE draw.
 
-Three rules are drawn from this and they differ in nothing else:
-`┌┬┐' over the head of a grid, `├┼┤' between its header and its
-body, and `└┴┘' under its foot.  JUNCTION stands where a boundary
-stands, because the stretch it divides is a column's width and
-the space either side of a cell -- which is what a row spends
-there too.
+LINE is the character a rule runs in, `─' unless another is given.
+Four rules are drawn from this and they differ in nothing else:
+`┌┬┐' over the head of a grid, `╞╪╡' in `═' between its header
+and its body, `├┼┤' between two rows of a body that is ruled, and
+`└┴┘' under its foot.  JUNCTION stands where a boundary stands,
+because the stretch it divides is a column's width and the space
+either side of a cell -- which is what a row spends there too.
 
 The row between the header and the body is drawn and not written:
 the `:---:' of the delimiter row the agent typed says how a
@@ -1216,11 +1240,11 @@ the buffer.
 Every character here takes the one column the character it stands
 for took, so a rule is exactly as wide as a row of the grid."
   (concat left
-          (mapconcat (lambda (width) (make-string (+ 2 width) ?─))
+          (mapconcat (lambda (width) (make-string (+ 2 width) (or line ?─)))
                      widths junction)
           right))
 
-(defconst parley-transcript--drawn-characters "│─┌┬┐├┼┤└┴┘"
+(defconst parley-transcript--drawn-characters "│─┌┬┐├┼┤└┴┘═╞╪╡"
   "Every character the writer draws a grid in.")
 
 (defun parley-transcript--drawn-width-table ()
@@ -1229,10 +1253,13 @@ for took, so a rule is exactly as wide as a row of the grid."
 A CJK language environment makes box-drawing characters two
 columns wide while `|' and `-' stay one: measured on Emacs 28.2
 under Japanese, `│' is 2 and a rule of two one-column cells is 18
-columns over a row of 12.  This table takes the drawn characters
-back to the one column each character it stands for took and
-leaves every other width to the table it is a child of, so a CJK
-character in a cell is still the two columns it is.
+columns over a row of 12.  The same measurement has `═╞╪╡' at one
+column already, and they are in the table all the same, because
+one column is what the grid needs of them and not what an
+environment happens to answer.  This table takes the drawn
+characters back to the one column each character it stands for
+took and leaves every other width to the table it is a child of,
+so a CJK character in a cell is still the two columns it is.
 
 The parent is the default value of `char-width-table' when this
 is called, and never a buffer's own, which would be a table of

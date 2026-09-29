@@ -2417,13 +2417,13 @@ cells have to be wrapped to fit one.")
   (with-current-buffer buffer
     (buffer-substring-no-properties (point-min) (point-max))))
 
-(defconst parley-transcript-test--drawn "│┌┬┐├┼┤└┴┘"
+(defconst parley-transcript-test--drawn "│┌┬┐├┼┤╞╪╡└┴┘"
   "Every character a drawn grid stands a column boundary in.
-The boundary itself, the three junctions a rule crosses one
-with, and the six corners -- so a line of a grid and a rule over
-or under it answer `parley-transcript-test--boundaries' the same
-way exactly when each junction stands in the column a boundary
-stands in.")
+The boundary itself, the four junctions a rule crosses one with,
+and the eight a rule begins and ends in -- so a line of a grid
+and a rule over, under or inside it answer
+`parley-transcript-test--boundaries' the same way exactly when
+each junction stands in the column a boundary stands in.")
 
 (defun parley-transcript-test--boundaries (text &optional characters)
   "Return the columns CHARACTERS stand in on each line of TEXT, one per line.
@@ -2558,8 +2558,8 @@ words]]' divides nothing here."
   "The grid a table is rendered into is drawn, at a width it fits and at one it does not.
 
 Every column boundary is `│', at each end of a line as well as
-between two cells.  The row between the header and the body is
-drawn from `├', `┼', `┤' and `─', with none of the agent's dashes
+between two cells.  The rule between the header and the body is
+drawn from `╞', `╪', `╡' and `═', with none of the agent's dashes
 or colons left in it: how a column is aligned is not something
 anyone reads off a drawn table, and the padding is what says it
 here.  And a rule of `┌─┬─┐' opens the grid with `└─┴─┘' to
@@ -2568,6 +2568,8 @@ close, each junction standing in the column a boundary stands in.
 A wrapped grid is drawn the same way.  Every line of a row
 carries the boundaries, and the rules stand above the first row
 and below the last however many lines the rows between them take.
+Its last row takes three, so a rule of `├─┼─┤' stands between its
+two body rows as well, where the grid that fits has none.
 
 The drawing costs the grid no width: the fixture's grid is the 31
 columns it would be written in bars and dashes, and wrapped into
@@ -2584,7 +2586,7 @@ show, and neither of these cells holds one."
         (wrapped (parley-transcript--aligned parley-transcript-test--table 20)))
     (should (equal '("┌────────┬────────────────────┐"
                      "│ name   │ what it does       │"
-                     "├────────┼────────────────────┤"
+                     "╞════════╪════════════════════╡"
                      "│ a      │ short              │"
                      "│ bbbbbb │ a much longer cell │"
                      "└────────┴────────────────────┘")
@@ -2592,8 +2594,9 @@ show, and neither of these cells holds one."
     (should (equal '("┌────────┬─────────┐"
                      "│ name   │ what it │"
                      "│        │ does    │"
-                     "├────────┼─────────┤"
+                     "╞════════╪═════════╡"
                      "│ a      │ short   │"
+                     "├────────┼─────────┤"
                      "│ bbbbbb │ a much  │"
                      "│        │ longer  │"
                      "│        │ cell    │"
@@ -2603,6 +2606,64 @@ show, and neither of these cells holds one."
     (should (= 20 (parley-transcript-test--columns wrapped)))
     (should-not (string-search "|" aligned))
     (should-not (string-search "|" wrapped))))
+
+(ert-deftest parley-transcript-test-rules-apart-the-rows-of-a-tall-body ()
+  "Every two body rows are ruled apart when one of them is over two lines tall.
+
+At 20 the last row of the first table takes three lines, so a
+rule of `├─┼─┤' stands between every two of its body rows, the
+two short ones included.  At 25 its tallest takes two and there
+is none: it is the width a table is rendered to that decides, on
+the one table.  The header of the second takes four lines at 20
+and its body one each, and it has none either, because the header
+is not a body row.  The rule under the header is `╞═╪═╡' in all
+three.
+
+Each grid is pinned line for line: a writer that ruled every
+table, or none, or ruled on the header's height, fails one of
+them, and so does one ruling on rows of two lines."
+  (let ((table (concat "| name | what it does |\n"
+                       "|---|---|\n"
+                       "| a | short |\n"
+                       "| c | brief |\n"
+                       "| bbbbbb | a much longer cell |"))
+        (tall-header (concat "| a very long header cell that wraps a lot | b |\n"
+                             "|---|---|\n"
+                             "| x | y |\n"
+                             "| z | w |")))
+    (should (equal '("┌────────┬─────────┐"
+                     "│ name   │ what it │"
+                     "│        │ does    │"
+                     "╞════════╪═════════╡"
+                     "│ a      │ short   │"
+                     "├────────┼─────────┤"
+                     "│ c      │ brief   │"
+                     "├────────┼─────────┤"
+                     "│ bbbbbb │ a much  │"
+                     "│        │ longer  │"
+                     "│        │ cell    │"
+                     "└────────┴─────────┘")
+                   (split-string (parley-transcript--aligned table 20) "\n")))
+    (should (equal '("┌────────┬──────────────┐"
+                     "│ name   │ what it does │"
+                     "╞════════╪══════════════╡"
+                     "│ a      │ short        │"
+                     "│ c      │ brief        │"
+                     "│ bbbbbb │ a much       │"
+                     "│        │ longer cell  │"
+                     "└────────┴──────────────┘")
+                   (split-string (parley-transcript--aligned table 25) "\n")))
+    (should (equal '("┌──────────────┬───┐"
+                     "│ a very long  │ b │"
+                     "│ header cell  │   │"
+                     "│ that wraps a │   │"
+                     "│ lot          │   │"
+                     "╞══════════════╪═══╡"
+                     "│ x            │ y │"
+                     "│ z            │ w │"
+                     "└──────────────┴───┘")
+                   (split-string (parley-transcript--aligned tall-header 20)
+                                 "\n")))))
 
 (defconst parley-transcript-test--grid-tables
   (list (concat "| name | what it does |\n"
@@ -2676,11 +2737,12 @@ is the thing the second call of a pair would catch."
 The first table is rendered where it fits and in a window of 34,
 where the column the wiki link stands in cannot narrow past the
 link and the other wraps; the second where it fits.  Each grid is
-pinned line for line: every boundary `│', the row between the
-header and the body `├─┼─┤', a rule of `┌─┬─┐' opening it and one
+pinned line for line: every boundary `│', the rule between the
+header and the body `╞═╪═╡', a rule of `┌─┬─┐' opening it and one
 of `└─┴─┘' closing it.  In the wrapped grid every line of a row
-carries the boundaries and the rules stand above its first row
-and below its last.  `parley-transcript-test--grids' holds each
+carries the boundaries, the rules stand above its first row and
+below its last, and a row three lines tall puts `├─┼─┤' between
+its two body rows.  `parley-transcript-test--grids' holds each
 of them to one column a drawn character and one column a boundary
 on every line, measured in the transcript buffer.
 
@@ -2700,7 +2762,7 @@ under the default's widths is what that order catches."
   (skip-unless (executable-find "jq"))
   (let ((wide '("┌───────────────────────┬────────────────────┐"
                 "│ name                  │ what it does       │"
-                "├───────────────────────┼────────────────────┤"
+                "╞═══════════════════════╪════════════════════╡"
                 "│ bbbbbb                │ a much longer cell │"
                 "│ [[target|link words]] │ y                  │"
                 "└───────────────────────┴────────────────────┘"))
@@ -2708,22 +2770,23 @@ under the default's widths is what that order catches."
                    "│ name                  │ what   │"
                    "│                       │ it     │"
                    "│                       │ does   │"
-                   "├───────────────────────┼────────┤"
+                   "╞═══════════════════════╪════════╡"
                    "│ bbbbbb                │ a much │"
                    "│                       │ longer │"
                    "│                       │ cell   │"
+                   "├───────────────────────┼────────┤"
                    "│ [[target|link words]] │ y      │"
                    "└───────────────────────┴────────┘")))
     (dolist (case `(("English" 1
                      ("┌───┬──────┐"
                       "│ a │ b    │"
-                      "├───┼──────┤"
+                      "╞═══╪══════╡"
                       "│ α │ 漢字 │"
                       "└───┴──────┘"))
                     ("Japanese" 2
                      ("┌────┬──────┐"
                       "│ a  │ b    │"
-                      "├────┼──────┤"
+                      "╞════╪══════╡"
                       "│ α │ 漢字 │"
                       "└────┴──────┘"))))
       (pcase-let ((`(,environment ,drawn ,alpha) case))
@@ -2837,7 +2900,7 @@ passing the rest by having done nothing."
                       "| a    | b     |"))
         (grid (concat "┌──────┬───────┐\n"
                       "│ name │ power │\n"
-                      "├──────┼───────┤\n"
+                      "╞══════╪═══════╡\n"
                       "│ a    │ b     │\n"
                       "└──────┴───────┘")))
     (should (equal grid (parley-transcript-test--unnarrowed text)))
@@ -3143,7 +3206,7 @@ from it."
     (should (= 1 (length (seq-uniq (parley-transcript-test--boundaries form)))))
     (should (member '("step" "what it does") rows))
     (should (member '("two" "short") rows))
-    (should (string-match-p "\\`├─+┼─+┤\\'" (nth 2 (split-string form "\n"))))
+    (should (string-match-p "\\`╞═+╪═+╡\\'" (nth 2 (split-string form "\n"))))
     (let ((wrapped (seq-take-while
                     (lambda (row) (member (car row) '("one" "")))
                     (seq-drop-while (lambda (row) (not (equal (car row) "one")))
@@ -3419,7 +3482,7 @@ cell was packed over stand in the same column as the line its row
 began on."
   (should (equal '("┌────────┬────────┬────────┐"
                    "│ a      │      b │   c    │"
-                   "├────────┼────────┼────────┤"
+                   "╞════════╪════════╪════════╡"
                    "│ 1      │      2 │   3    │"
                    "│ longer │ longer │ longer │"
                    "└────────┴────────┴────────┘")
@@ -3431,7 +3494,7 @@ began on."
                                "\n")))
   (should (equal '("┌────┬─────────────┐"
                    "│ id │ note        │"
-                   "├────┼─────────────┤"
+                   "╞════╪═════════════╡"
                    "│  1 │ some words  │"
                    "│    │ here        │"
                    "└────┴─────────────┘")
@@ -3469,7 +3532,7 @@ and ragged on screen."
     (should form)
     (should (equal '("┌────┬─────────────────┐"
                      "│ id │ note            │"
-                     "├────┼─────────────────┤"
+                     "╞════╪═════════════════╡"
                      "│ 1  │ see the long    │"
                      "│    │ link text now   │"
                      "└────┴─────────────────┘")
@@ -3776,9 +3839,9 @@ keeps it and `save-excursion' alone brings it to the head of the
 grid.  It stands the same distance into the form, which the
 table's own start is measured from because that start does not
 move.  And from a distance the next form is too short for --
-point at the end of the aligned form, narrowed to the wrapped one
-three characters shorter, 191 against 188 -- it stands at the end
-of the table and not in the sentence after it.
+point at the end of the wrapped form, widened to the aligned one
+eighteen characters shorter, 209 against 191 -- it stands at the
+end of the table and not in the sentence after it.
 
 The process mark is where comint left it, which is where the
 next output the session writes goes in.
@@ -3813,12 +3876,12 @@ here."
                   (should (null buffer-undo-list))
                   (should (looking-at-p "and that is all"))
                   (should (= (marker-position mark) (point-max)))
-                  (goto-char (+ 5 (overlay-start overlay)))
-                  (parley-transcript-test--resize buffer 100)
-                  (should (= (point) (+ 5 (overlay-start overlay))))
                   (goto-char (overlay-end overlay))
-                  (parley-transcript-test--resize buffer 20)
+                  (parley-transcript-test--resize buffer 100)
                   (should (= (point) (overlay-end overlay)))
+                  (goto-char (+ 5 (overlay-start overlay)))
+                  (parley-transcript-test--resize buffer 20)
+                  (should (= (point) (+ 5 (overlay-start overlay))))
                   (should (null buffer-undo-list)))))))
       (set-frame-width (selected-frame) columns))))
 
