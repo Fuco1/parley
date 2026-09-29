@@ -138,18 +138,20 @@ it."
   "A session is five fields: name, status, mark, directory, tag."
   (parley-switch-test--with-locations
     (should (equal (parley-session-fields (parley-switch-test--session 2))
-                   (vector "orc-w1" "idle" "" "/srv/orc/trees/worker-1/orc"
-                           (parley-switch-test--tag 2))))
+                   (list :name "orc-w1" :status "idle" :mark ""
+                         :directory "/srv/orc/trees/worker-1/orc"
+                         :tag (parley-switch-test--tag 2))))
     ;; The working directory is shown the way the operator writes it.
-    (should (equal (aref (parley-session-fields
-                          (parley-switch-test--session 1))
-                         3)
+    (should (equal (plist-get (parley-session-fields
+                               (parley-switch-test--session 1))
+                              :directory)
                    "~/dev/ydistri/Ydistri.Pairing"))
     ;; A name and a status `claude agents' did not report still leave
     ;; five fields, and the tag column falls back to the session id.
     (should (equal (parley-session-fields (parley-switch-test--session 3))
-                   (vector "unnamed" "unknown" "[RO]" "/srv/matus"
-                           (parley-switch-test--tag 3))))))
+                   (list :name "unnamed" :status "unknown" :mark "[RO]"
+                         :directory "/srv/matus"
+                         :tag (parley-switch-test--tag 3))))))
 
 (ert-deftest parley-switch-test-marks-a-session-with-no-pane-read-only ()
   "A session with no pane is listed as one that cannot be typed into.
@@ -170,13 +172,13 @@ its session id alone, and `send-keys -t' still takes that pane."
       (let ((fields (parley-session-fields (parley-switch-test--session pid))))
         (should (equal (plist-get (parley-switch-test--session pid) :kind)
                        "interactive"))
-        (should (equal (aref fields 2) "[RO]"))
+        (should (equal (plist-get fields :mark) "[RO]"))
         (should (string-match-p "\\[RO\\]" (parley-session-row fields)))))
     ;; And a session with a pane carries no mark, so the row says
     ;; something about this session rather than about every session.
     (dolist (pid '(1 2 4 6))
       (let ((fields (parley-session-fields (parley-switch-test--session pid))))
-        (should (equal (aref fields 2) ""))
+        (should (equal (plist-get fields :mark) ""))
         (should-not (string-match-p "\\[RO\\]"
                                     (parley-session-row fields)))))))
 
@@ -186,9 +188,9 @@ its session id alone, and `send-keys -t' still takes that pane."
     (dolist (session parley-switch-test--sessions)
       (let* ((fields (parley-session-fields session))
              (row (parley-session-row fields)))
-        (should (string-prefix-p (aref fields 0) row))
-        (dolist (field (append fields nil))
-          (should (string-match-p (regexp-quote field) row)))))))
+        (should (string-prefix-p (plist-get fields :name) row))
+        (cl-loop for (_key field) on fields by #'cddr
+                 do (should (string-match-p (regexp-quote field) row)))))))
 
 (ert-deftest parley-switch-test-rows-are-unique ()
   "No two sessions produce the same row, name sharing or not."
@@ -254,7 +256,8 @@ name is a fourth colour rather than one of theirs."
                          (get-text-property
                           52 'face
                           (parley-session-row
-                           (vector "orc-w1" status "" "/srv/orc" "tag"))))
+                           (list :name "orc-w1" :status status :mark ""
+                                 :directory "/srv/orc" :tag "tag"))))
                        '("idle" "busy" "waiting" "unknown" "compacting"))))
     (should (equal faces '(parley-row-status-idle
                            parley-row-status-busy
@@ -278,13 +281,17 @@ its own row along: a background agent is named after its prompt,
 and cutting the name cuts the one handle the operator has on the
 session."
   (let ((short (parley-session-row
-                (vector "orc-w1" "idle" "" "/srv/orc" "tag")))
+                (list :name "orc-w1" :status "idle" :mark ""
+                      :directory "/srv/orc" :tag "tag")))
         (fifty (parley-session-row
-                (vector (make-string 50 ?n) "idle" "" "/srv/orc" "tag")))
+                (list :name (make-string 50 ?n) :status "idle" :mark ""
+                      :directory "/srv/orc" :tag "tag")))
         (wide (parley-session-row
-               (vector "追跡" "idle" "" "/srv/orc" "tag")))
+               (list :name "追跡" :status "idle" :mark ""
+                     :directory "/srv/orc" :tag "tag")))
         (long (parley-session-row
-               (vector (make-string 62 ?n) "idle" "" "/srv/orc" "tag"))))
+               (list :name (make-string 62 ?n) :status "idle" :mark ""
+                     :directory "/srv/orc" :tag "tag"))))
     (dolist (row (list short fifty wide))
       (should (= (parley-switch-test--display-column row "idle") 52))
       (should (equal (get-text-property (string-match-p "idle" row) 'face row)
@@ -307,16 +314,18 @@ the only one holding a value from a short list -- a name and a
 working directory are what the operator picks a session by, and
 both are drawn whole."
   (let ((row (parley-session-row
-              (vector "orc-w1" "awaiting-approval" "[RO]" "/srv/orc" "tag"))))
+              (list :name "orc-w1" :status "awaiting-approval" :mark "[RO]"
+                    :directory "/srv/orc" :tag "tag"))))
     (should (= (parley-switch-test--display-column row "/srv/orc") 66))
     (should (equal (get-text-property 52 'face row) 'parley-row-status-other))
     (should (equal (next-single-property-change 52 'face row) 64))
     ;; And a working directory past its own column is not cut: the
     ;; tail of a path is what tells two worktrees apart.
     (let ((deep (parley-session-row
-                 (vector "orc-w1" "idle" ""
-                         "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here"
-                         "tag"))))
+                 (list :name "orc-w1" :status "idle" :mark ""
+                       :directory
+                       "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here"
+                       :tag "tag"))))
       (should (string-match-p
                "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here" deep)))))
 
@@ -327,9 +336,11 @@ that has a pane.  `waiting [RO]' is the longest the two come to
 together and is what twelve characters leave room for, so the
 working directory begins at the same offset marked or not."
   (let ((marked (parley-session-row
-                 (vector "orc-w1" "waiting" "[RO]" "/srv/orc" "tag")))
+                 (list :name "orc-w1" :status "waiting" :mark "[RO]"
+                       :directory "/srv/orc" :tag "tag")))
         (plain (parley-session-row
-                (vector "orc-w1" "waiting" "" "/srv/orc" "tag"))))
+                (list :name "orc-w1" :status "waiting" :mark ""
+                      :directory "/srv/orc" :tag "tag"))))
     (should (equal (substring marked 52 64) "waiting [RO]"))
     (should (equal (get-text-property 60 'face marked) 'parley-row-read-only))
     ;; The space between the two is the status column's own, so
@@ -413,7 +424,8 @@ tested there, so the command is stubbed here."
   "A candidate is its fields and the record itself, in switcher order."
   (parley-switch-test--with-sessions
     (let ((candidates (parley-switch--candidates)))
-      (should (equal (mapcar (lambda (candidate) (aref (car candidate) 4))
+      (should (equal (mapcar (lambda (candidate)
+                               (plist-get (car candidate) :tag))
                              candidates)
                      (mapcar #'parley-switch-test--tag '(2 4 6 1 5 3))))
       ;; The record travels with the candidate, so nothing has to look
@@ -432,8 +444,8 @@ faces and the renderer hands that row over as it is."
     (let* ((candidate (nth 1 (parley-switch--candidates)))
            (rendered (parley-switch--renderer candidate nil nil)))
       (should (string-prefix-p "orc-w1" rendered))
-      (dolist (field (append (car candidate) nil))
-        (should (string-match-p (regexp-quote field) rendered)))
+      (cl-loop for (_key field) on (car candidate) by #'cddr
+               do (should (string-match-p (regexp-quote field) rendered)))
       (should (equal (get-text-property 0 'face rendered) 'parley-row-name))
       (should (equal (get-text-property 52 'face rendered)
                      'parley-row-status-idle)))))
@@ -459,9 +471,8 @@ candidate, so nothing has to find it again by a name it shares."
       (cl-flet ((tags (prompt)
                   (mapcar
                    (lambda (index)
-                     (aref (car (aref candidates
-                                      (if (consp index) (car index) index)))
-                           4))
+                     (let ((index (if (consp index) (car index) index)))
+                       (plist-get (car (aref candidates index)) :tag)))
                    (parley-switch--matcher
                     candidates (list (cons 'prompt prompt))))))
         (should (equal (tags "")

@@ -54,7 +54,7 @@
 
 (defun parley-switch--candidates ()
   "Return one sallet candidate per live session.
-A candidate is the cons of the fields vector and the record it
+A candidate is the cons of the fields plist and the record it
 was built from: the fields are what sallet matches and renders,
 the record is what the action needs.  Nothing looks a session up
 by name afterwards, which is what keeps two sessions sharing one
@@ -62,16 +62,16 @@ from being confused."
   (mapcar (lambda (session) (cons (parley-session-fields session) session))
           (parley-sessions-by-status)))
 
-(defun parley-switch--field-filter (field)
-  "Return a sallet filter matching its pattern against FIELD.
-FIELD is an index into the fields vector of a candidate, so this
-is what makes the columns matchable one at a time."
+(defun parley-switch--field-filter (key)
+  "Return a sallet filter matching its pattern against the column KEY.
+KEY is a keyword of the fields plist of a candidate, so this is
+what makes the columns matchable one at a time."
   (lambda (candidates indices pattern)
     (let ((regexp (regexp-quote pattern)))
       (seq-filter
        (lambda (index)
          (string-match-p
-          regexp (aref (sallet-candidate-aref candidates index) field)))
+          regexp (plist-get (sallet-candidate-aref candidates index) key)))
        indices))))
 
 (defun parley-switch--matcher (candidates state)
@@ -86,10 +86,10 @@ the row's status column shows.  Tokens are matched in sequence,
 so `orc /worker-2' is the session named orc in that worktree, and
 `orc @orc-b3:3' the one of that name in that window."
   (sallet-compose-filters-by-pattern
-   `(("\\`/.*" ,(parley-switch--field-filter 3))
-     ("\\`@\\(.*\\)" 1 ,(parley-switch--field-filter 4))
-     ("\\`:\\(.*\\)" 1 ,(parley-switch--field-filter 1))
-     (t ,(parley-switch--field-filter 0)))
+   `(("\\`/.*" ,(parley-switch--field-filter :directory))
+     ("\\`@\\(.*\\)" 1 ,(parley-switch--field-filter :tag))
+     ("\\`:\\(.*\\)" 1 ,(parley-switch--field-filter :status))
+     (t ,(parley-switch--field-filter :name)))
    candidates
    (sallet-make-candidate-indices candidates)
    (sallet-state-get-prompt state)))
