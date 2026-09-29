@@ -152,6 +152,16 @@ prints its first pane as `%0 parley %test:0.0'."
                         (cons (match-string 1 line) (match-string 2 line))))
                     (split-string (buffer-string) "\n" t))))))
 
+(defun parley-known-pane-location (pane)
+  "Return where tmux pane PANE is by what tmux last answered.
+Nil for a pane that answer holds nothing for, and nil for every
+pane while tmux has not been asked since the sessions were last
+listed.  This never asks it: asking runs `tmux list-panes -a',
+and a caller on every redisplay cannot pay a subprocess each
+time.  `parley-session-tag' is what asks."
+  (and (listp parley--pane-locations)
+       (cdr (assoc pane parley--pane-locations))))
+
 (defun parley--pane-location (pane)
   "Return where tmux pane PANE is, nil if tmux reports no such pane.
 Nil rather than an error: a pane can be closed while the session
@@ -159,7 +169,7 @@ started in it outlives it, and a session that can no longer be
 typed into is still one to read."
   (when (eq parley--pane-locations 'unasked)
     (setq parley--pane-locations (parley--tmux-pane-locations)))
-  (cdr (assoc pane parley--pane-locations)))
+  (parley-known-pane-location pane))
 
 (defcustom parley-projects-directory "~/.claude/projects"
   "Directory Claude Code keeps session transcripts under.
