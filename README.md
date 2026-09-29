@@ -38,8 +38,9 @@ parley is for reading what it said.
 
 ## How it works
 
-`docs/architecture/` — one page per subject, starting at
-[the page table](docs/architecture/README.md).
+The Info manual `parley`, one node per subject, which the package manager
+builds from [`doc/parley.texi`](doc/parley.texi). Once the package is installed
+`C-h i` lists it, and `M-x info-display-manual RET parley` opens it.
 
 ## Requirements
 

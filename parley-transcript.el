@@ -774,7 +774,7 @@ inserted and then rewritten in place."
 
 ;; Everything before the process mark is read-only, and every writer
 ;; above the mark binds `inhibit-read-only' around its write -- see
-;; docs/architecture/transcript.md for why.  Deletion is refused by
+;; Info node `(parley)Transcript' for why.  Deletion is refused by
 ;; `read-only' alone and insertion by its stickiness: rear-nonsticky
 ;; leaves the operator typing at the mark, and would leave him typing
 ;; anywhere in the conversation were it not front-sticky as well.
@@ -1906,7 +1906,7 @@ and history and all."
         ;; `process-connection-type', so whatever it happens to be is
         ;; what parley would get.
         ;;
-        ;; Why a pipe and not a pty is docs/architecture/transcript.md.
+        ;; Why a pipe and not a pty is Info node `(parley)Transcript'.
         (let ((process-connection-type nil))
           (make-comint-in-buffer
            (buffer-name) buffer "sh" nil "-c"
@@ -2605,7 +2605,7 @@ into at all, and this is where the operator finds that out."
       (parley-transcript--tmux
        nil "send-keys" "-t" pane "-l" "--"
        ;; tmux drops a trailing semicolon unless a backslash escapes
-       ;; it -- docs/architecture/typing.md has the measurement.
+       ;; it, as Info node `(parley)Typing' says.
        (replace-regexp-in-string ";\\'" "\\\\;" string)))
     (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
     (push (string-trim string) parley-transcript--sent)
