@@ -3,11 +3,11 @@
 **The switcher is built on sallet because a session is listed by columns, and
 sallet lets a source match one column at a time.** A sallet source brings its
 own matcher and its own renderer, so a candidate need not be a string: here it
-is the vector `parley-session-fields` returns, the matcher sends each token the
-operator types to the column it names — the name, unless a sigil says
-otherwise — and the renderer draws the vector as its row. A word can then be
-aimed at a name without also matching every session whose working directory or
-tag happens to hold it.
+is the columns `parley-session-fields` returns, each under its own key, the
+matcher sends each token the operator types to the column it names — the name,
+unless a sigil says otherwise — and the renderer draws the columns as its row.
+A word can then be aimed at a name without also matching every session whose
+working directory or tag happens to hold it.
 
 **A flat row cannot be aimed, and the columns of one machine's sessions share
 their words.** `completing-read` completes over strings, so the columns are
