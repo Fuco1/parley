@@ -44,10 +44,9 @@ prevents the mistake.
 | `docs/architecture/` | why the package is shaped this way |
 
 **The requiring goes one way only.** `parley.el` requires nothing else in the
-package and nothing in it knows the other two files exist; the picker requires
-the view, and the view requires neither. Anything both the picker and the view
-need goes down into `parley.el`, because the other direction closes a cycle and
-`require` does not survive one.
+package; the picker requires the view, and the view requires neither. Anything
+both the picker and the view need goes down into `parley.el`, because the other
+direction closes a cycle and `require` does not survive one.
 
 **Every file requires each library it calls**, even one another file already
 loads. A function reached through someone else's `require` is a dependency on
