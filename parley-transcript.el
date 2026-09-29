@@ -1951,21 +1951,21 @@ said when the buffer was opened, and a conversation is read for
 minutes.  All four states are told apart, `waiting' from `idle'
 above all -- see `parley-session-status'.
 
-The location is a bare lookup in `parley--pane-locations', and is
-asked neither of `parley--pane-location' nor of
-`parley-session-tag', which reaches that same accessor.  It fills
-the cache when it reads `unasked', and filling it runs `tmux
-list-panes -a' -- a `call-process' from redisplay, in every
-transcript buffer on screen, every time `parley-sessions' puts
-the cache back.  The lookup is also what keeps the location
-current: the cache is refilled whenever the sessions are listed,
-so a pane the operator moved is shown where it is now while the
-buffer name still carries where it was.
+The location is `parley-known-pane-location', which looks the
+pane up in what tmux last answered, and is not asked of
+`parley-session-tag', which asks tmux when nothing has been asked
+since the sessions were listed.  Asking runs `tmux list-panes -a'
+-- a `call-process' from redisplay, in every transcript buffer on
+screen, every time `parley-sessions' drops the answer.  The
+lookup is also what keeps the location current: tmux is asked
+again whenever the sessions are listed, so a pane the operator
+moved is shown where it is now while the buffer name still
+carries where it was.
 
-A pane the cache holds nothing for shows no location -- and it
-holds nothing for every pane while it reads `unasked', which is a
-symbol and no alist.  The pane id is never shown in its place:
-`%15' locates nothing the operator can act on.
+A pane that answer holds nothing for shows no location, and
+neither does any pane while tmux has not been asked.  The pane id
+is never shown in its place: `%15' locates nothing the operator
+can act on.
 
 The working directory is not here.  It is a switcher column
 because the operator is choosing between sessions; in the buffer
@@ -1973,9 +1973,7 @@ it is `default-directory', and a line repeating what the buffer
 already is spends a line on nothing."
   (let* ((session parley-transcript-session)
          (pane (plist-get session :pane))
-         (location (and pane
-                        (listp parley--pane-locations)
-                        (cdr (assoc pane parley--pane-locations)))))
+         (location (and pane (parley-known-pane-location pane))))
     (string-join
      (delq nil (list (parley-session-name session)
                      (symbol-name parley-transcript-status)

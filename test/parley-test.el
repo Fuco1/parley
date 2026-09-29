@@ -265,6 +265,30 @@ dozen subprocesses the one call exists to avoid."
                            "7c1d0f9a-0000-4000-8000-000000000003")))
           (should (equal (length calls) 1)))))))
 
+(ert-deftest parley-test-a-known-location-never-asks-tmux ()
+  "A known location is what tmux last answered, and asking it is not.
+A pane the answer holds is where it says, and one it holds
+nothing for is nowhere.  Before tmux has been asked every pane is
+nowhere, the map stays unasked, and no subprocess runs -- which
+is what lets a header line look a pane up on every redisplay.
+
+The tmux standing in here would answer for `%61', so a lookup
+that asked it would find the pane rather than nothing."
+  (let ((parley--pane-locations parley-test--pane-locations))
+    (should (equal (parley-known-pane-location "%61")
+                   "orc-orc-b3743fe3:3.1"))
+    (should-not (parley-known-pane-location "%999")))
+  (let ((calls nil)
+        (parley--pane-locations 'unasked))
+    (cl-letf (((symbol-function 'call-process)
+               (lambda (program &rest _)
+                 (push program calls)
+                 (insert "%61 orc-orc-b3743fe3:3.1\n")
+                 0)))
+      (should-not (parley-known-pane-location "%61"))
+      (should (eq parley--pane-locations 'unasked))
+      (should-not calls))))
+
 (ert-deftest parley-test-a-location-is-the-session-the-window-and-the-pane ()
   "A location is the tmux session, window index and pane index of a pane.
 Only tmux knows, so this asks a real one -- a server of its own
