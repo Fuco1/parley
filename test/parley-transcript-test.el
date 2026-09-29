@@ -2811,6 +2811,37 @@ under the default's widths is what that order catches."
             (should (= 3 (seq-count (lambda (c) (eq c ?│)) line)))
             (should (= 1 (seq-count (lambda (c) (eq c ?|)) line)))))))))
 
+(ert-deftest parley-transcript-test-holds-the-header-rule-to-one-column ()
+  "The header rule is one column a character whatever an environment answers.
+
+Japanese, Chinese-GB and Korean count `═', `╞', `╪' and `╡' one
+column already, so no environment this suite can switch to tells
+a width table holding them to one from one leaving them to its
+parent.  The widths here are those of an environment counting
+them two, installed as the default the way
+`set-language-environment' installs its own, and they are
+asserted to be two under it before the grid is measured, so the
+case cannot pass by measuring nothing.  Under the table a
+transcript buffer carries, every line of the grid is as wide as
+every other, the header rule's among them."
+  (let ((grid (split-string (parley-transcript--aligned
+                             (concat "| name | what it does |\n"
+                                     "|---|---|\n"
+                                     "| a | short |\n"
+                                     "| bbbbbb | a much longer cell |")
+                             20)
+                            "\n"))
+        (wide (make-char-table nil)))
+    (set-char-table-parent wide (default-value 'char-width-table))
+    (dolist (character (string-to-list "═╞╪╡"))
+      (aset wide character 2))
+    (with-temp-buffer
+      (let ((char-width-table wide))
+        (should (= 8 (string-width "═╞╪╡")))
+        (setq-local char-width-table (parley-transcript--drawn-width-table))
+        (should (member "╞════════╪═════════╡" grid))
+        (should (equal '(20) (seq-uniq (mapcar #'string-width grid))))))))
+
 (ert-deftest parley-transcript-test-renders-a-table-as-the-buffers-own-text ()
   "A table stands in the buffer as the text of the form parley rendered.
 
