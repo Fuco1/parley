@@ -19,6 +19,9 @@
 (require 'cl-lib)
 (require 'ert)
 (require 'parley-transcript)
+(require 'parley-fixtures
+         (expand-file-name "parley-fixtures"
+                           (file-name-directory (macroexp-file-name))))
 
 
 ;;; Fixtures
@@ -1106,40 +1109,13 @@ the newer one, because what `claude agents' said goes stale."
 ;;; The session's live status
 
 ;; The buffer reads the session's own file, so the fixture is that
-;; file: a directory of its own, and the pid in it this Emacs, whose
-;; start time /proc really reports.
-
-(defun parley-transcript-test--write-status (buffer status)
-  "Write STATUS as the file BUFFER's session writes about itself.
-The `procStart' is field 22 of `/proc/PID/stat' split on
-whitespace, read here and not by the reader under test: a fixture
-the reader built would agree with it whatever either of them
-did."
-  (let ((pid (emacs-pid)))
-    (with-temp-file (expand-file-name (format "%s.json" pid)
-                                      parley-sessions-directory)
-      (insert (json-serialize
-               `((pid . ,pid)
-                 (sessionId . ,(plist-get (buffer-local-value
-                                           'parley-transcript-session buffer)
-                                          :session-id))
-                 (procStart . ,(with-temp-buffer
-                                 (insert-file-contents
-                                  (format "/proc/%s/stat" pid))
-                                 (nth 21 (split-string (buffer-string)))))
-                 (status . ,status)))))))
+;; file, in a directory of its own.  The pid in it is this Emacs, which
+;; is the pid `parley-transcript-test--session' gives a record, and the
+;; session id is `file', because that record's transcript is its id.
 
 (defun parley-transcript-test--status (buffer)
   "Return the status BUFFER holds."
   (buffer-local-value 'parley-transcript-status buffer))
-
-(defmacro parley-transcript-test--with-sessions-directory (&rest body)
-  "Run BODY with `parley-sessions-directory' a directory of its own."
-  (declare (indent 0))
-  `(let ((parley-sessions-directory
-          (make-temp-file "parley-transcript-test-sessions-" t)))
-     (unwind-protect (progn ,@body)
-       (delete-directory parley-sessions-directory t))))
 
 (ert-deftest parley-transcript-test-holds-what-the-session-file-says ()
   "The buffer holds the status its session's file gives it, and follows it.
@@ -1153,16 +1129,16 @@ And nothing is read at all for a buffer no window is showing:
 before the buffer is put in a window it stays at `unknown' with a
 file beside it saying otherwise."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (parley-transcript--read-status buffer)
       (should (eq (parley-transcript-test--status buffer) 'unknown))
       (set-window-buffer (selected-window) buffer)
       (should (parley-transcript-test--wait
                (lambda ()
                  (eq (parley-transcript-test--status buffer) 'working))))
-      (parley-transcript-test--write-status buffer "waiting")
+      (parley-fixtures-write-session-file (emacs-pid) file "waiting")
       (should (parley-transcript-test--wait
                (lambda ()
                  (eq (parley-transcript-test--status buffer) 'waiting)))))))
@@ -1292,17 +1268,17 @@ The record the buffer was opened with says `idle' throughout and
 the session's own file never does, so a line built from that
 record would read `idle' at both of the reads below."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
       (should (equal (parley-transcript-test--header buffer)
                      "test  unknown  [RO]"))
       (set-window-buffer (selected-window) buffer)
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (should (parley-transcript-test--wait
                (lambda ()
                  (equal (parley-transcript-test--header buffer)
                         "test  working  [RO]"))))
-      (parley-transcript-test--write-status buffer "waiting")
+      (parley-fixtures-write-session-file (emacs-pid) file "waiting")
       (should (parley-transcript-test--wait
                (lambda ()
                  (equal (parley-transcript-test--header buffer)
@@ -2148,10 +2124,10 @@ working and cancelled on the one that finds it doing anything
 else.  A session that has stopped therefore leaves a mark that
 has stopped too, and not a spinner turning over nothing."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
       (should (parley-transcript-test--settled buffer))
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (set-window-buffer (selected-window) buffer)
       (should (parley-transcript-test--wait
                (lambda () (timerp (buffer-local-value
@@ -2164,7 +2140,7 @@ has stopped too, and not a spinner turning over nothing."
       ;; about twice over the window below where the animation changes
       ;; it about fifteen times.
       (should (>= (parley-transcript-test--cell-changes buffer 1.5) 5))
-      (parley-transcript-test--write-status buffer "idle")
+      (parley-fixtures-write-session-file (emacs-pid) file "idle")
       (should (parley-transcript-test--wait
                (lambda () (null (buffer-local-value
                                  'parley-transcript--spinner-timer buffer)))))
@@ -2189,10 +2165,10 @@ The status tick cannot be what stops it: it reads nothing for a
 buffer nobody is showing, so the status it left behind still says
 `working' after the window has gone."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
       (should (parley-transcript-test--settled buffer))
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (set-window-buffer (selected-window) buffer)
       (should (parley-transcript-test--wait
                (lambda () (timerp (buffer-local-value
@@ -2223,10 +2199,10 @@ at work: what stops the animation is the frame, and the tick that
 reads the status is not what stopped it.  A window coming back up
 starts it again, which is what the second round waits for."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
       (should (parley-transcript-test--settled buffer))
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (set-window-buffer (selected-window) buffer)
       (dolist (down '(nil icon))
         (should (parley-transcript-test--wait
@@ -2267,10 +2243,10 @@ over the end of the buffer: that is the one path that would make
 an overlay again, and after it there is still exactly one drawing
 a marker.  Two would draw the rule and the prompt twice."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
       (should (parley-transcript-test--settled buffer))
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (set-window-buffer (selected-window) buffer)
       (should (parley-transcript-test--wait
                (lambda () (timerp (buffer-local-value
@@ -2330,10 +2306,10 @@ through one while the session works: the spinner has to be
 running again by the time the buffer is killed, and nothing of
 either generation may be left on `timer-list' afterwards."
   (skip-unless (executable-find "jq"))
-  (parley-transcript-test--with-sessions-directory
+  (parley-fixtures-with-sessions-directory
     (parley-transcript-test--with-session parley-transcript-test--lines
       (should (parley-transcript-test--settled buffer))
-      (parley-transcript-test--write-status buffer "busy")
+      (parley-fixtures-write-session-file (emacs-pid) file "busy")
       (set-window-buffer (selected-window) buffer)
       (should (parley-transcript-test--wait
                (lambda () (timerp (buffer-local-value

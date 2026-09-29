@@ -40,6 +40,7 @@ prevents the mistake.
 | `parley-switch.el` | picking a session with sallet: the source, the matcher that keeps the columns apart, the renderer, and the fallback to the minibuffer reader when sallet is missing |
 | `parley-transcript.el` | the conversation view: the `tail`/`jq` pipeline, the render pass, the conversation above the input zone being read-only, the table writer, the imenu index, the buffer and the session record it follows, the session's live status, the header line, and typing into the pane |
 | `test/` | one file per source file, named `<source>-test.el` |
+| `test/parley-fixtures.el` | what more than one test file needs, and no test. A test file requires it by the test file's own directory, because the checks put only the root on the load path |
 | `.orc/config.toml` | the check commands, and which role runs each |
 | `docs/architecture/` | why the package is shaped this way |
 
