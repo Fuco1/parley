@@ -237,8 +237,14 @@ whose pane tmux no longer reports, is tagged by its id alone.  The
 pane id itself is never in the tag, so a `%' in one is the tmux
 session name's own -- see `parley--tmux-pane-locations'.
 
-Why a name is not enough, why the location is not either, and
-why the id goes in whole is docs/architecture/discovery.md."
+A name is not enough: two sessions in sibling worktrees come back
+under one, and a background agent is named after its prompt.  The
+location is not enough either, though it is what a session is
+recognised by: a session suspended in a pane and another started
+there are two live sessions `claude agents' reports in one
+location.  The id goes in whole and never as a prefix, because two
+ids can share one, and two sessions sharing a name, a location and
+a prefix would be two the tag could not tell apart."
   (let* ((id (or (plist-get session :session-id) ""))
          (pane (plist-get session :pane))
          (location (and pane (parley--pane-location pane))))

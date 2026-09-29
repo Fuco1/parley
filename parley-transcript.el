@@ -23,8 +23,26 @@
 ;; The buffer that shows a session: a comint buffer over the
 ;; session's JSONL transcript, fed by a `tail'/`jq' pipeline, rendered
 ;; into conversation on the way in, and typing into the session's tmux
-;; pane.  Why it is shaped this way is docs/architecture/transcript.md,
-;; and why typing goes where it does is docs/architecture/typing.md.
+;; pane.
+;;
+;; One process reads the whole transcript: `tail -c +1 -F' starts at
+;; the first byte and then follows, so the history and every later
+;; append come down one pipe.  Reading the file and then starting a
+;; tail would lose whatever was appended in between, and a gap in a
+;; conversation is one nobody can see.
+;;
+;; `jq' does the filtering because Emacs has one thread.  The bulk of
+;; a transcript is tool payloads parley never shows, and a pass over
+;; them in Lisp would hold up the whole of Emacs while it ran; through
+;; the pipeline they never reach Emacs at all.  What does reach it is
+;; rendered before comint inserts it, rather than inserted and then
+;; rewritten in place.
+;;
+;; The buffer's process reads a transcript and is not the session, so
+;; nothing written to it reaches anybody.  What is submitted at the
+;; prompt goes to the session's tmux pane instead, because the pane is
+;; the only way into a session parley did not start -- and a session
+;; with no pane can be read but not typed into.
 
 ;;; Code:
 
@@ -148,7 +166,9 @@ skill load collapses to."
   "Return the buffer assistant text is fontified in, creating it if there is none.
 
 One buffer for every message of every session, reused rather than
-made per message -- docs/architecture/transcript.md says why.
+made per message, because turning `markdown-mode' on costs about
+as much as fontifying a paragraph does, and a buffer per message
+would pay that again for every message.
 
 The function `delay-mode-hooks' keeps the operator's
 `markdown-mode-hook' out of a buffer he will never see.  With the

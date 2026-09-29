@@ -29,8 +29,19 @@
 ;; the view.  A dozen or two sessions is the whole list, so nothing
 ;; here is asynchronous.
 ;;
-;; docs/architecture/switcher.md says why the picker is built on
-;; sallet, why sallet is optional, and what the pick is without it.
+;; The picker is built on sallet because a session is listed by
+;; columns and a sallet source can match one column at a time: each
+;; word typed goes to the column it names, so a word aimed at a name
+;; does not also match every session whose working directory or tag
+;; happens to hold it.  The columns of one machine's sessions share
+;; their words -- worktrees under one directory, panes in one tmux
+;; session -- so a word matched against a whole row can match every
+;; row on the list.
+;;
+;; Only the picker gains from sallet, so parley does not require it.
+;; Without sallet `parley-switch' picks with `parley-read-session', a
+;; `completing-read' over one row per session, and what it loses is
+;; the aim: a word is matched against the whole of a row.
 
 ;;; Code:
 
