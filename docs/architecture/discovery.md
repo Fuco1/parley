@@ -185,11 +185,21 @@ and `completing-read` displays a face on a candidate as readily as a sallet
 buffer does. A face the picker owned would leave the minibuffer fallback plain,
 which is the frontend a machine without sallet has.
 
-**The status is coloured by what it says**, and the three the operator scans a
-dozen rows for — idle, busy, waiting — are three colours rather than one. A
-single colour for "status" tells him a row has one, which he knew; picking the
-busy session out then costs him a read of every row, which is what colour was
-for.
+**The status column shows the value a status is read as, and is coloured by
+it**, and never the string the session wrote. A session that wrote `busy` is
+listed `working`, and one whose status parley does not name, or whose record
+carries none, is listed `unknown`. The word and the colour follow from that one
+value, which is also what the order is over: a column holding the string would
+be a second place in one file spelling what Claude Code writes, and a spelling
+that moved would leave a row in its place but grey, or in its colour but last.
+**The transcript's header line shows the same word**, since it names the value
+its buffer's status is read as, so a session the switcher lists as `working`
+reads `working` in its buffer too.
+
+**The three the operator scans a dozen rows for — idle, working, waiting — are
+three colours rather than one.** A single colour for "status" tells him a row
+has one, which he knew; picking the working session out then costs him a read
+of every row, which is what colour was for.
 
 **The read only mark has no column of its own.** A column for it is blank on
 every session that has a pane, which is nearly all of them, and what it says is
@@ -202,11 +212,11 @@ session by — two sessions in sibling worktrees come back under one name, and a
 background agent is named after its prompt, so the tail of a name is where the
 difference often is.
 
-**The status is the one column cut to its width.** It holds one of a handful of
-values — parley names three and `claude agents` may report a fourth tomorrow —
-so a cut there loses nothing anyone picks a session by, while a status running
-long would carry every column after it out of line on that row. The name and
-the working directory are the handles, and neither is ever cut.
+**No column is cut, the status included.** The status column is as wide as the
+longest value with the read only mark beside it, and a status Claude Code starts
+writing tomorrow is listed `unknown` rather than carrying every column after it
+out of line. The working directory is drawn whole for the reason the name is:
+the tail of a path is what tells two worktrees apart.
 
 **A column is measured as it is drawn.** A width in characters is not a width
 on screen: a name in a script drawn two columns to the glyph would put that
