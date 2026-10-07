@@ -2735,9 +2735,9 @@ typing a line of somebody else's markdown into a live session."
 
 ;;; Ending the session
 
-;; A session is ended by typing `/exit' at its pane, which is the same
-;; door a message goes through and is safe only when a message would
-;; be.  Why only an idle session is ended, and why the archive waits
+;; A session is ended by typing `/exit' at its pane, the door a message
+;; goes through, so what the keys mean depends on what the session is
+;; doing.  Why only an idle session is ended, and why the archive waits
 ;; for the process, is Info node `(parley)Ending'.
 
 (defcustom parley-ccarchive-program "ccarchive"
