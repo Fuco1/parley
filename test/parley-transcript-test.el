@@ -2845,6 +2845,10 @@ as they were, because killing them is the operator's act."
       (should (buffer-live-p buffer))
       (should (process-live-p (get-buffer-process buffer))))))
 
+(defconst parley-transcript-test--no-program
+  "/nonexistent/parley-transcript-test/ccarchive"
+  "An archive program that cannot be found.")
+
 (ert-deftest parley-transcript-test-exit-refuses-a-session-that-is-not-idle ()
   "Neither command types anything into a session that is not idle.
 A working session would take `/exit' as its next message, and one
@@ -2852,32 +2856,51 @@ waiting on a permission prompt would read the keys as answers to
 the dialog.  `unknown' cannot be told from either.  Every status
 but `idle' is tried, under both commands, and the error names it.
 
-The archive program is there to be found, so what refuses is the
-status and not a missing program."
+No archive program can be found, so a status looked at only after
+the program was looked for would have the error name the program
+instead."
   (parley-transcript-test--with-exiting
     (parley-transcript-test--with-tmux
-      (parley-transcript-test--with-ccarchive 0
+      (let ((parley-ccarchive-program parley-transcript-test--no-program))
         (dolist (command '(parley-transcript-exit
                            parley-transcript-exit-and-archive))
           (dolist (status '(working waiting unknown))
             (setq parley-transcript-status status)
             (let ((signalled (should-error (call-interactively command)
                                            :type 'user-error)))
-              (should (string-search (symbol-name status) (cadr signalled))))))
+              (should (string-search (symbol-name status)
+                                     (cadr signalled))))))
         (should-not (file-exists-p tmux-log))))))
 
 (ert-deftest parley-transcript-test-exit-refuses-a-session-with-no-pane ()
   "Neither command runs tmux for a session that has no pane.
-It is idle, so the pane is the only thing refusing it."
+It is idle, so the pane is the only thing about the session
+refusing it, and no archive program can be found, for the reason
+it cannot in the test of a session that is not idle."
   (parley-transcript-test--with-exiting
     (setq parley-transcript-session (plist-put session :pane nil))
     (parley-transcript-test--with-tmux
-      (parley-transcript-test--with-ccarchive 0
+      (let ((parley-ccarchive-program parley-transcript-test--no-program))
         (dolist (command '(parley-transcript-exit
                            parley-transcript-exit-and-archive))
           (let ((signalled (should-error (call-interactively command)
                                          :type 'user-error)))
             (should (string-search "no pane" (cadr signalled)))))
+        (should-not (file-exists-p tmux-log))))))
+
+(ert-deftest parley-transcript-test-archive-refuses-without-its-program ()
+  "With no archive program to be found, nothing is typed into the pane.
+A session ended and then not archived for want of the program is
+half of what was asked, and the half that cannot be taken back."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-tmux
+      (let ((parley-ccarchive-program parley-transcript-test--no-program))
+        (let ((signalled (should-error
+                          (call-interactively
+                           #'parley-transcript-exit-and-archive)
+                          :type 'user-error)))
+          (should (string-search parley-transcript-test--no-program
+                                 (cadr signalled))))
         (should-not (file-exists-p tmux-log))))))
 
 (ert-deftest parley-transcript-test-archives-only-once-the-session-has-ended ()
