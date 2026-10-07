@@ -1194,6 +1194,63 @@ was asked for."
       (delete-file (plist-get one :transcript))
       (delete-file (plist-get two :transcript)))))
 
+(ert-deftest parley-transcript-test-a-row-is-drawn-open-over-its-buffer ()
+  "The row of a session with a buffer has its whole name column drawn open.
+The two sessions here share a name and a status, which is what
+sessions in sibling worktrees look like in a list.  One of them
+has a buffer, opened by `parley-transcript' itself, and its row in
+the `completing-read' fallback has its name column -- padding and
+all -- in `parley-row-name-open'.  The other has none and its row
+has it in `parley-row-name'.
+
+The records the rows are built from are fresh copies, as
+`parley-sessions' returns them every time, so the buffer is found
+by the id its record carries and not by the record being the one
+it was opened with.  The buffer found is the one switching to the
+session reuses, and once it is killed the row is plain again."
+  (skip-unless (executable-find "jq"))
+  (let ((opened (parley-transcript-test--session
+                 "orc-b3" parley-transcript-test--lines))
+        (other (parley-transcript-test--session
+                "orc-b3" parley-transcript-test--lines))
+        (buffer nil))
+    (cl-flet ((name-face (session)
+                ;; The face over the name column of SESSION's row, or
+                ;; nil if that column is not one face across all fifty.
+                (let ((offered nil))
+                  (cl-letf (((symbol-function 'parley-sessions)
+                             (lambda ()
+                               (list (copy-sequence opened)
+                                     (copy-sequence other))))
+                            ((symbol-function 'completing-read)
+                             (lambda (_prompt collection &rest _)
+                               (setq offered (all-completions "" collection))
+                               (car offered))))
+                    (parley-read-session))
+                  (let ((row (seq-find
+                              (lambda (row)
+                                (string-search (plist-get session :session-id)
+                                               row))
+                              offered)))
+                    (and (equal (next-single-property-change 0 'face row) 50)
+                         (get-text-property 0 'face row))))))
+      (unwind-protect
+          (progn
+            (save-window-excursion (parley-transcript opened))
+            (should (= 1 (length (parley-transcript-test--buffers))))
+            (setq buffer (car (parley-transcript-test--buffers)))
+            (should (eq (name-face opened) 'parley-row-name-open))
+            (should (eq (name-face other) 'parley-row-name))
+            (should (eq (parley-session-buffer (copy-sequence opened)) buffer))
+            (should (eq (parley-transcript--buffer (copy-sequence opened))
+                        buffer))
+            (should-not (parley-session-buffer other))
+            (kill-buffer buffer)
+            (should (eq (name-face opened) 'parley-row-name)))
+        (when (buffer-live-p buffer) (kill-buffer buffer))
+        (delete-file (plist-get opened :transcript))
+        (delete-file (plist-get other :transcript))))))
+
 (ert-deftest parley-transcript-test-keeps-the-pipeline-for-a-newer-record ()
   "Called again for a session it follows, the buffer keeps its pipeline.
 The second call hands over a record of its own -- the same
