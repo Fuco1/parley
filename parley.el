@@ -35,8 +35,10 @@
 ;; how many there were.
 ;;
 ;; Sessions are discovered with `claude agents --json' and are not
-;; parley's to start or stop -- tmux owns them, whether they were
-;; launched by hand or by something like orc.
+;; parley's to start -- tmux owns them, whether they were launched by
+;; hand or by something like orc.  A transcript buffer ends one only
+;; the way the operator would at its pane, by typing `/exit' there:
+;; see `parley-transcript-exit'.
 
 ;;; Code:
 

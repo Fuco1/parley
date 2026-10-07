@@ -2750,6 +2750,245 @@ comes to."
       (should (equal "what is here" (parley-transcript--old-input))))))
 
 
+;;; Ending the session
+
+;; The archive program is faked the way tmux is, and for the same
+;; reason: its argument vector is the whole of what parley decides.
+;; What the archive waits on is a process really running, because
+;; whether a pid is running is the one thing the wait asks and an
+;; answer injected for it would be the same answer at every look.
+
+(defmacro parley-transcript-test--with-ccarchive (status &rest body)
+  "Run BODY with `parley-ccarchive-program' a fake that exits with STATUS.
+BODY sees `archive-log', the file every run appends its arguments
+to, one per line.  Every run also says `refused by the fake' on
+standard error, which is where the real program says why it
+failed."
+  (declare (indent 1) (debug (form body)))
+  `(let* ((directory (make-temp-file "parley-ccarchive-" t))
+          (archive-log (expand-file-name "log" directory))
+          (parley-ccarchive-program (expand-file-name "ccarchive" directory)))
+     (unwind-protect
+         (progn
+           (with-temp-file parley-ccarchive-program
+             (insert "#!/bin/sh\n"
+                     "printf '%s\\n' \"$@\" >> "
+                     (shell-quote-argument archive-log) "\n"
+                     "echo 'ccarchive: refused by the fake' >&2\n"
+                     (format "exit %d\n" ,status)))
+           (set-file-modes parley-ccarchive-program #o755)
+           ,@body)
+       ;; A test that failed half way leaves its look scheduled, and the
+       ;; next test would have it archiving under that test's fake.
+       (cancel-function-timers #'parley-transcript--archive-once-ended)
+       (delete-directory directory t))))
+
+(defmacro parley-transcript-test--with-exiting (&rest body)
+  "Run BODY in a buffer following an idle session run by a live process.
+BODY sees `process', a `sleep' standing in for the session's
+process and killed afterwards, and `session', the record whose
+`:pid' names it.  The session lives in pane `%7'."
+  (declare (indent 0) (debug t))
+  `(let* ((process (make-process :name "parley-test-session"
+                                 :command '("sleep" "60") :noquery t))
+          (session (list :name "exiting" :pane "%7"
+                         :pid (process-id process)
+                         :session-id "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90")))
+     (unwind-protect
+         (with-temp-buffer
+           (setq parley-transcript-session session)
+           (setq parley-transcript-status 'idle)
+           ,@body)
+       (delete-process process))))
+
+(defun parley-transcript-test--idle-for (seconds)
+  "Let SECONDS pass with timers and process output running."
+  (let ((end (+ (float-time) seconds)))
+    (while (< (float-time) end)
+      (accept-process-output nil 0.05))))
+
+(defmacro parley-transcript-test--recording-messages (&rest body)
+  "Run BODY with what it says in the echo area pushed onto `said' instead."
+  (declare (indent 0) (debug t))
+  `(let ((said nil))
+     (cl-letf (((symbol-function 'message)
+                (lambda (format &rest arguments)
+                  (when format
+                    (push (apply #'format-message format arguments) said)))))
+       ,@body)))
+
+(defun parley-transcript-test--said-p (said text)
+  "Non-nil if one of the messages in SAID has TEXT in it."
+  (seq-find (lambda (message) (string-search text message)) said))
+
+(defun parley-transcript-test--lines-of (file)
+  "Return the lines of FILE."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (split-string (buffer-string) "\n" t)))
+
+(ert-deftest parley-transcript-test-exit-types-exit-into-an-idle-session ()
+  "Exiting an idle session types `/exit' into its pane and submits it.
+As a single line is sent: `-l' so tmux does not read the text as
+key names, then an `Enter'.  The buffer and its pipeline are left
+as they were, because killing them is the operator's act."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (with-current-buffer buffer
+        (setq parley-transcript-status 'idle)
+        (call-interactively #'parley-transcript-exit))
+      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
+                     '(("send-keys" "-t" "%7" "-l" "--" "/exit")
+                       ("send-keys" "-t" "%7" "Enter"))))
+      (should (buffer-live-p buffer))
+      (should (process-live-p (get-buffer-process buffer))))))
+
+(defconst parley-transcript-test--no-program
+  "/nonexistent/parley-transcript-test/ccarchive"
+  "An archive program that cannot be found.")
+
+(ert-deftest parley-transcript-test-exit-refuses-a-session-that-is-not-idle ()
+  "Neither command types anything into a session that is not idle.
+A working session would take `/exit' as its next message, and one
+waiting on a permission prompt would read the keys as answers to
+the dialog.  `unknown' cannot be told from either.  Every status
+but `idle' is tried, under both commands, and the error names it.
+
+No archive program can be found, and every status is tried on a
+session with a pane and on one without: a status looked at only
+after the program or the pane would have the error name that
+instead."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-tmux
+      (let ((parley-ccarchive-program parley-transcript-test--no-program))
+        (dolist (pane '("%7" nil))
+          (setq parley-transcript-session (plist-put session :pane pane))
+          (dolist (command '(parley-transcript-exit
+                             parley-transcript-exit-and-archive))
+            (dolist (status '(working waiting unknown))
+              (setq parley-transcript-status status)
+              (let ((signalled (should-error (call-interactively command)
+                                             :type 'user-error)))
+                (should (string-search (symbol-name status)
+                                       (cadr signalled)))))))
+        (should-not (file-exists-p tmux-log))))))
+
+(ert-deftest parley-transcript-test-exit-refuses-a-session-with-no-pane ()
+  "Neither command runs tmux for a session that has no pane.
+It is idle, so the pane is the only thing about the session
+refusing it, and no archive program can be found, for the reason
+it cannot in the test of a session that is not idle."
+  (parley-transcript-test--with-exiting
+    (setq parley-transcript-session (plist-put session :pane nil))
+    (parley-transcript-test--with-tmux
+      (let ((parley-ccarchive-program parley-transcript-test--no-program))
+        (dolist (command '(parley-transcript-exit
+                           parley-transcript-exit-and-archive))
+          (let ((signalled (should-error (call-interactively command)
+                                         :type 'user-error)))
+            (should (string-search "no pane" (cadr signalled)))))
+        (should-not (file-exists-p tmux-log))))))
+
+(ert-deftest parley-transcript-test-archive-refuses-without-its-program ()
+  "With no archive program to be found, nothing is typed into the pane.
+A session ended and then not archived for want of the program is
+half of what was asked, and the half that cannot be taken back."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-tmux
+      (let ((parley-ccarchive-program parley-transcript-test--no-program))
+        (let ((signalled (should-error
+                          (call-interactively
+                           #'parley-transcript-exit-and-archive)
+                          :type 'user-error)))
+          (should (string-search parley-transcript-test--no-program
+                                 (cadr signalled))))
+        (should-not (file-exists-p tmux-log))))))
+
+(ert-deftest parley-transcript-test-archives-only-once-the-session-has-ended ()
+  "The archive runs with the whole session id once the process is gone.
+`ccarchive' refuses a session whose process is still running, so
+nothing is run while it is -- several looks' worth of time -- and
+the archive follows the process ending without anything else
+being done."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--with-ccarchive 0
+        (call-interactively #'parley-transcript-exit-and-archive)
+        (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
+                       '(("send-keys" "-t" "%7" "-l" "--" "/exit")
+                         ("send-keys" "-t" "%7" "Enter"))))
+        (parley-transcript-test--idle-for
+         (* 3 parley-transcript--archive-interval))
+        (should-not (file-exists-p archive-log))
+        (delete-process process)
+        (should (parley-transcript-test--wait
+                 (lambda () (file-exists-p archive-log))))
+        (should (equal (parley-transcript-test--lines-of archive-log)
+                       '("archive" "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90")))))))
+
+(ert-deftest parley-transcript-test-archive-gives-up-on-a-session-still-running ()
+  "A session whose process outlives the wait is not archived, and is named.
+The message carries the session id, which is what running the
+archive program by hand takes.  Giving up is for good: the
+process ending afterwards archives nothing."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--with-ccarchive 0
+        (parley-transcript-test--recording-messages
+          (let ((parley-transcript--archive-timeout 1))
+            (call-interactively #'parley-transcript-exit-and-archive))
+          (should (parley-transcript-test--wait
+                   (lambda ()
+                     (parley-transcript-test--said-p
+                      said "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90"))))
+          (should (process-live-p process))
+          (should-not (file-exists-p archive-log))
+          (delete-process process)
+          (parley-transcript-test--idle-for
+           (* 3 parley-transcript--archive-interval))
+          (should-not (file-exists-p archive-log)))))))
+
+(ert-deftest parley-transcript-test-archive-gives-up-on-a-look-run-late ()
+  "A look Emacs ran past the deadline archives nothing, though the process is gone.
+A timer runs when Emacs gets to it, which can be after the
+deadline, and a process that ended in that delay ended past the
+bound the wait promises.  The look gives up as any look past the
+deadline does, and names the session.
+
+The process is gone before the look runs, and is waited for until
+no pid of it is left, so a look that asked about the process first
+would archive here."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-ccarchive 0
+      (parley-transcript-test--recording-messages
+        (delete-process process)
+        (should (parley-transcript-test--wait
+                 (lambda () (not (process-attributes
+                                  (plist-get session :pid))))))
+        (parley-transcript--archive-once-ended session (- (float-time) 1))
+        (should (parley-transcript-test--said-p
+                 said "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90"))
+        (parley-transcript-test--idle-for
+         (* 3 parley-transcript--archive-interval))
+        (should-not (file-exists-p archive-log))))))
+
+(ert-deftest parley-transcript-test-archive-says-what-a-failed-run-printed ()
+  "An archive program that exits non-zero has what it printed reach the operator.
+It runs from a timer, so a message is the way there, and what the
+program printed is what says why."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--with-ccarchive 1
+        (parley-transcript-test--recording-messages
+          (call-interactively #'parley-transcript-exit-and-archive)
+          (delete-process process)
+          (should (parley-transcript-test--wait
+                   (lambda ()
+                     (parley-transcript-test--said-p
+                      said "refused by the fake")))))))))
+
 ;;; Writing a table
 
 (defconst parley-transcript-test--table
