@@ -1984,6 +1984,81 @@ and history and all."
     (switch-to-buffer buffer)))
 
 
+;;; Following a session as it starts
+
+;; Why a session a caller has just started is found by its pane is Info
+;; node `(parley)Following'.
+
+(defconst parley-transcript--follow-interval 1
+  "Seconds between two looks for the session starting in a pane.
+Each look runs `claude agents --json', and Emacs waits on it.")
+
+(defconst parley-transcript--follow-timeout 30
+  "Seconds a pane is looked at for a session before the wait gives up.")
+
+;;;###autoload
+(defun parley-transcript-follow-pane (pane)
+  "Open the transcript of the session that starts in tmux pane PANE.
+PANE is a pane id in the `%N' form, as a caller that has just
+started Claude Code in that pane knows it.  The session's id is
+no use to that caller: it exists only once the process has
+started, and its transcript only once the session has been sent
+a message.  Every process in the pane inherits TMUX_PANE, which
+is what `parley-sessions' reads into a record's `:pane'.
+
+Return nil at once, before the first look.  Every
+`parley-transcript--follow-interval' seconds a timer calls
+`parley-sessions' and looks for a record whose `:pane' is PANE,
+and Emacs takes input between two looks.
+The first such record is opened with `parley-transcript' in the
+window that was selected when this was called, or in the selected
+window if that one is gone, and the operator is left in whichever
+window he is in.  `parley-transcript' follows a transcript that
+does not exist yet, so the session is shown before it has said
+anything.
+
+After `parley-transcript--follow-timeout' seconds with no such
+record, the wait stops, nothing is opened and a message names
+PANE.  A pane whose command failed, or started something other
+than Claude Code, never gets a session.  Nor is a session listed
+while it is held at Claude Code's dialog asking whether to trust
+its directory, so a wait on a pane showing that dialog runs out
+as well."
+  (run-with-timer parley-transcript--follow-interval nil
+                  #'parley-transcript--follow-pane
+                  pane (selected-window)
+                  (+ (float-time) parley-transcript--follow-timeout))
+  nil)
+
+(defun parley-transcript--follow-pane (pane window deadline)
+  "Open the session in tmux PANE in WINDOW, or look again in a moment.
+DEADLINE is the `float-time' past which a look that finds no
+session in PANE gives up, with a message naming PANE.  Each look
+is one run of this from a timer, so Emacs takes input between two
+of them, and a look schedules the next one only when it neither
+opened a session nor gave up.
+
+The sessions are looked at before the deadline is, so a look
+Emacs ran late still opens a session it finds there: the bound is
+on how long nothing is found, and the session found is the one
+that was asked for."
+  (let ((session (seq-find (lambda (session)
+                             (equal (plist-get session :pane) pane))
+                           (parley-sessions))))
+    (cond
+     (session
+      (if (window-live-p window)
+          (with-selected-window window (parley-transcript session))
+        (parley-transcript session)))
+     ((>= (float-time) deadline)
+      (message "No Claude Code session started in tmux pane %s: not opening one"
+               pane))
+     (t
+      (run-with-timer parley-transcript--follow-interval nil
+                      #'parley-transcript--follow-pane
+                      pane window deadline)))))
+
+
 ;;; The session's live status
 
 ;; The record the buffer was opened with carries the status `claude
