@@ -5,8 +5,9 @@ A conversation view for the Claude Code sessions running on this machine.
 Every session writes an append-only JSONL transcript under
 `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`, and every session started
 inside tmux inherits `TMUX_PANE`. Parley reads the first and types into the
-second. It never starts or stops a session — tmux owns those, whether they were
-launched by hand or by a fleet runner like [orc](https://github.com/Fuco1/orc).
+second. It never starts a session, which is the job of whatever launched it in
+tmux — a hand or a fleet runner like [orc](https://github.com/Fuco1/orc) — and
+it ends one only by typing `/exit` into its pane.
 
 ## What it shows
 
@@ -36,6 +37,11 @@ parley is for reading what it said.
   the quote the view draws it with. On anything else — an agent's turn, the
   line a run of tool calls collapsed to — it sends nothing and says so.
 - `M-x imenu` in a transcript buffer jumps between the prompts.
+- `M-x parley-transcript-exit` in a transcript buffer ends its session by
+  typing `/exit` into the pane. `M-x parley-transcript-exit-and-archive` does
+  the same and then runs `ccarchive archive` on the session once its process
+  has ended. Both refuse a session that is not idle, and both leave the buffer
+  open.
 
 ## How it works
 
@@ -48,3 +54,5 @@ builds from [`doc/parley.texi`](doc/parley.texi). Once the package is installed
 - Emacs 28.1, `markdown-mode`, `jq`, `tmux`, Linux (`/proc`)
 - [sallet](https://github.com/Fuco1/sallet) is optional; without it the session
   switcher falls back to `completing-read`.
+- `ccarchive` is optional, and only `parley-transcript-exit-and-archive` needs
+  it.

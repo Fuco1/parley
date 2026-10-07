@@ -18,7 +18,7 @@
 parley shows the Claude Code sessions running on this machine as
 conversations, and types into them.  It reads each session's append-only
 JSONL transcript and writes to the session's tmux pane.  It never starts
-or stops a session.
+a session, and it ends one only by typing @code{/exit} into its pane.
 
 This manual says why parley is shaped the way it is: which decision lives
 where, which constraint forces it, an alternative that fails and the one
@@ -43,6 +43,9 @@ of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
                   saying what the session is doing, the two send shapes,
                   a session with no pane being read only, the echo, and
                   sending a past turn again.
+* Ending::      Ending a session by typing @code{/exit} into its pane, why
+                  only an idle session is ended, and why the archive waits
+                  for the session's process to end.
 @end menu
 
 @node Discovery
@@ -64,8 +67,9 @@ every session started inside tmux inherits @env{TMUX_PANE}, which is
 exactly what @code{tmux send-keys -t} takes.
 @end itemize
 
-parley reads the first and writes to the second.  It never starts or
-stops a session — tmux owns that.
+parley reads the first and writes to the second.  It never starts a
+session — tmux owns that — and it ends one only the way the operator
+would at the pane, by typing @code{/exit} into it (@pxref{Ending}).
 
 @section Standard input is the discriminator, not the reported kind
 
@@ -1506,5 +1510,68 @@ assistant turn and the one line a run of tool calls collapsed to are what
 reach that branch, and neither is the operator's to send again; a line of
 somebody else's markdown typed into a live session is worse than an error
 saying nothing went.
+
+@node Ending
+@chapter Ending a session
+
+@strong{A session is ended by typing @code{/exit} into its pane.}  The
+pane is the only way into a session parley did not start
+(@pxref{Typing}), and @code{/exit} is the way out the session itself
+offers, so a session ended from its buffer ends as one ended at its own
+terminal does.
+
+@strong{Neither command touches the buffer.}  The conversation is as
+readable after its session has ended as before, and killing the buffer
+stays the operator's act — which stops the buffer's pipeline and nothing
+else (@pxref{Transcript}).
+
+@section Only an idle session is ended
+
+@strong{@code{/exit} is typed and not sent as a command, so it means
+whatever keys mean to the session at that moment.}  To an idle session it
+is a command.  A working session takes what is typed at it as its next
+message, to be read once the turn it is on has finished.  A session
+waiting on a permission prompt reads the keystrokes as answers to the
+dialog, choosing an option the operator never saw.  So both commands
+refuse every status but idle, and say which status they refused.
+
+@strong{@code{unknown} is refused too.}  It is what parley reads when it
+cannot say what the session is doing, and a working or a waiting session
+can be behind it as well as an idle one.
+
+@strong{The status refused on is the one the buffer holds}, which is the
+one its header line and the cell in front of its prompt show — so the
+command acts on what the operator was looking at when he ran it.
+
+@section The archive waits for the process to end
+
+@strong{@code{ccarchive} refuses to move a session whose process is still
+running, and @code{/exit} ends a session in its own time}: the keys reach
+the pane at once and the process is gone some time later.  So the archive
+is run not when the keys are sent but once no process by the session's
+pid is running, which is the test @code{ccarchive} itself makes.
+
+@strong{The wait is a timer and not a loop.}  Emacs has one thread
+(@pxref{Transcript}), and a loop waiting on another process would hold
+the whole of it until that process ended.  Each look is one run of a
+timer, and between two of them Emacs takes input.
+
+@strong{The wait is bounded.}  A session that does not end would
+otherwise be looked for as long as Emacs runs.  Past the bound it is left
+where it is and a message names it by its id, which is what archiving it
+by hand takes.
+
+@strong{The timer is not the buffer's.}  The archive is done to the
+session, which the operator asked for whether or not he keeps the
+conversation open, so killing the buffer does not stop it.
+
+@strong{A program that cannot be found refuses the whole command, before
+anything is typed.}  A session ended and then left unarchived for want of
+a program is half of what was asked, and the half that cannot be taken
+back.
+
+@strong{What the program printed when it fails is in a message.}  It runs
+from a timer, where no command is waiting for an answer, and the
+program's own words are what say why.
 
 @bye

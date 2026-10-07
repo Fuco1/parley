@@ -43,6 +43,12 @@
 ;; prompt goes to the session's tmux pane instead, because the pane is
 ;; the only way into a session parley did not start -- and a session
 ;; with no pane can be read but not typed into.
+;;
+;; The session is ended through the pane as well, by `/exit' typed
+;; there: `parley-transcript-exit', and
+;; `parley-transcript-exit-and-archive' to archive it with `ccarchive'
+;; once its process has ended.  Killing the buffer stops its pipeline
+;; and nothing else.
 
 ;;; Code:
 
