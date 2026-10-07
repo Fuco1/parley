@@ -4327,13 +4327,18 @@ and what a bare `insert' would not test."
       (should (equal-including-properties before (buffer-string))))))
 
 (defun parley-transcript-test--takes-typing (buffer)
-  "Assert text typed at BUFFER's process mark goes in and is not read-only."
+  "Assert text typed at BUFFER's process mark goes in, neither read-only nor faced.
+The newline before the mark ends a block and carries that block's
+face, and typing inherits whatever the character before it does
+not mark rear-nonsticky."
   (let ((mark (with-current-buffer buffer
                 (marker-position (process-mark (get-buffer-process buffer))))))
     (parley-transcript-test--type buffer "typed")
     (should (equal "typed" (parley-transcript-test--zone buffer)))
     (with-current-buffer buffer
-      (should-not (text-property-not-all mark (point-max) 'read-only nil)))))
+      (should-not (text-property-not-all mark (point-max) 'read-only nil))
+      (should-not (text-property-not-all mark (point-max)
+                                         'font-lock-face nil)))))
 
 (ert-deftest parley-transcript-test-refuses-deleting-the-conversation ()
   "DEL at the prompt is refused, and the conversation above it stands.
@@ -4394,6 +4399,21 @@ by their fields, so under the regexp nothing but the sealing does."
       (should (parley-transcript-test--settled buffer))
       (parley-transcript-test--takes-typing buffer))))
 
+
+(ert-deftest parley-transcript-test-takes-typing-under-a-renderer-line ()
+  "Text typed under a renderer line takes none of that line's face.
+The newline ending the line carries `parley-tool-run', and comint
+makes `font-lock-face' rear-nonsticky only while it finds prompts
+by their fields, so under `comint-use-prompt-regexp' nothing but
+the sealing keeps what the operator types out of it."
+  (skip-unless (executable-find "jq"))
+  (dolist (comint-use-prompt-regexp '(nil t))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--tool-turn 2))
+      (should (parley-transcript-test--wait
+               (lambda () (member "● 2 tool calls"
+                                  (parley-transcript-test--shown buffer)))))
+      (parley-transcript-test--takes-typing buffer))))
 
 (ert-deftest parley-transcript-test-keeps-a-table-rendered-again-read-only ()
   "A table written again for a new width is as read-only as it was.

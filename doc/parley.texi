@@ -666,6 +666,14 @@ its own @code{front-sticky} over its output after its output filters have
 run — so output is sealed by the process filter, once comint has
 returned.
 
+@strong{The face is rear-nonsticky too.}  The newline before the mark
+ends a block and carries that block's face — a renderer line's, or a turn
+of the operator's — and what he types at the mark would come out in it.
+comint makes @code{font-lock-face} rear-nonsticky where it makes
+read-only so — only while it finds prompts by their fields, and only over
+its own output, which the block a sent turn is rewritten as is not — so
+the sealing makes it so as well.
+
 @section A table is rendered into the buffer, and the overlay keeps its source
 
 A table lines up only if the agent lined it up, and a table whose columns

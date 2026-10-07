@@ -829,20 +829,29 @@ which comint may have already set over its own output and which
 are read at START: an insertion between two characters is refused
 only by the one after it when the one before it is rear-nonsticky,
 and an insertion after the last one, at the mark, is let through
-and not made read-only only when that one is.  Comint makes it
-rear-nonsticky itself only while `comint-use-prompt-regexp' is
-nil, so the sealing does not leave it to comint.  Silently,
+and not made read-only only when that one is.
+
+`font-lock-face' joins `rear-nonsticky' as well, so what the
+operator types at the mark does not come out in the face of the
+newline before it.  That newline ends a block and carries the
+block's face: `parley-tool-run' under a renderer line, and
+`parley-user' under a turn of his.
+
+Comint makes both rear-nonsticky itself only while
+`comint-use-prompt-regexp' is nil, and only over its own output,
+so the sealing does not leave either to comint.  Silently,
 because it is no edit of the operator's and nothing for `undo' to
 reach."
   (when (< start end)
     (with-silent-modifications
       (add-text-properties
        start end
-       (mapcan (lambda (property)
-                 (let ((value (get-text-property start property)))
-                   (list property
-                         (if (eq value t) t (cons 'read-only value)))))
-               '(front-sticky rear-nonsticky)))
+       (mapcan (lambda (stickiness)
+                 (let ((value (get-text-property start (car stickiness))))
+                   (list (car stickiness)
+                         (if (eq value t) t (append (cdr stickiness) value)))))
+               '((front-sticky read-only)
+                 (rear-nonsticky read-only font-lock-face))))
       (put-text-property start end 'read-only t))))
 
 (defun parley-transcript--output (process string)
