@@ -1001,6 +1001,27 @@ in the conversation}, the run of tool calls and the skill load alike, and
 they stand in one face — so a line the renderer is telling the operator
 something on cannot be read as one an agent typed.
 
+@strong{A line is as tall as the face of the newline ending it}, and not
+as tall as the text on it.  So the blank line above a renderer line, the
+newline ending the @code{●} line and the blank line below it are all in
+the renderer line's face: an operator who sets that face smaller than his
+text means the renderer's lines to take less room, and a face on the text
+alone shrinks none of the three.  The first two newlines are the renderer
+line's own block's, and it is written in that face whole.
+
+@strong{The blank line below belongs to the next block}, which opens with
+it, and nothing that builds a block is told what stands above it.  The
+writer of a block knows: every block goes in at the process mark,
+directly after the newline that ended the block before.  So the function
+writing the next block puts the face on the newline it opens with — the
+render pass for each block of its output, the first of which goes in
+under whatever the buffer ends with once the run line is taken back out,
+and the sender for the turn the operator submits at the prompt.  It tells
+a renderer line above it by the face on that newline, since the buffer
+is the one record of what stands there.  Under any other block the blank
+line is in no face: under a turn of the operator's it belongs to neither
+turn.
+
 @strong{The count cannot be held back until the run ends.}  A line that
 waited for the final count would appear only once the agent had stopped
 working, which is exactly the frozen session the pipeline's buffering
