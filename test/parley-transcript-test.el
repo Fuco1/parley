@@ -2989,6 +2989,167 @@ program printed is what says why."
                      (parley-transcript-test--said-p
                       said "refused by the fake")))))))))
 
+
+;;; Following a session as it starts
+
+;; `parley-sessions' is answered by a list a test hands over, one answer
+;; per look, because which sessions are live is the whole of what the
+;; wait asks and a real one would have to start Claude Code.  Which
+;; record is the one in the pane is left to the code under test: the
+;; decoys sit in panes whose ids hold `%7' and are not it.
+
+(defmacro parley-transcript-test--with-looks (answers &rest body)
+  "Run BODY with `parley-sessions' answering each of ANSWERS in turn.
+ANSWERS is a list of session lists: the first look gets the first,
+and every look past the last gets the last.  BODY sees `looks', how
+many looks there have been.  A look comes every twentieth of a
+second and the wait gives up after one, and no look is left
+scheduled afterwards for the next test to run under its own stub."
+  (declare (indent 1) (debug (form body)))
+  `(let ((parley-transcript--follow-interval 0.05)
+         (parley-transcript--follow-timeout 1)
+         (remaining ,answers)
+         (looks 0))
+     (unwind-protect
+         (cl-letf (((symbol-function 'parley-sessions)
+                    (lambda ()
+                      (setq looks (1+ looks))
+                      (if (cdr remaining) (pop remaining) (car remaining)))))
+           ,@body)
+       (cancel-function-timers #'parley-transcript--follow-pane))))
+
+(defmacro parley-transcript-test--recording-opened (&rest body)
+  "Run BODY with every session `parley-transcript' is given pushed onto `opened'.
+Nothing is opened for real, so a session that should not have been
+is a record on a list and not a buffer to find and kill."
+  (declare (indent 0) (debug t))
+  `(let ((opened nil))
+     (cl-letf (((symbol-function 'parley-transcript)
+                (lambda (session) (push session opened))))
+       ,@body)))
+
+(defconst parley-transcript-test--decoys
+  (list (list :name "prefixed" :pane "%70"
+              :session-id "70707070-0000-4000-8000-000000000070")
+        (list :name "suffixed" :pane "%17"
+              :session-id "17171717-0000-4000-8000-000000000017")
+        (list :name "outside" :pane nil
+              :session-id "00000000-0000-4000-8000-000000000000"))
+  "Sessions in a pane that is not `%7', though two of the ids hold it.")
+
+(ert-deftest parley-transcript-test-follows-the-session-that-starts-in-a-pane ()
+  "A session turning up in the pane on a later look is opened where the wait began.
+The command returns before the first look, which is what has Emacs
+take input while the session starts.  Nothing is in the pane on
+the first look and only the decoys are on the second, so the
+session is the third look's.
+
+The operator moves to the other window while the session starts.
+The transcript replaces what the window he called from was
+showing, the other window keeps its buffer, and he is left in the
+one he moved to -- a look that opened it wherever he was by then
+would land it in the other window.  No look follows the one that
+opened it."
+  (skip-unless (executable-find "jq"))
+  (let* ((session (plist-put (parley-transcript-test--session
+                              "fresh" parley-transcript-test--lines)
+                             :pane "%7"))
+         (elsewhere (get-buffer-create "*parley-transcript-test-elsewhere*"))
+         (buffer nil))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (let* ((here (selected-window))
+                 (there (split-window)))
+            (set-window-buffer there elsewhere)
+            (parley-transcript-test--with-looks
+                (list nil
+                      parley-transcript-test--decoys
+                      (append parley-transcript-test--decoys (list session)))
+              (parley-transcript-follow-pane "%7")
+              (should (= looks 0))
+              (select-window there)
+              (should (parley-transcript-test--wait
+                       #'parley-transcript-test--buffers))
+              (should (= looks 3))
+              (should (= 1 (length (parley-transcript-test--buffers))))
+              (setq buffer (car (parley-transcript-test--buffers)))
+              (should (eq (buffer-local-value 'parley-transcript-session buffer)
+                          session))
+              (should (eq (window-buffer here) buffer))
+              (should (eq (window-buffer there) elsewhere))
+              (should (eq (selected-window) there))
+              (parley-transcript-test--idle-for
+               (* 3 parley-transcript--follow-interval))
+              (should (= looks 3)))))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (kill-buffer elsewhere)
+      (delete-file (plist-get session :transcript)))))
+
+(ert-deftest parley-transcript-test-follow-opens-in-the-selected-window-once-its-own-is-gone ()
+  "A session that turns up after its window was deleted opens in the selected one.
+The window the wait began in is deleted before the session is in
+the pane, and opening it there would signal from the timer and
+open nothing."
+  (skip-unless (executable-find "jq"))
+  (let* ((session (plist-put (parley-transcript-test--session
+                              "fresh" parley-transcript-test--lines)
+                             :pane "%7"))
+         (buffer nil))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (let ((here (selected-window))
+                (there (split-window)))
+            (parley-transcript-test--with-looks (list nil nil (list session))
+              (select-window there)
+              (parley-transcript-follow-pane "%7")
+              (delete-window there)
+              (should (parley-transcript-test--wait
+                       #'parley-transcript-test--buffers))
+              (setq buffer (car (parley-transcript-test--buffers)))
+              (should (eq (selected-window) here))
+              (should (eq (window-buffer here) buffer)))))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (delete-file (plist-get session :transcript)))))
+
+(ert-deftest parley-transcript-test-follow-opens-no-session-in-another-pane ()
+  "Sessions in other panes are never opened, however long they are there.
+Two of them are in panes whose ids hold `%7' at either end, which
+is what a pane matched by its head or its tail would take, and one
+is outside tmux.  The wait gives up on `%7' as it does on a pane
+with nothing in it."
+  (parley-transcript-test--with-looks (list parley-transcript-test--decoys)
+    (parley-transcript-test--recording-opened
+      (parley-transcript-test--recording-messages
+        (parley-transcript-follow-pane "%7")
+        (should (parley-transcript-test--wait
+                 (lambda () (parley-transcript-test--said-p said "%7"))))
+        (should (> looks 1))
+        (should-not opened)))))
+
+(ert-deftest parley-transcript-test-follow-gives-up-on-a-pane-with-no-session ()
+  "A pane no session turns up in is given up on, named, and not looked at again.
+Several looks find nothing before the bound runs out, and
+`parley-transcript' is never called.  Giving up is for good: a
+session turning up in the pane afterwards is not opened, because
+no look is left to find it."
+  (let ((late (list :name "late" :pane "%7"
+                    :session-id "1a7e1a7e-0000-4000-8000-000000000007")))
+    (parley-transcript-test--with-looks (list nil)
+      (parley-transcript-test--recording-opened
+        (parley-transcript-test--recording-messages
+          (parley-transcript-follow-pane "%7")
+          (should (parley-transcript-test--wait
+                   (lambda () (parley-transcript-test--said-p said "%7"))))
+          (should (> looks 1))
+          (let ((given-up-after looks))
+            (setq remaining (list (list late)))
+            (parley-transcript-test--idle-for
+             (* 3 parley-transcript--follow-interval))
+            (should (= looks given-up-after)))
+          (should-not opened))))))
+
 ;;; Writing a table
 
 (defconst parley-transcript-test--table
