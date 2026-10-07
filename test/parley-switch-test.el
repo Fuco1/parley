@@ -202,6 +202,31 @@ faces and the renderer hands that row over as it is."
       (should (equal (get-text-property 52 'face rendered)
                      'parley-row-status-idle)))))
 
+(ert-deftest parley-switch-test-renderer-draws-a-session-with-a-buffer-open ()
+  "The rendered row of a session with a buffer has its name drawn open.
+The buffer follows a copy of the second of the four sessions
+named `orc-w1', as a buffer opened earlier follows the record it
+was opened with, so the renderer has to find it by the session
+id: only that one row is drawn open, across the whole of its name
+column, and the three sessions sharing its name are not."
+  (parley-switch-test--with-sessions
+    (with-temp-buffer
+      (setq-local parley-transcript-session
+                  (copy-sequence (parley-switch-test--session 4)))
+      (should (equal (mapcar
+                      (lambda (candidate)
+                        (let ((row (parley-switch--renderer candidate nil nil)))
+                          (list (plist-get (cdr candidate) :pid)
+                                (get-text-property 0 'face row)
+                                (next-single-property-change 0 'face row))))
+                      (parley-switch--candidates))
+                     '((2 parley-row-name 50)
+                       (4 parley-row-name-open 50)
+                       (6 parley-row-name 50)
+                       (1 parley-row-name 50)
+                       (5 parley-row-name 50)
+                       (3 parley-row-name 50)))))))
+
 (ert-deftest parley-switch-test-action-opens-the-candidate-session ()
   "Acting on a candidate shows the record it carries and no other.
 The candidate acted on is one of the four named `orc-w1', which

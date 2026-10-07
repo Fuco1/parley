@@ -672,6 +672,47 @@ differ."
       (dolist (gap '(50 51 64 65 106 107))
         (should-not (get-text-property gap 'face row))))))
 
+(ert-deftest parley-test-an-open-row-faces-its-name-column-and-nothing-else ()
+  "A row drawn open has its whole name column in a face of its own.
+The padding after a short name is the name column too, so the
+face runs the whole fifty and not the length of the name.
+
+The rest of the row is the rest of the row built from the same
+fields and not drawn open, face for face: the status colours
+carry the status, and the read only mark inside that column keeps
+its own.  Every status value is drawn, with the mark and without,
+so a face that leaked past the name into one of them is found."
+  (dolist (status '("idle" "working" "waiting" "unknown"))
+    (dolist (mark '("" "[RO]"))
+      (let* ((fields (list :name "orc-b3" :status status :mark mark
+                           :directory "/srv/orc" :tag "orc:1.0 1111ffff"))
+             (plain (parley-session-row fields))
+             (open (parley-session-row fields t)))
+        (should (equal (get-text-property 0 'face open) 'parley-row-name-open))
+        (should (equal (next-single-property-change 0 'face open) 50))
+        (should (equal (get-text-property 0 'face plain) 'parley-row-name))
+        (should (equal (next-single-property-change 0 'face plain) 50))
+        (should (equal-including-properties (substring open 50)
+                                            (substring plain 50)))))))
+
+(ert-deftest parley-test-finds-no-buffer-without-the-view-loaded ()
+  "Asking for a session's buffer with only `parley' loaded answers nil.
+The variable a buffer records its session in is the view's, and
+`parley' cannot require the view, so the lookup reads it by name
+in an Emacs that may never have defined it.  The suite loads
+every test file into one Emacs, and the view with them, so the
+question is put to a child Emacs that loads `parley' alone."
+  (with-temp-buffer
+    (should (eq 0 (call-process
+                   (expand-file-name invocation-name invocation-directory)
+                   nil '(t nil) nil "-Q" "--batch"
+                   "-L" (file-name-directory (locate-library "parley"))
+                   "-l" "parley" "--eval"
+                   "(prin1 (list (featurep 'parley-transcript)
+                                 (parley-session-buffer
+                                  (list :session-id \"7c1d0f9a-0003\"))))")))
+    (should (equal (buffer-string) "(nil nil)"))))
+
 (ert-deftest parley-test-a-status-is-shown-and-faced-by-its-value ()
   "The status column holds the value a status is read as, in its face.
 A session that wrote `busy' is listed `working', the word the

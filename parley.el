@@ -466,6 +466,38 @@ by each frontend."
         :directory (abbreviate-file-name (plist-get session :cwd))
         :tag (parley-session-tag session)))
 
+(defun parley-session-buffer (session)
+  "Return the live buffer that follows SESSION, nil if there is none.
+That is a buffer whose `parley-transcript-session' carries
+SESSION's `:session-id'.
+
+This is the one test there is of whether a session has a buffer:
+`parley-transcript' shows the buffer it returns rather than
+opening a second over the same conversation, and a switcher row
+draws the name of a session it returns one for in
+`parley-row-name-open'.  A row drawn so is therefore exactly a
+session that switching to lands in a buffer already there.
+
+The buffer is found by the session id it records and not by its
+name.  The name tells two live sessions apart, but a session that
+has ended leaves its buffer behind with its name still on it, and
+the next session in that pane would be handed it."
+  (let ((id (plist-get session :session-id)))
+    (seq-find (lambda (buffer)
+                ;; `parley-transcript-session' is the view's, and this
+                ;; file cannot require the view.  A buffer has its own
+                ;; binding of it only once the view has set one, so
+                ;; `local-variable-p' answers nil for every buffer
+                ;; while the view is not loaded, where
+                ;; `buffer-local-value' would signal on a variable
+                ;; nothing has defined.
+                (and (local-variable-p 'parley-transcript-session buffer)
+                     (equal (plist-get (buffer-local-value
+                                        'parley-transcript-session buffer)
+                                       :session-id)
+                            id)))
+              (buffer-list))))
+
 ;; Both frontends draw this row, so the faces go on it:
 ;; `completing-read' displays a face on a candidate as readily as a
 ;; sallet buffer does, and faces the picker owned would leave the
@@ -473,6 +505,10 @@ by each frontend."
 
 (defface parley-row-name '((t :inherit font-lock-function-name-face))
   "Face for the name column of a session row.")
+
+(defface parley-row-name-open '((t :inherit font-lock-keyword-face))
+  "Face for the name column of a session that has a transcript buffer.
+`parley-session-buffer' is what says it has one.")
 
 (defface parley-row-status-idle '((t :inherit success))
   "Face for the status column of a session that is idle.")
@@ -526,13 +562,22 @@ either cuts the part that tells two sessions apart."
   (let ((padding (max 0 (- width (string-width string)))))
     (concat string (propertize (make-string padding ?\s) 'face face))))
 
-(defun parley-session-row (fields)
+(defun parley-session-row (fields &optional open)
   "Return FIELDS as one row of faced columns, the name first.
 FIELDS is a plist from `parley-session-fields'.  A row is what
 `completing-read' completes over, because it matches one flat
 string and the annotation has to be inside it; the sallet
 renderer draws the same row from the same fields.  The faces are
 on the string itself, so both frontends colour a session alike.
+
+OPEN non-nil says the session already has a buffer, which is
+what `parley-session-buffer' answers, and draws the name column
+in `parley-row-name-open' rather than `parley-row-name'.  Only
+the name column changes: the status colours carry the status,
+and a second meaning on them would cost the operator the one he
+scans the list for.  Sessions named after a directory and a short
+suffix read alike in a list, and without the face a session he is
+already reading looks like one he never opened.
 
 The read only mark is drawn inside the status column, after the
 status, and has none of its own: a column of its own is blank on
@@ -547,10 +592,10 @@ parley does not name is listed `unknown' and never runs past it."
          (mark (plist-get fields :mark))
          (directory (plist-get fields :directory))
          (tag (plist-get fields :tag))
+         (name-face (if open 'parley-row-name-open 'parley-row-name))
          (status-face (parley--status-face (intern status))))
     (concat
-     (parley--column (propertize name 'face 'parley-row-name)
-                     50 'parley-row-name)
+     (parley--column (propertize name 'face name-face) 50 name-face)
      "  "
      (parley--column
       (if (equal mark "")
@@ -578,13 +623,16 @@ started in one repo come back under one name and one working
 directory, and without the tag they would be one candidate the
 `assoc' below resolves to whichever of them came first: a buffer
 showing one conversation and typing into the other one's pane.
+A session `parley-session-buffer' finds a buffer for has its row
+drawn open, as the sallet renderer draws it.
 
 The completion metadata keeps the rows in the order
 `parley-sessions-by-status' put them in; the default would sort
 them alphabetically and lose the status order."
   (let ((rows (mapcar (lambda (session)
                         (cons (parley-session-row
-                               (parley-session-fields session))
+                               (parley-session-fields session)
+                               (parley-session-buffer session))
                               session))
                       (parley-sessions-by-status))))
     (unless rows

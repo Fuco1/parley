@@ -280,6 +280,26 @@ waiting — are three colours rather than one.}  A single colour for
 session out then costs him a read of every row, which is what colour was
 for.
 
+@strong{A session that already has a transcript buffer has its name
+drawn in a face of its own, and only its name.}  @code{claude agents}
+names many sessions after a directory and a short suffix, and those read
+alike in a list, so without it a session the operator is already reading
+looks the same as one he never opened.  The status column keeps its
+colours, because they carry the status, and a second meaning on them
+would cost him the one he scans the list for.
+
+@strong{Whether a session has a buffer is decided by the lookup that
+reuses the buffer}, the one that finds a session's buffer by the id it
+records (@pxref{Transcript}), and by nothing else.  A row drawn in that
+face is then exactly a session that switching to lands in a buffer
+already there.  A test of the row's own would be a second rule for one
+fact: one by the buffer's name misses a buffer whose session's pane has
+since moved to another window, because the name is a snapshot and the
+location in it is where the pane was, and the row would say one thing
+while the switch did the other.  The
+lookup is in @file{parley.el}, below both frontends, because the row is
+built there and @file{parley.el} cannot require the view.
+
 @strong{The read only mark has no column of its own.}  A column for it is
 blank on every session that has a pane, which is nearly all of them, and
 what it says is about the status: a session that cannot be typed into is
