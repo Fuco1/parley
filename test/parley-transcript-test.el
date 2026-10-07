@@ -2856,20 +2856,23 @@ waiting on a permission prompt would read the keys as answers to
 the dialog.  `unknown' cannot be told from either.  Every status
 but `idle' is tried, under both commands, and the error names it.
 
-No archive program can be found, so a status looked at only after
-the program was looked for would have the error name the program
+No archive program can be found, and every status is tried on a
+session with a pane and on one without: a status looked at only
+after the program or the pane would have the error name that
 instead."
   (parley-transcript-test--with-exiting
     (parley-transcript-test--with-tmux
       (let ((parley-ccarchive-program parley-transcript-test--no-program))
-        (dolist (command '(parley-transcript-exit
-                           parley-transcript-exit-and-archive))
-          (dolist (status '(working waiting unknown))
-            (setq parley-transcript-status status)
-            (let ((signalled (should-error (call-interactively command)
-                                           :type 'user-error)))
-              (should (string-search (symbol-name status)
-                                     (cadr signalled))))))
+        (dolist (pane '("%7" nil))
+          (setq parley-transcript-session (plist-put session :pane pane))
+          (dolist (command '(parley-transcript-exit
+                             parley-transcript-exit-and-archive))
+            (dolist (status '(working waiting unknown))
+              (setq parley-transcript-status status)
+              (let ((signalled (should-error (call-interactively command)
+                                             :type 'user-error)))
+                (should (string-search (symbol-name status)
+                                       (cadr signalled)))))))
         (should-not (file-exists-p tmux-log))))))
 
 (ert-deftest parley-transcript-test-exit-refuses-a-session-with-no-pane ()
@@ -2946,6 +2949,30 @@ process ending afterwards archives nothing."
           (parley-transcript-test--idle-for
            (* 3 parley-transcript--archive-interval))
           (should-not (file-exists-p archive-log)))))))
+
+(ert-deftest parley-transcript-test-archive-gives-up-on-a-look-run-late ()
+  "A look Emacs ran past the deadline archives nothing, though the process is gone.
+A timer runs when Emacs gets to it, which can be after the
+deadline, and a process that ended in that delay ended past the
+bound the wait promises.  The look gives up as any look past the
+deadline does, and names the session.
+
+The process is gone before the look runs, and is waited for until
+no pid of it is left, so a look that asked about the process first
+would archive here."
+  (parley-transcript-test--with-exiting
+    (parley-transcript-test--with-ccarchive 0
+      (parley-transcript-test--recording-messages
+        (delete-process process)
+        (should (parley-transcript-test--wait
+                 (lambda () (not (process-attributes
+                                  (plist-get session :pid))))))
+        (parley-transcript--archive-once-ended session (- (float-time) 1))
+        (should (parley-transcript-test--said-p
+                 said "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90"))
+        (parley-transcript-test--idle-for
+         (* 3 parley-transcript--archive-interval))
+        (should-not (file-exists-p archive-log))))))
 
 (ert-deftest parley-transcript-test-archive-says-what-a-failed-run-printed ()
   "An archive program that exits non-zero has what it printed reach the operator.
