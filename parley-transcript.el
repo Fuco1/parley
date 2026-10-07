@@ -2014,6 +2014,7 @@ Return nil at once, before the first look.  Every
 `parley-transcript--follow-interval' seconds a timer calls
 `parley-sessions' and looks for a record whose `:pane' is PANE,
 and Emacs takes input between two looks.
+
 The first such record is opened with `parley-transcript' in the
 window that was selected when this was called, or in the selected
 window if that one is gone, and the operator is left in whichever
