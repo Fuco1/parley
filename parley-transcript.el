@@ -2757,9 +2757,11 @@ running `parley-ccarchive-program' by hand is what archives it.")
 
 (defun parley-transcript--exit-pane ()
   "Return the pane of this buffer's session, if `/exit' may be typed there.
-Signal a `user-error', having run nothing, for a session with no
-pane and for one whose `parley-transcript-status' is anything but
-`idle', naming that status.
+Signal a `user-error', having run nothing, for a session whose
+`parley-transcript-status' is anything but `idle', naming that
+status, and for a session with no pane.  The status is looked at
+first, so a session that is not idle is refused by its status
+whether or not it has a pane.
 
 Typed into a working session, `/exit' is the next message it is
 sent; typed into one waiting on a permission prompt, its keys are
@@ -2767,12 +2769,11 @@ answers to the dialog.  `unknown' is refused too, because it
 cannot be told from either.  The status is the one the buffer
 holds, which is what its header line shows, so the command refuses
 on what the operator was looking at when he ran it."
-  (let ((pane (parley-transcript--pane)))
-    (unless (eq parley-transcript-status 'idle)
-      (user-error "Session %s is %s, not idle: not exiting it"
-                  (parley-session-name parley-transcript-session)
-                  parley-transcript-status))
-    pane))
+  (unless (eq parley-transcript-status 'idle)
+    (user-error "Session %s is %s, not idle: not exiting it"
+                (parley-session-name parley-transcript-session)
+                parley-transcript-status))
+  (parley-transcript--pane))
 
 (defun parley-transcript--type-exit (pane)
   "Type `/exit' into tmux PANE and submit it, as a single line is sent."
@@ -2820,23 +2821,28 @@ archive."
 
 (defun parley-transcript--archive-once-ended (session deadline)
   "Archive SESSION if its process has ended, or look again in a moment.
-DEADLINE is the `float-time' past which a process still running is
-given up on: SESSION is then left where it is and a message names
-it.  Each look is one run of this from a timer, so Emacs takes
-input between two of them."
+DEADLINE is the `float-time' past which the wait is given up on:
+SESSION is then left where it is and a message names it.  Each
+look is one run of this from a timer, so Emacs takes input
+between two of them.
+
+The deadline is looked at before the process, so a look that
+Emacs ran late gives up even if the process ended meanwhile, and
+nothing is archived past the bound the wait promises."
   (cond
+   ((>= (float-time) deadline)
+    (message "Session %s (%s) did not end in time: not archived"
+             (parley-session-name session)
+             (plist-get session :session-id)))
    ;; A process by that pid existing is what `ccarchive' itself calls
    ;; running, so a pid handed on to another process is refused here
    ;; as it would be there.
    ((not (process-attributes (plist-get session :pid)))
     (parley-transcript--archive session))
-   ((< (float-time) deadline)
-    (run-with-timer parley-transcript--archive-interval nil
-                    #'parley-transcript--archive-once-ended session deadline))
    (t
-    (message "Session %s (%s) has not ended: not archived"
-             (parley-session-name session)
-             (plist-get session :session-id)))))
+    (run-with-timer parley-transcript--archive-interval nil
+                    #'parley-transcript--archive-once-ended
+                    session deadline))))
 
 (defun parley-transcript--archive (session)
   "Run `parley-ccarchive-program' to archive SESSION, and say how it went.
