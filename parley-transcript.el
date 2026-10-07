@@ -1850,20 +1850,14 @@ this name one session's own is `parley-session-tag'."
 
 (defun parley-transcript--buffer (session)
   "Return the buffer to show SESSION in, creating it if there is none.
+A buffer already there is the one `parley-session-buffer' finds,
+which is the lookup a switcher row is marked by as well.
 
-The buffer is found by the session id it records and not by its
-name.  The name tells two live sessions apart, but a session that
-has ended leaves its buffer behind with its name still on it, and
-the next session in that pane would be handed it.
-
-`generate-new-buffer' is therefore what creates it: a name taken
-by such a leftover is not a name this session can have."
-  (or (seq-find (lambda (buffer)
-                  (equal (plist-get (buffer-local-value 'parley-transcript-session
-                                                        buffer)
-                                    :session-id)
-                         (plist-get session :session-id)))
-                (buffer-list))
+`generate-new-buffer' is what creates it: a session that has
+ended leaves its buffer behind with its name still on it, and a
+name taken by such a leftover is not a name this session can
+have."
+  (or (parley-session-buffer session)
       (generate-new-buffer (parley-transcript--buffer-name session))))
 
 ;;;###autoload

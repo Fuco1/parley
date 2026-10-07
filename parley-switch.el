@@ -106,8 +106,11 @@ so `orc /worker-2' is the session named orc in that worktree, and
    (sallet-state-get-prompt state)))
 
 (defun parley-switch--renderer (candidate _state _user-data)
-  "Render session CANDIDATE as its row of columns."
-  (parley-session-row (car candidate)))
+  "Render session CANDIDATE as its row of columns.
+Its name is drawn open when `parley-session-buffer' finds a
+buffer for its session, as the `completing-read' fallback draws
+it."
+  (parley-session-row (car candidate) (parley-session-buffer (cdr candidate))))
 
 (defun parley-switch--action (_source candidate)
   "Show the transcript buffer of the session CANDIDATE was built for."
