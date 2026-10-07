@@ -22,7 +22,8 @@ parley is for reading what it said.
   `/worker-2` for the working directory, `@orc-b3:3.1` for the tmux window a
   session is in, `:idle` for the status. Every column is coloured apart and
   the status by what it says, so the busy session and the one waiting on you
-  are seen rather than read for.
+  are seen rather than read for. A session you already have a buffer for has
+  its name in a colour of its own.
 - `M-x parley-transcript` opens the same buffer for a session you already have
   in hand. Either way the buffer delivers the transcript from its first byte and
   then follows the file.
