@@ -43,6 +43,9 @@ of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
                   saying what the session is doing, the two send shapes,
                   a session with no pane being read only, the echo, and
                   sending a past turn again.
+* Following::   Opening the session a caller has just started in a tmux
+                  pane: why it is found by its pane and not by its id,
+                  the wait for it, and the window it is shown in.
 * Ending::      Ending a session by typing @code{/exit} into its pane, why
                   only an idle session is ended, and why the archive waits
                   for the session's process to end.
@@ -1510,6 +1513,59 @@ assistant turn and the one line a run of tool calls collapsed to are what
 reach that branch, and neither is the operator's to send again; a line of
 somebody else's markdown typed into a live session is worse than an error
 saying nothing went.
+
+@node Following
+@chapter Following a session as it starts
+
+@strong{parley starts no session, but a caller that has just started one
+can hand it over.}  orc-mode starting an @code{orc new} crew session in a
+tmux window is the first: what it gets back is the pane the session runs
+in, and what the operator wants is the conversation.  So parley waits for
+a session in that pane and opens its transcript.
+
+@section A session a caller started is found by its pane, not its id
+
+@strong{The caller knows the pane and cannot know the id.}  A session's
+id is Claude Code's to make, when its process starts, and its transcript
+is written only once it has been sent a message, so at the moment the
+caller hands the session over neither exists to be named.  The pane
+exists before the process does, because the caller made it, and every
+process started in it inherits @env{TMUX_PANE}, which is where a record's
+pane is read from (@pxref{Discovery}).  So @code{claude agents} lists the
+session under its pane from the first time it lists it at all, which is
+before its transcript exists.
+
+@strong{A session opened before it has spoken is not a special case.}
+The pipeline follows a transcript that does not exist yet
+(@pxref{Transcript}), so the buffer is there for the operator to type the
+first message into.
+
+@section Each look is scheduled when the one before it has finished
+
+@strong{The wait is a timer and not a loop}, for the reason the archive's
+wait is (@pxref{Ending}).  A look runs @code{claude agents --json}, which
+Emacs waits on, so the next look is scheduled once a look has finished
+and not at a fixed rate: a repeating timer is rescheduled from the time
+it was due, before its function runs, and a look that outlasted the
+interval would be due again the moment it ended.
+
+@strong{The wait is bounded.}  A pane whose command failed, or started
+something other than Claude Code, never gets a session, and Claude Code
+lists none while it is held at its dialog asking whether to trust its
+directory.  Past the bound nothing is opened and a message names the
+pane.
+
+@section The transcript goes to the window the wait began in
+
+@strong{The session is opened in the window that was selected when the
+caller asked, and the operator is left in whichever window he is in.}  A
+session takes seconds to appear, and meanwhile the operator may have
+moved to another window and be reading something else there.  The window
+he asked from is the one the request named, as the selected window is
+for a session picked from a list (@pxref{Transcript}); the window he is
+in when the session turns up is one the request never named.  If the
+window he asked from has been deleted, the session goes to the selected
+window, where a session picked by hand would.
 
 @node Ending
 @chapter Ending a session

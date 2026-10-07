@@ -36,6 +36,9 @@ parley is for reading what it said.
 - `RET` on a turn you took earlier sends that turn again, all of it and without
   the quote the view draws it with. On anything else — an agent's turn, the
   line a run of tool calls collapsed to — it sends nothing and says so.
+- `(parley-transcript-follow-pane PANE)` opens the conversation of the session
+  a program has just started in tmux pane `PANE`, once it appears there.
+  orc-mode calls it for a crew session it starts in a tmux window.
 - `M-x imenu` in a transcript buffer jumps between the prompts.
 - `M-x parley-transcript-exit` in a transcript buffer ends its session by
   typing `/exit` into the pane. `M-x parley-transcript-exit-and-archive` does

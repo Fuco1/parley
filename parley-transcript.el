@@ -49,6 +49,10 @@
 ;; `parley-transcript-exit-and-archive' to archive it with `ccarchive'
 ;; once its process has ended.  Killing the buffer stops its pipeline
 ;; and nothing else.
+;;
+;; A caller that has just started Claude Code in a tmux pane hands
+;; the pane to `parley-transcript-follow-pane', which waits for the
+;; session to appear there and opens its transcript.
 
 ;;; Code:
 
