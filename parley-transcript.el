@@ -2614,6 +2614,16 @@ received."
         (user-error "Running tmux %s failed: %s" (car arguments)
                     (string-trim (buffer-string)))))))
 
+(defun parley-transcript--pane ()
+  "Return the tmux pane of this buffer's session.
+Signal a `user-error' naming the session if it has none: a
+session started outside tmux cannot be typed into at all, and an
+error beats a send that silently goes nowhere."
+  (or (plist-get parley-transcript-session :pane)
+      (user-error "Session %s is outside tmux and has no pane: read only"
+                  (or (plist-get parley-transcript-session :name)
+                      (plist-get parley-transcript-session :session-id)))))
+
 (defun parley-transcript--send-input (_process string)
   "Type STRING into the pane of this buffer's session and submit it.
 
@@ -2636,12 +2646,9 @@ many lines it has.  The text goes to tmux on standard input, so a
 paste is never an argument vector however long it is.
 
 A session started outside tmux has no pane and cannot be typed
-into at all, and this is where the operator finds that out."
-  (let ((pane (plist-get parley-transcript-session :pane)))
-    (unless pane
-      (user-error "Session %s is outside tmux and has no pane: read only"
-                  (or (plist-get parley-transcript-session :name)
-                      (plist-get parley-transcript-session :session-id))))
+into at all, and `parley-transcript--pane' is where the operator
+finds that out."
+  (let ((pane (parley-transcript--pane)))
     (if (string-match-p "\n" string)
         (progn
           (parley-transcript--tmux string "load-buffer" "-b" "parley" "-")
@@ -2718,6 +2725,128 @@ typing a line of somebody else's markdown into a live session."
       (replace-regexp-in-string
        (concat "^" (regexp-quote parley-transcript--quote-marker)) ""
        (buffer-substring-no-properties start (point))))))
+
+
+;;; Ending the session
+
+;; A session is ended by typing `/exit' at its pane, which is the same
+;; door a message goes through and is safe only when a message would
+;; be.  Why only an idle session is ended, and why the archive waits
+;; for the process, is Info node `(parley)Ending'.
+
+(defcustom parley-ccarchive-program "ccarchive"
+  "The `ccarchive' executable `parley-transcript-exit-and-archive' runs.
+It is given `archive' and the session's id, and it refuses to move
+a session whose process is still running."
+  :type 'string
+  :group 'parley)
+
+(defconst parley-transcript--archive-interval 0.5
+  "Seconds between two looks at whether an exited session's process is gone.")
+
+(defconst parley-transcript--archive-timeout 30
+  "Seconds an exited session's process is waited for before the archive gives up.
+A session that has not ended by then is left where it is, and
+running `parley-ccarchive-program' by hand is what archives it.")
+
+(defun parley-transcript--exit-pane ()
+  "Return the pane of this buffer's session, if `/exit' may be typed there.
+Signal a `user-error', having run nothing, for a session with no
+pane and for one whose `parley-transcript-status' is anything but
+`idle', naming that status.
+
+Typed into a working session, `/exit' is the next message it is
+sent; typed into one waiting on a permission prompt, its keys are
+answers to the dialog.  `unknown' is refused too, because it
+cannot be told from either.  The status is the one the buffer
+holds, which is what its header line shows, so the command refuses
+on what the operator was looking at when he ran it."
+  (let ((pane (parley-transcript--pane)))
+    (unless (eq parley-transcript-status 'idle)
+      (user-error "Session %s is %s, not idle: not exiting it"
+                  (parley-session-name parley-transcript-session)
+                  parley-transcript-status))
+    pane))
+
+(defun parley-transcript--type-exit (pane)
+  "Type `/exit' into tmux PANE and submit it, as a single line is sent."
+  (parley-transcript--tmux nil "send-keys" "-t" pane "-l" "--" "/exit")
+  (parley-transcript--tmux nil "send-keys" "-t" pane "Enter"))
+
+(defun parley-transcript-exit ()
+  "End this buffer's session by typing `/exit' into its pane.
+Only an idle session is ended, and one with no pane cannot be --
+see `parley-transcript--exit-pane' for why each is refused.
+
+The buffer is left as it is, and so is its process: killing it is
+the operator's to do, and does nothing to the session."
+  (interactive)
+  (parley-transcript--type-exit (parley-transcript--exit-pane)))
+
+(defun parley-transcript-exit-and-archive ()
+  "End this buffer's session as `parley-transcript-exit' does, then archive it.
+The archive is `parley-ccarchive-program' run with `archive' and
+the session's id, and it runs only once the process the session's
+`:pid' names has ended, because the program refuses a session
+whose process is still running.  The process is looked for on a
+timer and Emacs takes input meanwhile; a session still running
+after `parley-transcript--archive-timeout' seconds is not archived,
+and a message says which.
+
+The session is refused as `parley-transcript-exit' refuses one,
+and so is the whole command when the program cannot be found:
+nothing is typed into the pane, rather than a session ended that
+nothing can then archive.
+
+The buffer is left as it is, and so is its process.  The timer is
+not the buffer's, so killing the buffer does not stop the
+archive."
+  (interactive)
+  (let ((pane (parley-transcript--exit-pane))
+        (session parley-transcript-session))
+    (unless (executable-find parley-ccarchive-program)
+      (user-error "No `%s' to archive session %s with: not exiting it"
+                  parley-ccarchive-program (parley-session-name session)))
+    (parley-transcript--type-exit pane)
+    (run-with-timer parley-transcript--archive-interval nil
+                    #'parley-transcript--archive-once-ended session
+                    (+ (float-time) parley-transcript--archive-timeout))))
+
+(defun parley-transcript--archive-once-ended (session deadline)
+  "Archive SESSION if its process has ended, or look again in a moment.
+DEADLINE is the `float-time' past which a process still running is
+given up on: SESSION is then left where it is and a message names
+it.  Each look is one run of this from a timer, so Emacs takes
+input between two of them."
+  (cond
+   ;; A process by that pid existing is what `ccarchive' itself calls
+   ;; running, so a pid handed on to another process is refused here
+   ;; as it would be there.
+   ((not (process-attributes (plist-get session :pid)))
+    (parley-transcript--archive session))
+   ((< (float-time) deadline)
+    (run-with-timer parley-transcript--archive-interval nil
+                    #'parley-transcript--archive-once-ended session deadline))
+   (t
+    (message "Session %s (%s) has not ended: not archived"
+             (parley-session-name session)
+             (plist-get session :session-id)))))
+
+(defun parley-transcript--archive (session)
+  "Run `parley-ccarchive-program' to archive SESSION, and say how it went.
+A program that exits non-zero has what it printed put in the
+message, since that is what says why, and from a timer a message
+is the one way it reaches the operator."
+  (with-temp-buffer
+    (if (eq 0 (call-process parley-ccarchive-program nil t nil
+                            "archive" (plist-get session :session-id)))
+        (message "Archived session %s (%s)"
+                 (parley-session-name session)
+                 (plist-get session :session-id))
+      (message "Archiving session %s (%s) failed: %s"
+               (parley-session-name session)
+               (plist-get session :session-id)
+               (string-trim (buffer-string))))))
 
 (provide 'parley-transcript)
 ;;; parley-transcript.el ends here
