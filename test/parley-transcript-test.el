@@ -550,6 +550,75 @@ its own line further up."
     (should (equal (parley-transcript-test--runs buffer)
                    '("● 2 tool calls" "● 15 tool calls")))))
 
+(ert-deftest parley-transcript-test-faces-a-renderer-line-newline-to-newline ()
+  "A line the renderer writes is in `parley-tool-run' from newline to newline.
+A line is as tall as the face of the newline ending it, so a face
+the operator sets smaller than his text shrinks the `●' line and
+the blank line above it only if the newline the block opens with
+and the one ending that line carry it as well as the text between
+them.  All three the renderer writes are asserted -- a run of
+tool calls, a skill load and a task notification -- since each
+reaches the one function that faces them by a way of its own."
+  (should (equal (mapcar #'parley-transcript-test--shape
+                         (list (parley-transcript--tool-run 2)
+                               (parley-transcript--injection
+                                (parley-transcript-test--skill-load
+                                 "/home/x/skills/ponytail" "Ponytail"))
+                               (parley-transcript--injection
+                                (parley-transcript-test--notification-text
+                                 "Background command finished"))))
+                 '((("\n● 2 tool calls\n" . parley-tool-run))
+                   (("\n● Loaded skill \"Ponytail\"\n" . parley-tool-run))
+                   (("\n● Background command finished\n" . parley-tool-run))))))
+
+(ert-deftest parley-transcript-test-faces-the-blank-line-under-a-run ()
+  "The blank line under a run of tool calls is in the run's face.
+That blank line is the newline the next block opens with, so the
+render pass writing that block is what faces it.  The run line is
+taken back out and written again by the call that writes the turn
+ending the run, so here the two blocks are in one call's output.
+
+The blank line between two assistant turns is in no face at all:
+only a renderer line passes its face to the blank line under it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--text-turn "before")
+            (parley-transcript-test--tool-turn 2))
+    (should (parley-transcript-test--wait
+             (lambda () (member "● 2 tool calls"
+                                (parley-transcript-test--shown buffer)))))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--text-turn "after")
+                (parley-transcript-test--text-turn "later")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "later" (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--shape
+                    (with-current-buffer buffer (buffer-string)))
+                   '(("\nbefore\n" . nil)
+                     ("\n● 2 tool calls\n\n" . parley-tool-run)
+                     ("after\n\nlater\n" . nil))))))
+
+(ert-deftest parley-transcript-test-faces-the-blank-line-under-a-line-written-before ()
+  "The blank line under a renderer line already in the buffer is in its face.
+A task notification is not taken back out the way a run is, so
+the turn under it is written by a later call, whose first block
+goes in under what the buffer already ends with."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--notification
+             "Background command finished"))
+    (should (parley-transcript-test--wait
+             (lambda () (member "● Background command finished"
+                                (parley-transcript-test--shown buffer)))))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--text-turn "after")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "after" (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--shape
+                    (with-current-buffer buffer (buffer-string)))
+                   '(("\n● Background command finished\n\n" . parley-tool-run)
+                     ("after\n" . nil))))))
+
 (ert-deftest parley-transcript-test-backs-a-turn-to-the-window-edge ()
   "The background on a turn of the operator's runs to the window edge.
 A face that sets only `:background' leaves `:extend' unspecified
@@ -1881,6 +1950,26 @@ render pass writes for the same message coming back."
                      ("❯ " . parley-user-marker) ("first line\n" . parley-user)
                      ("❯ " . parley-user-marker)
                      ("second line\n" . parley-user))))))
+
+(ert-deftest parley-transcript-test-faces-the-blank-line-over-a-turn-under-a-run ()
+  "A turn submitted under a renderer line opens with a blank line in its face.
+The block the sender writes is the next one under that line, so
+it is the sender that faces the newline the block opens with, as
+the render pass does for a block of its own."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--tool-turn 2))
+    (should (parley-transcript-test--wait
+             (lambda () (member "● 2 tool calls"
+                                (parley-transcript-test--shown buffer)))))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there"))
+    (should (equal (parley-transcript-test--shape
+                    (with-current-buffer buffer (buffer-string)))
+                   '(("\n● 2 tool calls\n\n" . parley-tool-run)
+                     ("❯ " . parley-user-marker)
+                     ("hello there\n" . parley-user))))))
 
 (ert-deftest parley-transcript-test-does-not-render-its-own-echo ()
   "A message sent from the prompt is not shown again when it comes back.
@@ -4238,13 +4327,18 @@ and what a bare `insert' would not test."
       (should (equal-including-properties before (buffer-string))))))
 
 (defun parley-transcript-test--takes-typing (buffer)
-  "Assert text typed at BUFFER's process mark goes in and is not read-only."
+  "Assert text typed at BUFFER's process mark goes in, neither read-only nor faced.
+The newline before the mark ends a block and carries that block's
+face, and typing inherits whatever the character before it does
+not mark rear-nonsticky."
   (let ((mark (with-current-buffer buffer
                 (marker-position (process-mark (get-buffer-process buffer))))))
     (parley-transcript-test--type buffer "typed")
     (should (equal "typed" (parley-transcript-test--zone buffer)))
     (with-current-buffer buffer
-      (should-not (text-property-not-all mark (point-max) 'read-only nil)))))
+      (should-not (text-property-not-all mark (point-max) 'read-only nil))
+      (should-not (text-property-not-all mark (point-max)
+                                         'font-lock-face nil)))))
 
 (ert-deftest parley-transcript-test-refuses-deleting-the-conversation ()
   "DEL at the prompt is refused, and the conversation above it stands.
@@ -4305,6 +4399,21 @@ by their fields, so under the regexp nothing but the sealing does."
       (should (parley-transcript-test--settled buffer))
       (parley-transcript-test--takes-typing buffer))))
 
+
+(ert-deftest parley-transcript-test-takes-typing-under-a-renderer-line ()
+  "Text typed under a renderer line takes none of that line's face.
+The newline ending the line carries `parley-tool-run', and comint
+makes `font-lock-face' rear-nonsticky only while it finds prompts
+by their fields, so under `comint-use-prompt-regexp' nothing but
+the sealing keeps what the operator types out of it."
+  (skip-unless (executable-find "jq"))
+  (dolist (comint-use-prompt-regexp '(nil t))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--tool-turn 2))
+      (should (parley-transcript-test--wait
+               (lambda () (member "● 2 tool calls"
+                                  (parley-transcript-test--shown buffer)))))
+      (parley-transcript-test--takes-typing buffer))))
 
 (ert-deftest parley-transcript-test-keeps-a-table-rendered-again-read-only ()
   "A table written again for a new width is as read-only as it was.

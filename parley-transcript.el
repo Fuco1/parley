@@ -447,9 +447,42 @@ the operator's own is quoted by `parley-transcript--quote'."
 The bullet heads every line in this buffer that nobody in the
 conversation wrote, so a line the renderer is telling the
 operator something on cannot be read as one an agent typed, and
-`parley-tool-run' is the face all of them are in."
-  (parley-transcript--block
-   (propertize (concat "● " text) 'font-lock-face 'parley-tool-run)))
+`parley-tool-run' is the face all of them are in.
+
+The whole block is in that face, both its newlines included,
+because a line is as tall as the face of the newline ending it:
+a face the operator sets smaller than his text shrinks the line
+and the blank line above it only if those two newlines carry it.
+The blank line below is the next block's, and
+`parley-transcript--under' is how its writer faces it."
+  (propertize (parley-transcript--block (concat "● " text))
+              'font-lock-face 'parley-tool-run))
+
+(defun parley-transcript--under (above block)
+  "Return BLOCK as written directly under a newline in the face ABOVE.
+ABOVE is the `font-lock-face' on the newline ending the block
+before, nil when there is none.  When it is `parley-tool-run',
+that block is a renderer line, and the newline BLOCK opens with
+-- the blank line under the renderer line -- is put in it too, so
+that blank line is as short as the line above it.  Every other
+face is left off it: the blank line under a turn of the
+operator's belongs to neither turn, and his face on it would run
+his band into the next one.
+
+BLOCK is changed in place."
+  (when (and (eq above 'parley-tool-run) (not (string= block "")))
+    (put-text-property 0 1 'font-lock-face above block))
+  block)
+
+(defun parley-transcript--face-before (position)
+  "Return the `font-lock-face' on the character before POSITION.
+Nil at the start of the buffer.  Read widened, because the
+operator may have narrowed the buffer away from where a block is
+being written."
+  (save-restriction
+    (widen)
+    (and (> position (point-min))
+         (get-text-property (1- position) 'font-lock-face))))
 
 (defun parley-transcript--tool-run (count)
   "Return the block of buffer text a run of COUNT tool calls collapses to.
@@ -767,7 +800,17 @@ inserted and then rewritten in place."
         (setq parley-transcript--run run)
         (when (> run 0)
           (push (parley-transcript--tool-run run) blocks))
-        (mapconcat #'identity (nreverse blocks) "")))))
+        ;; The first block goes in directly under what the buffer ends
+        ;; with once the run line is out, and each one after it under
+        ;; the block before.
+        (let ((above (parley-transcript--face-before
+                      (process-mark (get-buffer-process (current-buffer))))))
+          (mapconcat (lambda (block)
+                       (prog1 (parley-transcript--under above block)
+                         (setq above (get-text-property
+                                      (1- (length block)) 'font-lock-face
+                                      block))))
+                     (nreverse blocks) ""))))))
 
 
 ;;; The conversation is read-only
@@ -786,20 +829,29 @@ which comint may have already set over its own output and which
 are read at START: an insertion between two characters is refused
 only by the one after it when the one before it is rear-nonsticky,
 and an insertion after the last one, at the mark, is let through
-and not made read-only only when that one is.  Comint makes it
-rear-nonsticky itself only while `comint-use-prompt-regexp' is
-nil, so the sealing does not leave it to comint.  Silently,
+and not made read-only only when that one is.
+
+`font-lock-face' joins `rear-nonsticky' as well, so what the
+operator types at the mark does not come out in the face of the
+newline before it.  That newline ends a block and carries the
+block's face: `parley-tool-run' under a renderer line, and
+`parley-user' under a turn of his.
+
+Comint makes both rear-nonsticky itself only while
+`comint-use-prompt-regexp' is nil, and only over its own output,
+so the sealing does not leave either to comint.  Silently,
 because it is no edit of the operator's and nothing for `undo' to
 reach."
   (when (< start end)
     (with-silent-modifications
       (add-text-properties
        start end
-       (mapcan (lambda (property)
-                 (let ((value (get-text-property start property)))
-                   (list property
-                         (if (eq value t) t (cons 'read-only value)))))
-               '(front-sticky rear-nonsticky)))
+       (mapcan (lambda (stickiness)
+                 (let ((value (get-text-property start (car stickiness))))
+                   (list (car stickiness)
+                         (if (eq value t) t (append (cdr stickiness) value)))))
+               '((front-sticky read-only)
+                 (rear-nonsticky read-only font-lock-face))))
       (put-text-property start end 'read-only t))))
 
 (defun parley-transcript--output (process string)
@@ -2530,7 +2582,8 @@ dropped by `parley-transcript--echoed-p' when it arrives."
         (process (get-buffer-process (current-buffer))))
     (delete-region start comint-last-input-end)
     (goto-char start)
-    (insert (parley-transcript--quote string))
+    (insert (parley-transcript--under (parley-transcript--face-before start)
+                                      (parley-transcript--quote string)))
     (parley-transcript--seal start (point))
     (set-marker comint-last-input-end (point))
     (set-marker (process-mark process) (point))
