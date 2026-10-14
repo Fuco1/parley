@@ -1253,16 +1253,28 @@ and an empty overlay covers no character: an empty overlay carrying
 the case the mark exists for.
 
 @strong{The band reaches the window edge on the zone's last line by a
-stretched space.}  A background is a band only if the face extends it
-(@pxref{Transcript}), and what @code{:extend} paints from is the newline
-that ends a line.  Every line of the zone ends in one except the last,
-which is the last line of the buffer, and the colour there stops at the
-last character typed.  That line is painted by a space carrying
-@code{(space :align-to right)}, shown after the zone as the overlay's
-@code{after-string}.  Its @code{cursor} property is what keeps point
-drawn at the head of that space rather than at the far end of it, where
-the operator would be watching his cursor stand at the window edge as he
-typed.
+space as wide as the window.}  A background is a band only if the face
+extends it (@pxref{Transcript}), and what @code{:extend} paints from is
+the newline that ends a line.  Every line of the zone ends in one except
+the last, which is the last line of the buffer, and the colour there
+stops at the last character typed.  That line is painted by a space
+shown after the zone as the overlay's @code{after-string}, stretched to
+the width of the window's text area.  No line has that much room left,
+and on a line Emacs does not truncate, it cuts a stretch that would run
+past the window edge down to what reaches the edge — so the band runs to
+the edge from wherever the last line ends, on its first screen row or on
+the row a long message has word-wrapped to.  A space aligned to the
+right edge cannot do it alone, because @code{:align-to} counts from the
+start of the logical line and not from the start of the screen row: on a
+row the line has wrapped to, the edge is already behind that count, and
+the space has no width at all.  The space's @code{cursor} property is
+what places point, at the head of the space right after the last
+character typed, rather than at the far end of the @code{after-string}
+past the rule below, where the operator would be watching his cursor as
+he typed.  It needs a glyph with a width to be drawn on, which a space
+of no width does not give it; nor does a newline that ends the line in
+the band's face, which paints the row and leaves point drawn at the far
+end.
 
 @strong{A rule closes the zone above and below}, so what he is writing is
 bounded on both sides rather than trailing off the end of a buffer whose

@@ -55,6 +55,14 @@ the start time /proc reports for PID."
      (unwind-protect (progn ,@body)
        (delete-directory parley-sessions-directory t))))
 
+;;; Running tmux
+
+(defun parley-fixtures-tmux (&rest arguments)
+  "Run tmux with ARGUMENTS and return what it printed, trimmed."
+  (with-temp-buffer
+    (apply #'call-process "tmux" nil t nil arguments)
+    (string-trim (buffer-string))))
+
 (provide 'parley-fixtures)
 
 ;;; parley-fixtures.el ends here

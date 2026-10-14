@@ -2395,24 +2395,39 @@ change at all."
                       'face 'parley-input-marker)))
 
 (defconst parley-transcript--input-fill
-  (concat (propertize " " 'display '(space :align-to right)
+  (concat (propertize " " 'display '(space :width text)
                       'face 'parley-input 'cursor t)
           "\n" parley-transcript--input-rule-below)
   "What carries the band across the last line of the input zone, and closes it.
 The zone's overlay shows it as its `after-string'.  `:extend'
 paints from the newline that ends a line, and the last line of
-the zone is the last line of the buffer and ends in none, so that
-one line is painted by a space stretched to the right edge
-instead -- measured on Emacs 28.2 in a 191 column terminal, the
-background under a face with `:extend t' stops at the last
-character of a line with no newline after it and runs to the edge
-of the window on every line that has one.
+the zone is the last line of the buffer and ends in none, so the
+background there stops at the last character typed.  That one
+line is painted by a space stretched instead.
 
-`cursor' is what keeps point drawn at the head of that stretched
-space rather than at the far end of it, where the operator would
-be watching a cursor at the window edge as he typed: measured the
-same way, point at the end of the buffer is drawn in column 190,
-the last column of the window, without it.
+The space is as wide as the window's text area, which is more
+room than any line has left, and on a line Emacs does not
+truncate, it cuts a stretch that would run past the window edge
+down to what reaches that edge.  So the band runs to the edge
+from wherever the zone's last line ends: on the first screen row
+of that line, or on the row it has word-wrapped to, which a
+transcript buffer does to a message wider than its window under
+`visual-line-mode'.
+
+A space stretched to `right' by `:align-to' cannot do it alone,
+because `:align-to' counts from the start of the logical line and
+not from the start of the screen row.  On a row the line has
+wrapped to, the right edge is already behind that count, and the
+space comes out with no width at all.
+
+`cursor' is what keeps point drawn at the head of the space,
+right after the last character typed, rather than at the far end
+of this string, past the rule below -- where the operator would
+be watching his cursor as he typed.  It needs a glyph with a
+width to be drawn on, which a space of no width does not give
+it, and neither does a newline ending the line in the band's
+face: that would paint the row, and point would still be drawn
+at the far end.
 
 The rule after it is the other of the pair
 `parley-transcript--input-marker' opens the zone with, so the
