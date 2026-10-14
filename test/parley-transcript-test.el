@@ -455,7 +455,10 @@ output at a time and a projected object is one line however long
 the message was, so any answer over that -- which is an ordinary
 answer -- arrives split down the middle.  The half a line is held
 back until the rest of it comes: what a chunk boundary must never
-do is leave JSON in the buffer."
+do is leave JSON in the buffer.
+
+The message is sized from that variable rather than written out,
+since its default is not the same in every Emacs."
   (skip-unless (executable-find "jq"))
   (let ((text (mapconcat #'identity (make-list (1+ (/ read-process-output-max 13)) "a long answer") " ")))
     (should (> (length text) read-process-output-max))
