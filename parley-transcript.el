@@ -2407,7 +2407,7 @@ line is painted by a space stretched instead.
 
 The space is as wide as the window's text area, which is more
 room than any line has left, and on a line Emacs does not
-truncate it cuts a stretch that would run past the window edge
+truncate, it cuts a stretch that would run past the window edge
 down to what reaches that edge.  So the band runs to the edge
 from wherever the zone's last line ends: on the first screen row
 of that line, or on the row it has word-wrapped to, which a
