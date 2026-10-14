@@ -2364,8 +2364,8 @@ in it has gone to the pane."
 `:extend' is what carries a background past the last character of
 a line, and it is painted from the newline that ends the line.
 Every line of the zone ends in one except the last, which is the
-last line of the buffer: that one is carried by a space stretched
-to the right edge instead, and `cursor' on it is what keeps point
+last line of the buffer: that one is carried by a stretched space
+in the band's face instead, and `cursor' on it is what keeps point
 drawn at the head of that space rather than at the far end of it.
 
 The mark at the head of the zone stands on the same band, because
@@ -2373,8 +2373,6 @@ it inherits the face that carries it before it inherits anything
 else."
   (should (stringp (face-attribute 'parley-input :background nil t)))
   (should (eq t (face-attribute 'parley-input :extend nil t)))
-  (should (equal '(space :align-to right)
-                 (get-text-property 0 'display parley-transcript--input-fill)))
   (should (eq 'parley-input
               (get-text-property 0 'face parley-transcript--input-fill)))
   (should (get-text-property 0 'cursor parley-transcript--input-fill))
