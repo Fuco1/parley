@@ -183,12 +183,6 @@
 The two panes the fixture records carry, and nothing for the pane
 `%627' of the headless lane -- which is no record at all.")
 
-(defun parley-test--tmux (&rest arguments)
-  "Run tmux with ARGUMENTS and return what it printed, trimmed."
-  (with-temp-buffer
-    (apply #'call-process "tmux" nil t nil arguments)
-    (string-trim (buffer-string))))
-
 (ert-deftest parley-test-tag-is-the-location-and-the-id ()
   "A tag is where the session's pane is and then its session id.
 And the id alone in the two cases there is no location: a session
@@ -320,12 +314,12 @@ no error either, which is the third tag shape."
          (parley--pane-locations 'unasked))
     (unwind-protect
         (progn
-          (parley-test--tmux "-f" "/dev/null" "new-session" "-d"
+          (parley-fixtures-tmux "-f" "/dev/null" "new-session" "-d"
                              "-s" "parley %test")
-          (let ((split (parley-test--tmux "split-window" "-d" "-P"
+          (let ((split (parley-fixtures-tmux "split-window" "-d" "-P"
                                           "-F" "#{pane_id}"
                                           "-t" "parley %test:"))
-                (window (parley-test--tmux "new-window" "-d" "-P"
+                (window (parley-fixtures-tmux "new-window" "-d" "-P"
                                            "-F" "#{pane_id}"
                                            "-t" "parley %test:")))
             (should (string-prefix-p "%" split))
@@ -347,7 +341,7 @@ no error either, which is the third tag shape."
             (should (equal (parley-session-tag
                             (list :pane "%999" :session-id "abc"))
                            "abc"))))
-      (parley-test--tmux "kill-server")
+      (parley-fixtures-tmux "kill-server")
       (delete-directory directory t))))
 
 
