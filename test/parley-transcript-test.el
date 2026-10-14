@@ -457,7 +457,7 @@ answer -- arrives split down the middle.  The half a line is held
 back until the rest of it comes: what a chunk boundary must never
 do is leave JSON in the buffer."
   (skip-unless (executable-find "jq"))
-  (let ((text (mapconcat #'identity (make-list 1000 "a long answer") " ")))
+  (let ((text (mapconcat #'identity (make-list (1+ (/ read-process-output-max 13)) "a long answer") " ")))
     (should (> (length text) read-process-output-max))
     (parley-transcript-test--with-session
         (list (parley-transcript-test--text-turn text))
