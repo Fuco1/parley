@@ -2367,6 +2367,8 @@ Every line of the zone ends in one except the last, which is the
 last line of the buffer: that one is carried by a stretched space
 in the band's face instead, and `cursor' on it is what keeps point
 drawn at the head of that space rather than at the far end of it.
+Whether the space reaches the edge is a question for a terminal,
+which the test after this one puts.
 
 The mark at the head of the zone stands on the same band, because
 it inherits the face that carries it before it inherits anything
@@ -2378,6 +2380,136 @@ else."
   (should (get-text-property 0 'cursor parley-transcript--input-fill))
   (should (equal (face-attribute 'parley-input-marker :background nil t)
                  (face-attribute 'parley-input :background nil t))))
+
+(defun parley-transcript-test--backgrounds (capture)
+  "Return CAPTURE, what `tmux capture-pane -e' printed, as rows of cells.
+A row is a list of one element per cell, non-nil where the cell
+has a background colour.  tmux prints only what changes from one
+cell to the next, and from the end of a row to the head of the
+next, so a row starts in the colour the row above it ended in.  A
+colour parameter takes its arguments with it, so the `2;R;G;B' of
+a foreground is never read as a background."
+  (let ((rows nil) (cells nil) (background nil) (start 0))
+    (while (string-match "\e\\[\\([0-9;:]*\\)m\\|\n\\|." capture start)
+      (setq start (match-end 0))
+      (cond
+       ((match-beginning 1)
+        (let ((parameters (split-string (match-string 1 capture) "[;:]")))
+          (while parameters
+            (let ((code (string-to-number (pop parameters))))
+              (cond ((memq code '(0 49)) (setq background nil))
+                    ((memq code '(38 48 58))
+                     (setq parameters
+                           (nthcdr (if (equal (pop parameters) "2") 3 1)
+                                   parameters))
+                     (when (= code 48) (setq background t)))
+                    ((or (<= 40 code 47) (<= 100 code 107))
+                     (setq background t)))))))
+       ((eq (aref capture (match-beginning 0)) ?\n)
+        (push (nreverse cells) rows)
+        (setq cells nil))
+       (t (push background cells))))
+    (nreverse (cons (nreverse cells) rows))))
+
+(defun parley-transcript-test--zone-end (tmux word)
+  "Read the cursor of the pane TMUX runs on, and the row the last WORD is on.
+TMUX is called with tmux's arguments.  Return (CURSOR END WRAPPED
+UNBANDED): the cursor, and the cell right after the last WORD on
+screen, each as (COLUMN ROW); whether WORD's row is below the
+last row the prompt mark is on; and the columns from END to the
+one before the pane's last that carry no background.  The last is
+left out because a terminal keeps it for the continuation glyph."
+  (let* ((capture (let ((coding-system-for-read 'utf-8))
+                    (funcall tmux "capture-pane" "-p" "-e" "-N")))
+         (shown (split-string
+                 (replace-regexp-in-string "\e\\[[0-9;:]*m" "" capture) "\n"))
+         (row (cl-position word shown :test #'string-search :from-end t))
+         (mark (cl-position parley-transcript--quote-marker shown
+                            :test #'string-search :from-end t)))
+    (when row
+      (let ((column (+ (string-search word (nth row shown)) (length word)))
+            (cells (nth row (parley-transcript-test--backgrounds capture)))
+            (pane (mapcar #'string-to-number
+                          (split-string
+                           (funcall tmux "display" "-p"
+                                    "#{cursor_x} #{cursor_y} #{pane_width}")))))
+        (list (butlast pane)
+              (list column row)
+              (and mark (> row mark))
+              (seq-remove (lambda (at) (nth at cells))
+                          (number-sequence column (- (nth 2 pane) 2))))))))
+
+(ert-deftest parley-transcript-test-bands-a-wrapped-last-line-to-the-window-edge ()
+  "A last line that wraps is banded to the edge, and point drawn at its end.
+A message wider than the window word-wraps, and the screen row
+it wraps to is the one the operator is typing on.  A space
+aligned to the right edge is no width at all there, since
+`:align-to' counts from the start of the logical line: no band,
+and point drawn past the rule below.
+
+A batch Emacs draws nothing, so a child Emacs is run in a tmux pane 50
+columns wide, a message is typed into its zone, and the pane is
+read back: point right after the last character typed, and a
+background on every cell from there to the edge.
+`capture-pane -N' is what keeps the blank cells at the end of a
+row, which it drops otherwise whatever their colour."
+  (skip-unless (and (executable-find "jq") (executable-find "tmux")))
+  (let* ((directory (make-temp-file "parley-zone-" t))
+         (socket (expand-file-name "tmux" directory))
+         (open (expand-file-name "open.el" directory))
+         (tmux (lambda (command &rest arguments)
+                 (apply #'parley-fixtures-tmux "-S" socket command
+                        (append (and (member command '("capture-pane" "display"
+                                                       "send-keys"))
+                                     '("-t" "zone"))
+                                arguments))))
+         (session (parley-transcript-test--session
+                   "zone"
+                   (list (parley-transcript-test--user-turn "what is here")
+                         (parley-transcript-test--text-turn "Let me look."))))
+         (typed "the quick brown fox jumps over the lazy dog and keeps on going"))
+    (unwind-protect
+        (progn
+          (with-temp-file open
+            (prin1 `(progn
+                      (setq load-path
+                            (append ',(mapcar (lambda (library)
+                                                (file-name-directory
+                                                 (locate-library library)))
+                                              '("parley-transcript"
+                                                "markdown-mode"))
+                                    load-path))
+                      (require 'parley-transcript)
+                      (parley-transcript ',session)
+                      (delete-other-windows))
+                   (current-buffer)))
+          (funcall tmux "-f" "/dev/null" "new-session" "-d" "-s" "zone"
+                   "-x" "50" "-y" "14"
+                   (mapconcat #'shell-quote-argument
+                              (list (expand-file-name invocation-name
+                                                      invocation-directory)
+                                    "-nw" "-Q" "-l" open)
+                              " "))
+          (funcall tmux "resize-window" "-t" "zone" "-x" "50" "-y" "14")
+          (should (parley-transcript-test--wait
+                   (lambda () (string-search "Let me look."
+                                             (funcall tmux "capture-pane" "-p")))))
+          (funcall tmux "send-keys" "Escape" ">")
+          (funcall tmux "send-keys" "-l" typed)
+          (let ((settled (lambda ()
+                           (let ((end (parley-transcript-test--zone-end
+                                       tmux "going")))
+                             (and end
+                                  (equal (nth 0 end) (nth 1 end))
+                                  (null (nth 3 end)))))))
+            (parley-transcript-test--wait settled))
+          (let ((end (parley-transcript-test--zone-end tmux "going")))
+            (should (nth 2 end))
+            (should (equal (nth 0 end) (nth 1 end)))
+            (should-not (nth 3 end))))
+      (funcall tmux "kill-server")
+      (delete-file (plist-get session :transcript))
+      (delete-directory directory t))))
 
 (ert-deftest parley-transcript-test-closes-the-input-zone-with-a-rule ()
   "A rule across the window stands above the input zone and another below it.
