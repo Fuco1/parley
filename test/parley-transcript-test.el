@@ -168,6 +168,29 @@ pass has to know the tag.  ID is the task's, as
           (json-serialize
            (parley-transcript-test--notification-text summary id))))
 
+(defconst parley-transcript-test--compaction-opening
+  (concat "This session is being continued from a previous conversation"
+          " that ran out of context.")
+  "The sentence every compaction summary opens with.")
+
+(defconst parley-transcript-test--compaction-body
+  "Primary Request and Intent: the operator asked for the tables to line up."
+  "A line of what a compaction summary carries, which the buffer shows nowhere.")
+
+(defun parley-transcript-test--compaction ()
+  "Return the transcript line a session compacting writes its summary as.
+Under the operator's role, carrying `isCompactSummary' and no
+`isMeta', its text opening with the sentence every summary opens
+with -- the shape a session on this machine wrote."
+  (format (concat "{\"type\":\"user\",\"message\":{\"role\":\"user\","
+                  "\"content\":%s},\"isVisibleInTranscriptOnly\":true,"
+                  "\"isCompactSummary\":true}")
+          (json-serialize
+           (concat parley-transcript-test--compaction-opening
+                   " The summary below covers the earlier portion of the"
+                   " conversation.\n\nSummary:\n1. "
+                   parley-transcript-test--compaction-body "\n"))))
+
 (defun parley-transcript-test--enqueued (text)
   "Return the transcript line the harness queues the notification TEXT on.
 It writes one for every notification the moment the task ends,
@@ -1197,6 +1220,72 @@ first."
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
                    (list "why does this show up as mine"
                          "<task-notification>")))))
+
+(ert-deftest parley-transcript-test-renders-a-compaction-as-one-line ()
+  "A compaction summary renders one line, and none of the summary.
+
+The summary is what the session hands the agent to go on with,
+written under the operator's role, and quoted as it stands it is
+pages of prose in front of him as his own turn.  An automatic
+compaction leaves nothing else in the buffer, so the line is the
+only sign it happened -- and it stands between the turns it
+happened between."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--user-turn "line the tables up")
+            (parley-transcript-test--compaction)
+            (parley-transcript-test--user-turn "go on"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 3 (length shown)) shown))))
+                   (list "❯ line the tables up"
+                         "● Conversation compacted"
+                         "❯ go on")))
+    (with-current-buffer buffer
+      (dolist (absent (list parley-transcript-test--compaction-opening
+                            parley-transcript-test--compaction-body
+                            "Summary:"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t))))))
+
+(ert-deftest parley-transcript-test-faces-a-compaction-as-a-renderer-line ()
+  "The line a compaction renders to is in the face of the tool-run line.
+Nobody in the conversation wrote it, so it stands in the bullet
+and the face every line the renderer wrote stands in."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--compaction))
+    (should (parley-transcript-test--wait
+             (lambda ()
+               (equal (parley-transcript-test--shown buffer)
+                      (list "● Conversation compacted")))))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should (search-forward "● Conversation compacted" nil t))
+      (should (eq (get-text-property (match-beginning 0) 'font-lock-face)
+                  'parley-tool-run)))))
+
+(ert-deftest parley-transcript-test-quotes-a-turn-that-quotes-a-compaction ()
+  "A turn of the operator's opening as a summary does is his own words.
+What marks a compaction is the field the transcript writes on
+it, so a turn of his quoting the sentence a summary opens with is
+quoted and indexed as any turn of his is."
+  (skip-unless (executable-find "jq"))
+  (let ((quoted (concat "❯ " parley-transcript-test--compaction-opening)))
+    (parley-transcript-test--with-session
+        (list (parley-transcript-test--user-turn
+               parley-transcript-test--compaction-opening))
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (equal (parley-transcript-test--shown buffer)
+                        (list quoted)))))
+      ;; The label is cut to `imenu-max-item-length', so the entry is
+      ;; told by the line it points at.
+      (let ((index (parley-transcript-test--index buffer)))
+        (should (= 1 (length index)))
+        (should (equal (parley-transcript-test--at buffer (car index))
+                       quoted))))))
 
 
 ;;; The buffer
@@ -5198,6 +5287,26 @@ typed."
                             "❯ and now commit it")))))
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
                    (list "and now commit it")))))
+
+(ert-deftest parley-transcript-test-indexes-no-compaction ()
+  "A compaction summary is not a prompt, so it takes no imenu entry.
+It reaches the buffer as the line saying the conversation was
+compacted, and the index holds only the two prompts around it:
+the operator jumping through that index is looking for what he
+typed, and the summary is the harness's."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--user-turn "line the tables up")
+            (parley-transcript-test--compaction)
+            (parley-transcript-test--user-turn "go on"))
+    (should (parley-transcript-test--wait
+             (lambda ()
+               (equal (parley-transcript-test--shown buffer)
+                      (list "❯ line the tables up"
+                            "● Conversation compacted"
+                            "❯ go on")))))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "line the tables up" "go on")))))
 
 (ert-deftest parley-transcript-test-labels-an-entry-with-the-first-line ()
   "An entry is labelled with the first line of its prompt, truncated.

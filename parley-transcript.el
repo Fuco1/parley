@@ -72,7 +72,9 @@
    "  else [.[] | select(.type == \"text\") | .text] | join(\"\\n\") end;"
    " def ended: if startswith(\"<task-notification>\")"
    "  then [scan(\"<task-id>([^<]+)</task-id>\")[0]] else [] end;"
-   " if .type == \"user\" or .type == \"assistant\" then"
+   " if .type == \"user\" and .isCompactSummary == true then"
+   "   {role: .type, meta: true, compacted: true}"
+   " elif .type == \"user\" or .type == \"assistant\" then"
    "   (.message.content // \"\") as $content"
    "   | [$content | arrays | .[] | select(.type == \"tool_result\")"
    "      | .content // \"\" | joined] as $results"
@@ -134,6 +136,14 @@ because the field is absent far more often than it is written and
 an absent one would come through as null: outside the turns the
 harness injected it is absent, or written false on a `system'
 line, which this projection drops.
+
+A compaction summary is an injection the transcript marks with a
+field of its own, `isCompactSummary', and not with `isMeta'.  It
+is projected as `compacted' with `meta' on and no text at all:
+the summary is addressed to the agent and renders to one line
+saying the conversation was compacted, so none of it is worth the
+pipe.  The field and not the text, because the sentence a summary
+opens with is one the operator can quote in a turn of his own.
 
 A message that renders to nothing is dropped rather than emitted
 empty, which is what becomes of a `tool_result' turn and of an
@@ -817,6 +827,11 @@ inserted and then rewritten in place."
                  (meta (and record (alist-get 'meta record)))
                  (speech (cond
                           ((null record) (parley-transcript--block line))
+                          ;; Before `meta', which it also carries: the
+                          ;; projection sent no text to make a line of.
+                          ((alist-get 'compacted record)
+                           (parley-transcript--renderer-line
+                            "Conversation compacted"))
                           (meta (parley-transcript--injection
                                  (or (alist-get 'text record) "")))
                           ;; comint has already put this one in the
