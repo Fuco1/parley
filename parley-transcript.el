@@ -588,6 +588,53 @@ The argument holds the newlines of a paste, so the group crosses
 them -- `.' does not -- and it is the first closing tag that ends
 it.")
 
+(defconst parley-transcript--paste-rx
+  "\\(?:\n\n\\)?\\(?:^\\)<pasted_content id=\"\\([^\"\n]+\\)\">\n"
+  "The line a pasted block opens with, and the blank line above it.
+Group 1 is the id the closing line has to carry too.  The tag
+stands at the start of a line, and the two newlines the harness
+writes above it are taken with it when they are there.")
+
+(defun parley-transcript--unpasted (text)
+  "Return TEXT with each pasted block in it replaced by what was pasted.
+
+Claude Code writes a paste to the transcript as a block: a blank
+line, a `<pasted_content id=\"ID\">' line, the paste, and a
+`</pasted_content id=\"ID\">' line with the same ID, with a blank
+line under it when the operator typed on after the paste.  The
+tags and the line breaks around them are the harness's and come
+off, so a block inside a prompt he typed gives back the line he
+typed, and a prompt that is nothing but a block gives back the
+paste.
+
+An opening line with no closing line of its ID after it is left
+as written: it is a turn of his that mentions the tag, and those
+are his own words.  A closing tag with more on its line after it
+is not a closing line.
+
+The closing line is looked up on its own, past the opening one,
+and not by a regexp spanning the block: a paste can be any
+length, and a regexp spanning one runs the matcher out of stack
+on a long one."
+  (let ((from 0))
+    (while (string-match parley-transcript--paste-rx text from)
+      (let* ((open (match-beginning 0))
+             (body (match-end 0))
+             (close (format "\n</pasted_content id=\"%s\">"
+                            (match-string 1 text)))
+             (end (and (string-match (concat (regexp-quote close) "$")
+                                     text body)
+                       (match-beginning 0))))
+        (if (not end)
+            (setq from body)
+          ;; Matches at its start whatever follows, empty if need be.
+          (string-match "\\(?:\n\n\\)?" text (+ end (length close)))
+          (setq text (concat (substring text 0 open)
+                             (substring text body end)
+                             (substring text (match-end 0)))
+                from (+ open (- end body))))))
+    text))
+
 (defun parley-transcript--unwrapped (record)
   "Return RECORD with what the harness wrapped around its text dealt with.
 
@@ -619,6 +666,10 @@ imenu index passes over, so a notification needs no third path
 through the pass.  Its text stands as it arrived, the summary
 being read out of it there.
 
+A paste is wrapped too, whether it is the whole prompt or stands
+in one the operator typed around it.  `parley-transcript--unpasted'
+takes the tags off and leaves what was pasted where they stood.
+
 Here, before the record is read for anything: what it renders to,
 what `parley-transcript--echoed-p' compares against what was
 sent, and what the imenu entry is labelled with all come off this
@@ -631,6 +682,7 @@ out of one line a moment earlier and reaching nobody else."
     (when text
       (if (string-match-p parley-transcript--notification-rx text)
           (setcdr (assq 'meta record) t)
+        (setq text (parley-transcript--unpasted text))
         (setcdr (assq 'text record)
                 (cond
                  ((string-match-p parley-transcript--local-output-rx text) "")

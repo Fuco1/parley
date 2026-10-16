@@ -546,12 +546,15 @@ of tool calls either.
 however it renders — the operator jumping through that index is looking
 for what he typed.
 
-@subsection Three @code{user} records are a wrapper the harness wrote, not speech
+@subsection What the harness wrapped around a @code{user} record is not speech
 
-None of them carries @code{isMeta}, so none is an injection the
-transcript marked, and quoted as it stands each puts tags in front of the
-operator as his own words.  @strong{What the harness wrapped around the
-record is dealt with before the record is read for anything.}
+Three @code{user} records are a wrapper the harness wrote — a slash
+command, a local command's output and a task notification — and a paste
+is wrapped wherever it stands in one.  None of them carries
+@code{isMeta}, so none is an injection the transcript marked, and quoted
+as it stands each puts tags in front of the operator as his own words.
+@strong{What the harness wrapped around the record is dealt with before
+the record is read for anything.}
 
 @strong{A slash command reaches the transcript as three tags, and renders
 to the one line he typed} — the @code{<command-name>} and the
@@ -577,15 +580,30 @@ and already what the index passes over, so marking a notification is the
 whole of the rule and it needs no third path through the pass.  The
 summary is read out of the text where every injection's line is made.
 
+@strong{A pasted block renders to what was pasted, where it stood.}
+Claude Code writes a paste as a blank line, a
+@code{<pasted_content id="ID">} line, the paste, and a
+@code{</pasted_content id="ID">} line with the same id, with a blank line
+under it when the operator typed on after the paste.  The tags and the
+line breaks around them come off together, so a prompt that is one block
+renders to the paste, and a paste inside a prompt he typed gives back the
+line he typed with the paste in its place.  An opening tag with no
+closing tag of its id after it is a turn of his mentioning the tag, and
+renders as written.
+
 @strong{The unwrapping has to happen before the echo guard and before the
 index.}  The echo guard (@pxref{Typing}) recognises parley's own copy of
 a message by the text that was sent, so a slash command submitted at
 parley's prompt matches nothing while it is still three tags, and stands
-in the buffer twice.  The imenu entry is recorded from the record's text
-in the render pass, so a turn indexed before it is unwrapped is labelled
+in the buffer twice.  A paste is the same: every message with a newline
+in it is sent as a bracketed paste and comes back as one pasted block,
+and a single line has come back as one too, so a block that had not come
+off first would put each of them in the buffer a second time, tags and
+all.  The imenu entry is recorded from the record's text in the render
+pass, so a turn indexed before it is unwrapped is labelled
 @code{<command-message>one</command-message>} — one label for every slash
 command of that name, and two of them told apart by a number rather than
-by what he asked.
+by what he asked — and a pasted prompt is labelled with its opening tag.
 
 @strong{What the text decides, it decides from the head of the record.}
 @code{<task-notification>} is matched at the very first character of the
