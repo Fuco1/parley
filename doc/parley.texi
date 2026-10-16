@@ -413,10 +413,10 @@ reaches it is the projection, a fraction of the file.
 result lives in a @code{tool_result} block and again in a top-level
 @code{toolUseResult} field; emitting only the fields parley uses means
 neither is ever emitted, where a filter that deleted the payloads would
-have to know every place one can hide.  It carries @code{isMeta} for the
-same reason from the other side: the render pass cannot ask for a field
-the projection did not emit, and that field is what marks a harness
-injection.
+have to know every place one can hide.  It carries @code{isMeta} and
+@code{isCompactSummary} for the same reason from the other side: the
+render pass cannot ask for a field the projection did not emit, and those
+fields are what mark a harness injection.
 
 @strong{It carries the id of each task a session starts and each one it
 hears back from, and nothing else of either.}  A background shell and a
@@ -509,9 +509,10 @@ harness injected and on nothing the operator typed — so the turn Claude
 Code writes when he invokes a skill by typing its slash command carries
 no mark, and is quoted, marked and indexed as any turn of his is.  A
 pattern in the body would decide the opposite, and would be deciding it
-about his own words.  The one injection the harness leaves unmarked says
-what it is in the first characters of its text, and the section below is
-where that is read.
+about his own words.  A compaction summary carries a mark of its own
+instead.  The one injection the harness leaves unmarked says what it
+is in the first characters of its text, and the section below is where
+that is read.
 
 @strong{A skill load is worth one line, and the skill's own name is that
 line.}  Both ways into a skill — the @code{Skill} tool and the slash
@@ -534,6 +535,20 @@ nothing the summary does not already say in its own words — so the line
 is the summary and nothing else.  A notification carrying no summary
 renders nothing at all, having nothing to say.  A summary sits on one
 line, and a notification carrying none is a @code{<fork-source>} notice.
+
+@strong{A compaction summary renders to the one line @samp{● Conversation
+compacted}, and none of the summary reaches the buffer.}  When a session
+compacts, at the operator's @code{/compact} or on its own, Claude Code
+writes the summary the agent goes on from as one @code{user} record.
+@strong{@code{isCompactSummary} is what marks it}, and it carries no
+@code{isMeta}.  Its text opens with @samp{This session is being continued
+from a previous conversation that ran out of context.}, and matching that
+would take a turn of the operator's quoting the sentence for a
+compaction.  The summary is addressed to the agent and none of it is
+projected.  A manual compaction also stands under his @code{/compact}
+turn, and its @samp{Compacted} output renders nothing as any local
+command's does; an automatic one leaves nothing else, so the line is the
+only sign it happened.
 
 @strong{Every other injection renders nothing at all.}  A constant line
 saying an injection happened carries no information, and the caveat and
