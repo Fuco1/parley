@@ -748,8 +748,10 @@ Seventy columns as they are drawn, and not seventy characters:
 the name of a session working in a Japanese or Chinese tree is
 drawn two columns to the glyph, and a column counted in
 characters would put that row's status past every other row's.
-Cut, such a name is the glyphs that fit before the ellipsis and
-a space where half a glyph would have been."
+Cut, such a name is the glyphs that fit, a space where half a
+glyph would have been, and then the ellipsis: the ellipsis is the
+last display column of the name on every row it is drawn on, the
+space in the name's face like the rest of the column."
   (cl-flet ((row (name)
               (parley-session-row
                (list :name name :status "idle" :mark "" :window "3.1"))))
@@ -773,7 +775,13 @@ a space where half a glyph would have been."
       (should (string-prefix-p (concat (make-string 69 ?n) "…  idle") long))
       (should-not (string-search "tail" long))
       (should (equal (get-text-property 69 'face long) 'parley-row-name))
-      (should (string-prefix-p (concat (make-string 34 ?追) "… ") long-wide)))))
+      (should (string-prefix-p (concat (make-string 34 ?追) " …  idle")
+                               long-wide))
+      (dolist (row (list long long-wide))
+        (should (= (parley-test--display-column row "…") 69))
+        (should (equal (get-text-property 0 'face row) 'parley-row-name))
+        (should (= (next-single-property-change 0 'face row)
+                   (1+ (string-match-p "…" row))))))))
 
 (ert-deftest parley-test-a-status-never-runs-past-its-column ()
   "A status of any length leaves the window after it in line.

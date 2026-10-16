@@ -564,12 +564,22 @@ written in a script drawn two columns to the glyph lines up with
 the rest of the list only if it is measured the way it is drawn.
 
 STRING wider than WIDTH is cut to it, with an ellipsis in FACE as
-its last: a string drawn whole would push the columns after it
-along that one row, and the columns exist to be read down."
-  (let ((cut (truncate-string-to-width string width nil nil
-                                       (propertize "…" 'face face))))
-    (concat cut (propertize (make-string (- width (string-width cut)) ?\s)
-                            'face face))))
+its last display column: a string drawn whole would push the
+columns after it along that one row, and the columns exist to be
+read down.  A glyph two columns wide that does not fit before the
+ellipsis leaves a space in its place, ahead of the ellipsis, so
+the ellipsis ends the column on every row it is drawn in."
+  (let* ((ellipsis (if (> (string-width string) width)
+                       (propertize "…" 'face face)
+                     ""))
+         (head (truncate-string-to-width
+                string (- width (string-width ellipsis)))))
+    (concat head
+            (propertize (make-string (- width (string-width head)
+                                        (string-width ellipsis))
+                                     ?\s)
+                        'face face)
+            ellipsis)))
 
 (defun parley-session-row (fields &optional open)
   "Return FIELDS as one row of three faced columns.
