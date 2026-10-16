@@ -20,8 +20,7 @@ parley is for reading what it said.
 - `M-x parley-switch` picks a live session and opens its conversation. The
   sessions waiting on you are listed first, then the idle ones, then the busy.
   With sallet it matches the columns one at a time: `orc` for the name,
-  `/worker-2` for the working directory, `@orc-b3:3.1` for the tmux window a
-  session is in, `:idle` for the status. Every column is coloured apart and
+  `@3.1` for the window and pane a session is in, `:idle` for the status. Every column is coloured apart and
   the status by what it says, so the busy session and the one waiting on you
   are seen rather than read for. A session you already have a buffer for has
   its name in a colour of its own.

@@ -1968,11 +1968,11 @@ and never the objects."
 
 (defun parley-transcript--buffer-name (session)
   "Return the name of the buffer that follows SESSION.
-The name carries the session's name and its tag, which is the two
-the switcher lists it under.  The name `claude agents' gives a
-session is not unique -- two in sibling worktrees come back under
-one, and two live sessions can even share a pane -- so what makes
-this name one session's own is `parley-session-tag'."
+The name carries the session's name and its tag.  The name
+`claude agents' gives a session is not unique -- two in sibling
+worktrees come back under one, and two live sessions can even
+share a pane -- so what makes this name one session's own is
+`parley-session-tag'."
   (format "*parley: %s %s*"
           (parley-session-name session)
           (parley-session-tag session)))
