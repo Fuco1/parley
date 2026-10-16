@@ -39,9 +39,19 @@ commands = [
   '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -l bytecomp --eval '(mapc (quote delete-file) (directory-files-recursively default-directory "[.]elc$"))' --eval '(let ((byte-compile-error-on-warn t)) (when (memq nil (mapcar (quote byte-compile-file) (directory-files-recursively default-directory "[.]el$"))) (kill-emacs 1)))' ''',
 ]
 
+# The tests run with sallet loaded, and the compile above runs without it.  The
+# matcher sends a token to a column by its sigil, and that dispatch is sallet's:
+# a test of it skips without sallet, and a skipped test asserts nothing.  The
+# `require' is hard so that a machine missing sallet fails the run instead of
+# skipping those tests quietly.  sallet and the libraries it loads are each a
+# directory of the straight build, for the reason markdown-mode is.  The
+# fallback to `completing-read' is still tested here: that test removes the
+# sallet source itself.  The compile is what proves parley builds without
+# sallet, so it is kept off that command's load path.
+
 [checks.test]
 commands = [
-  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" --eval '(dolist (f (file-expand-wildcards "test/*.el" t)) (load f))' -f ert-run-tests-batch-and-exit''',
+  '''emacs -Q --batch -L . -L "$HOME/.emacs.d/straight/build/markdown-mode" -L "$HOME/.emacs.d/straight/build/sallet" -L "$HOME/.emacs.d/straight/build/dash" -L "$HOME/.emacs.d/straight/build/s" -L "$HOME/.emacs.d/straight/build/async" -L "$HOME/.emacs.d/straight/build/flx" -L "$HOME/.emacs.d/straight/build/ov" -L "$HOME/.emacs.d/straight/build/f" --eval '(require (quote sallet))' --eval '(dolist (f (file-expand-wildcards "test/*.el" t)) (load f))' -f ert-run-tests-batch-and-exit''',
 ]
 
 # checkdoc reads the source and loads none of it, so its quoting checks, which

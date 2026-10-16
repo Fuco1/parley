@@ -13,11 +13,11 @@
 ;; `parley-session-fields' -- which lives below both frontends,
 ;; because `parley-transcript' reads a session too.
 ;;
-;; sallet is not on the load path of the check that runs these, which
-;; is exactly the environment the `completing-read' fallback exists
-;; for, and the test of that fallback removes the sallet source even
-;; when it is there.  The one test that needs sallet itself to run
-;; says so with `skip-unless'; put sallet on the load path to see it.
+;; The check that runs these loads sallet, so the matcher is asked
+;; through sallet's own dispatch.  The test of the `completing-read'
+;; fallback removes the sallet source, which is the environment that
+;; fallback exists for.  What needs sallet itself to run says so with
+;; `featurep', so a run by hand without sallet skips it.
 
 ;;; Code:
 
