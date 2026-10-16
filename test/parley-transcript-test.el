@@ -1048,24 +1048,31 @@ the next."
 
 A turn that mentions the tag carries no pair of one id, so it is
 quoted as written, tag and all: one whose block is closed under
-another id, and one that nothing closes."
+another id, one that nothing closes, and one whose closing tag
+has prose after it on its line, which is no closing line."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session
       (list (parley-transcript-test--prompt
              (concat "<pasted_content id=\"c192\">\nwhat is this\n"
                      "</pasted_content id=\"d228\">"))
             (parley-transcript-test--prompt
-             "it opens with\n<pasted_content id=\"c192\">\nand nothing closes it"))
+             "it opens with\n<pasted_content id=\"c192\">\nand nothing closes it")
+            (parley-transcript-test--prompt
+             (concat "<pasted_content id=\"c192\">\nbody\n"
+                     "</pasted_content id=\"c192\"> prose")))
     (should (equal (parley-transcript-test--wait
                     (lambda ()
                       (let ((shown (parley-transcript-test--shown buffer)))
-                        (and (= 6 (length shown)) shown))))
+                        (and (= 9 (length shown)) shown))))
                    (list "❯ <pasted_content id=\"c192\">"
                          "❯ what is this"
                          "❯ </pasted_content id=\"d228\">"
                          "❯ it opens with"
                          "❯ <pasted_content id=\"c192\">"
-                         "❯ and nothing closes it")))))
+                         "❯ and nothing closes it"
+                         "❯ <pasted_content id=\"c192\">"
+                         "❯ body"
+                         "❯ </pasted_content id=\"c192\"> prose")))))
 
 
 (ert-deftest parley-transcript-test-renders-a-task-notification-as-its-summary ()

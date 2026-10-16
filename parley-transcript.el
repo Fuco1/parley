@@ -609,18 +609,22 @@ paste.
 
 An opening line with no closing line of its ID after it is left
 as written: it is a turn of his that mentions the tag, and those
-are his own words.
+are his own words.  A closing tag with more on its line after it
+is not a closing line.
 
-The closing line is found with `string-search' and not by the
-regexp: a paste can be any length, and a regexp spanning one runs
-the matcher out of stack on a long one."
+The closing line is looked up on its own, past the opening one,
+and not by a regexp spanning the block: a paste can be any
+length, and a regexp spanning one runs the matcher out of stack
+on a long one."
   (let ((from 0))
     (while (string-match parley-transcript--paste-rx text from)
       (let* ((open (match-beginning 0))
              (body (match-end 0))
              (close (format "\n</pasted_content id=\"%s\">"
                             (match-string 1 text)))
-             (end (string-search close text body)))
+             (end (and (string-match (concat (regexp-quote close) "$")
+                                     text body)
+                       (match-beginning 0))))
         (if (not end)
             (setq from body)
           ;; Matches at its start whatever follows, empty if need be.
