@@ -160,7 +160,8 @@ Nil for a pane that answer holds nothing for, and nil for every
 pane while tmux has not been asked since the sessions were last
 listed.  This never asks it: asking runs `tmux list-panes -a',
 and a caller on every redisplay cannot pay a subprocess each
-time.  `parley-session-tag' is what asks."
+time.  `parley-session-fields' and `parley-session-tag' are what
+ask."
   (and (listp parley--pane-locations)
        (cdr (assoc pane parley--pane-locations))))
 
@@ -225,8 +226,8 @@ A record is a plist with these keys:
 Sessions whose standard input is not a terminal are headless
 children -- a lane running `claude -p' -- and are left out."
   ;; The pane locations go back to unasked and are not resolved here:
-  ;; what needs one is the tag, and a list nothing tags asks tmux
-  ;; nothing at all.
+  ;; what needs one is a row or a tag, and a list nothing draws asks
+  ;; tmux nothing at all.
   (setq parley--pane-locations 'unasked)
   (delq nil (mapcar #'parley--session (parley--agents))))
 
@@ -439,12 +440,17 @@ about the second, so it is not what the mark can be read from."
 
 (defun parley-session-fields (session)
   "Return the columns SESSION is listed and matched by.
-A plist of five strings, one keyword per column: `:name', `:status',
-`:mark' saying it cannot be typed into, `:directory' for its
-working directory and `:tag' -- where its pane is and its session
-id, see `parley-session-tag'.
-The tag is matched as one string, so a token naming a tmux window
-finds the session running in it.
+A plist of four strings, one keyword per column: `:name',
+`:status', `:mark' saying it cannot be typed into, and `:window'
+for the WINDOW.PANE of its pane -- the location
+`parley--pane-location' resolves the record's `:pane' to, without
+the tmux session.  `:window' is the empty string for a session
+with no pane and for one whose pane tmux does not report.
+
+The name is the whole name, though `parley-session-row' cuts a
+long one to its column: what the sallet matcher reads is this
+plist, so a word in the part of a name the row cuts off still
+finds the session.
 
 The name is taken from `parley-session-name' and the mark from
 `parley-session-mark', with the empty string for a session that
@@ -461,12 +467,15 @@ parley does not name, or that `claude agents' reported none for,
 is listed `unknown'.  Nothing in a session record is guaranteed
 to be there, so that placeholder is chosen once here rather than
 by each frontend."
-  (list :name (parley-session-name session)
-        :status (symbol-name
-                 (parley--status-value (plist-get session :status)))
-        :mark (or (parley-session-mark session) "")
-        :directory (abbreviate-file-name (plist-get session :cwd))
-        :tag (parley-session-tag session)))
+  (let* ((pane (plist-get session :pane))
+         (location (and pane (parley--pane-location pane))))
+    (list :name (parley-session-name session)
+          :status (symbol-name
+                   (parley--status-value (plist-get session :status)))
+          :mark (or (parley-session-mark session) "")
+          ;; tmux takes the colons out of a session name, so the last
+          ;; colon of a location is the one after the tmux session.
+          :window (if location (car (last (split-string location ":"))) ""))))
 
 (defun parley-session-buffer (session)
   "Return the live buffer that follows SESSION, nil if there is none.
@@ -527,11 +536,8 @@ the next session in that pane would be handed it."
 (defface parley-row-read-only '((t :inherit font-lock-constant-face))
   "Face for the mark saying a session cannot be typed into.")
 
-(defface parley-row-directory '((t :inherit font-lock-string-face))
-  "Face for the working directory column of a session row.")
-
-(defface parley-row-tag '((t :inherit font-lock-comment-face))
-  "Face for the tag column of a session row.")
+(defface parley-row-window '((t :inherit font-lock-comment-face))
+  "Face for the column of a session row holding its pane's WINDOW.PANE.")
 
 (defun parley--status-face (value)
   "Return the face the status column draws VALUE in.
@@ -557,20 +563,24 @@ WIDTH is a display width and not a count of characters: a name
 written in a script drawn two columns to the glyph lines up with
 the rest of the list only if it is measured the way it is drawn.
 
-STRING is drawn whole, and one wider than WIDTH pushes the
-columns after it along that one row: a name and a working
-directory are what the operator picks a session by, and cutting
-either cuts the part that tells two sessions apart."
-  (let ((padding (max 0 (- width (string-width string)))))
-    (concat string (propertize (make-string padding ?\s) 'face face))))
+STRING wider than WIDTH is cut to it, with an ellipsis in FACE as
+its last: a string drawn whole would push the columns after it
+along that one row, and the columns exist to be read down."
+  (let ((cut (truncate-string-to-width string width nil nil
+                                       (propertize "…" 'face face))))
+    (concat cut (propertize (make-string (- width (string-width cut)) ?\s)
+                            'face face))))
 
 (defun parley-session-row (fields &optional open)
-  "Return FIELDS as one row of faced columns, the name first.
-FIELDS is a plist from `parley-session-fields'.  A row is what
-`completing-read' completes over, because it matches one flat
-string and the annotation has to be inside it; the sallet
-renderer draws the same row from the same fields.  The faces are
-on the string itself, so both frontends colour a session alike.
+  "Return FIELDS as one row of three faced columns.
+FIELDS is a plist from `parley-session-fields'.  The columns are
+the name, the status with the read only mark after it, and the
+WINDOW.PANE of the session's pane, which is empty for a session
+with no pane.  A row is what `completing-read' completes over,
+because it matches one flat string and the annotation has to be
+inside it; the sallet renderer draws the same row from the same
+fields.  The faces are on the string itself, so both frontends
+colour a session alike.
 
 OPEN non-nil says the session already has a buffer, which is
 what `parley-session-buffer' answers, and draws the name column
@@ -581,6 +591,13 @@ scans the list for.  Sessions named after a directory and a short
 suffix read alike in a list, and without the face a session he is
 already reading looks like one he never opened.
 
+The name column is seventy display columns wide, and a wider name
+is cut to it with an ellipsis as its last: a background agent is
+named after its prompt, and a name drawn whole pushes the status
+along its own row and out of line with every other row's.  The
+cut is in the row only, and the sallet matcher reads the whole
+name from FIELDS.
+
 The read only mark is drawn inside the status column, after the
 status, and has none of its own: a column of its own is blank on
 every session that has a pane, which is nearly all of them, and
@@ -588,16 +605,23 @@ what it holds reads as something about the status anyway.  Twelve
 columns is what the two come to together at their longest,
 \"waiting [RO]\" or \"unknown [RO]\": the column holds one of
 the values `parley--status-value' reads a status as, so a status
-parley does not name is listed `unknown' and never runs past it."
+parley does not name is listed `unknown' and never runs past it.
+
+Neither the working directory nor the tmux session is drawn: the
+sessions on a machine running one fleet share both, so either
+column would be one string repeated down the list.  Nor is the
+session id, which is not what the operator picks a session by.
+Two sessions can therefore draw one row, and each frontend keeps
+them apart itself: a sallet candidate carries its record, and
+`parley-read-session' numbers a row drawn again."
   (let* ((name (plist-get fields :name))
          (status (plist-get fields :status))
          (mark (plist-get fields :mark))
-         (directory (plist-get fields :directory))
-         (tag (plist-get fields :tag))
+         (window (plist-get fields :window))
          (name-face (if open 'parley-row-name-open 'parley-row-name))
          (status-face (parley--status-face (intern status))))
     (concat
-     (parley--column (propertize name 'face name-face) 50 name-face)
+     (parley--column (propertize name 'face name-face) 70 name-face)
      "  "
      (parley--column
       (if (equal mark "")
@@ -606,10 +630,7 @@ parley does not name is listed `unknown' and never runs past it."
                 (propertize mark 'face 'parley-row-read-only)))
       12 status-face)
      "  "
-     (parley--column (propertize directory 'face 'parley-row-directory)
-                     40 'parley-row-directory)
-     "  "
-     (propertize tag 'face 'parley-row-tag))))
+     (propertize window 'face 'parley-row-window))))
 
 (defun parley-read-session ()
   "Read one of the live sessions in the minibuffer and return its record.
@@ -619,24 +640,33 @@ This is the only `completing-read' over the sessions there is:
 a row is the same row and an empty list the same error whichever
 of them the operator reached for.
 
-The candidates are the rows of `parley-session-row', so each
-begins with the session name and carries its tag -- two sessions
-started in one repo come back under one name and one working
-directory, and without the tag they would be one candidate the
-`assoc' below resolves to whichever of them came first: a buffer
-showing one conversation and typing into the other one's pane.
-A session `parley-session-buffer' finds a buffer for has its row
-drawn open, as the sallet renderer draws it.
+The candidates are the rows of `parley-session-row', and a row
+drawn again is offered with \"<N>\" after it, N counting the
+sessions that drew that row so far.  Two live sessions can draw
+one: a session suspended in a pane and another started there
+share a name, a status and a window, and two background agents
+named after one prompt share a name and a status and have no
+pane.  A row is resolved back to its record by the string itself,
+so without the number they would be one candidate the `assoc'
+below resolves to whichever of them came first: a buffer showing
+one conversation and typing into the other one's pane.  A session
+`parley-session-buffer' finds a buffer for has its row drawn
+open, as the sallet renderer draws it.
 
 The completion metadata keeps the rows in the order
 `parley-sessions-by-status' put them in; the default would sort
 them alphabetically and lose the status order."
-  (let ((rows (mapcar (lambda (session)
-                        (cons (parley-session-row
-                               (parley-session-fields session)
-                               (parley-session-buffer session))
-                              session))
-                      (parley-sessions-by-status))))
+  (let ((drawn nil)
+        (rows nil))
+    (dolist (session (parley-sessions-by-status))
+      (let* ((row (parley-session-row (parley-session-fields session)
+                                      (parley-session-buffer session)))
+             (before (seq-count (lambda (other) (equal other row)) drawn)))
+        (push row drawn)
+        (push (cons (if (zerop before) row (format "%s <%d>" row (1+ before)))
+                    session)
+              rows)))
+    (setq rows (nreverse rows))
     (unless rows
       (user-error "No live Claude Code session"))
     (cdr (assoc (completing-read

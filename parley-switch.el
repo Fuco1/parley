@@ -32,11 +32,10 @@
 ;; The picker is built on sallet because a session is listed by
 ;; columns and a sallet source can match one column at a time: each
 ;; word typed goes to the column it names, so a word aimed at a name
-;; does not also match every session whose working directory or tag
-;; happens to hold it.  The columns of one machine's sessions share
-;; their words -- worktrees under one directory, panes in one tmux
-;; session -- so a word matched against a whole row can match every
-;; row on the list.
+;; does not also match every session whose status or window happens
+;; to hold it.  Every session in one status shares its word, and a
+;; window is digits a name can hold too, so a word matched against a
+;; whole row can match rows it was not aimed at.
 ;;
 ;; Only the picker gains from sallet, so parley does not require it.
 ;; Without sallet `parley-switch' picks with `parley-read-session', a
@@ -88,17 +87,17 @@ what makes the columns matchable one at a time."
 (defun parley-switch--matcher (candidates state)
   "Match session CANDIDATES against the prompt of STATE, column by column.
 A token is matched against the session name, unless it begins
-with / for the working directory, @ for the tag or : for the
-status.  The / is part of the pattern, because a path really does
-begin with one; the @ and the : are sigils the operator types to
-name a column and are stripped before matching -- a tag begins
-with the tmux session its pane is in, and a status is the word
-the row's status column shows.  Tokens are matched in sequence,
-so `orc /worker-2' is the session named orc in that worktree, and
-`orc @orc-b3:3' the one of that name in that window."
+with @ for the WINDOW.PANE of the session's pane or : for the
+status.  The @ and the : are sigils the operator types to name a
+column and are stripped before matching: a WINDOW.PANE is the one
+the row's last column shows, and a status is the word its status
+column shows.  Any other token is a word of the name, one
+beginning with / included, and is matched against the whole name
+and not the part of it a row has room for.  Tokens are matched in
+sequence, so `orc @3.1' is the session named orc in that window
+and pane."
   (sallet-compose-filters-by-pattern
-   `(("\\`/.*" ,(parley-switch--field-filter :directory))
-     ("\\`@\\(.*\\)" 1 ,(parley-switch--field-filter :tag))
+   `(("\\`@\\(.*\\)" 1 ,(parley-switch--field-filter :window))
      ("\\`:\\(.*\\)" 1 ,(parley-switch--field-filter :status))
      (t ,(parley-switch--field-filter :name)))
    candidates

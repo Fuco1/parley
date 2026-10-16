@@ -1308,9 +1308,9 @@ quoted and indexed as any turn of his is."
   "Called as a command with nothing in hand, it reads a session first.
 It reads it with `parley-read-session', which is the reader the
 switcher falls back to as well, so what the minibuffer offers is
-a row of that one's making -- the name, the status, the read only
-mark, the working directory and the tag.  The record that row
-resolves to is what the buffer ends up following."
+a row of that one's making -- the name, the status with the read
+only mark, and the window.  The record that row resolves to is
+what the buffer ends up following."
   (skip-unless (executable-find "jq"))
   (let* ((session (parley-transcript-test--session
                    "test" parley-transcript-test--lines))
@@ -1469,12 +1469,13 @@ was asked for."
 
 (ert-deftest parley-transcript-test-a-row-is-drawn-open-over-its-buffer ()
   "The row of a session with a buffer has its whole name column drawn open.
-The two sessions here share a name and a status, which is what
-sessions in sibling worktrees look like in a list.  One of them
-has a buffer, opened by `parley-transcript' itself, and its row in
-the `completing-read' fallback has its name column -- padding and
-all -- in `parley-row-name-open'.  The other has none and its row
-has it in `parley-row-name'.
+The two sessions here share a name and a status and have no
+pane, so they draw one row, and the fallback offers the second
+under a number; which is which is the order they are listed in.
+One of them has a buffer, opened by `parley-transcript' itself,
+and its row in the `completing-read' fallback has its name
+column -- padding and all -- in `parley-row-name-open'.  The
+other has none and its row has it in `parley-row-name'.
 
 The records the rows are built from are fresh copies, as
 `parley-sessions' returns them every time, so the buffer is found
@@ -1489,7 +1490,8 @@ session reuses, and once it is killed the row is plain again."
         (buffer nil))
     (cl-flet ((name-face (session)
                 ;; The face over the name column of SESSION's row, or
-                ;; nil if that column is not one face across all fifty.
+                ;; nil if that column is not one face across all
+                ;; seventy.
                 (let ((offered nil))
                   (cl-letf (((symbol-function 'parley-sessions)
                              (lambda ()
@@ -1500,12 +1502,8 @@ session reuses, and once it is killed the row is plain again."
                                (setq offered (all-completions "" collection))
                                (car offered))))
                     (parley-read-session))
-                  (let ((row (seq-find
-                              (lambda (row)
-                                (string-search (plist-get session :session-id)
-                                               row))
-                              offered)))
-                    (and (equal (next-single-property-change 0 'face row) 50)
+                  (let ((row (nth (if (eq session opened) 0 1) offered)))
+                    (and (equal (next-single-property-change 0 'face row) 70)
                          (get-text-property 0 'face row))))))
       (unwind-protect
           (progn
