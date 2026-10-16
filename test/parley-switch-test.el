@@ -8,16 +8,16 @@
 ;; none of them needs a live session, and no server the machine
 ;; happens to be running can answer instead.
 ;;
-;; The six records are what the sallet source is matched and rendered
-;; against, and the columns it draws them in are
+;; The seven records are what the sallet source is matched and
+;; rendered against, and the columns it draws them in are
 ;; `parley-session-fields' -- which lives below both frontends,
 ;; because `parley-transcript' reads a session too.
 ;;
-;; sallet is not on the load path of the check that runs these, which
-;; is exactly the environment the `completing-read' fallback exists
-;; for, and the test of that fallback removes the sallet source even
-;; when it is there.  The one test that needs sallet itself to run
-;; says so with `skip-unless'; put sallet on the load path to see it.
+;; The check that runs these loads sallet, so the matcher is asked
+;; through sallet's own dispatch.  The test of the `completing-read'
+;; fallback removes the sallet source, which is the environment that
+;; fallback exists for.  What needs sallet itself to run says so with
+;; `featurep', so a run by hand without sallet skips it.
 
 ;;; Code:
 
@@ -28,16 +28,18 @@
 
 ;;; Fixtures
 
-;; Six records as `parley-sessions' returns them, in an order no
+;; Seven records as `parley-sessions' returns them, in an order no
 ;; frontend should show them in.  Four share the name `orc-w1': that
 ;; is what sibling worktrees really look like.  Two of those four
 ;; share a working directory and a status as well and differ in
-;; nothing but their pane, which is two sessions started in one repo
-;; and the case a row without the pane's location cannot tell apart.
+;; nothing but their pane, which is two sessions started in one repo.
 ;; A third has no pane at all and a fourth a pane tmux does not
-;; report, so the tag of each falls back to its session id.  One
-;; record has neither name nor status, which is what `claude agents'
-;; reports for a session it knows none for.
+;; report, so neither row shows a window.  One record has neither
+;; name nor status, which is what `claude agents' reports for a
+;; session it knows none for.  And one is a background agent named
+;; after its prompt, wider than the name column: the word its name
+;; ends with is in the part a row cuts off, and a path in it names a
+;; worktree another session is working in.
 (defconst parley-switch-test--sessions
   (list (list :pid 1 :name "app-8e" :kind "interactive" :status "busy"
               :cwd (expand-file-name "dev/ydistri/Ydistri.Pairing" "~")
@@ -62,7 +64,14 @@
         (list :pid 6 :name "orc-w1" :kind "interactive" :status "idle"
               :cwd "/srv/orc/trees/worker-1/orc"
               :session-id "3333ffff-0000-4000-8000-000000000003"
-              :pane "%63" :transcript "/tmp/3333ffff.jsonl")))
+              :pane "%63" :transcript "/tmp/3333ffff.jsonl")
+        (list :pid 7
+              :name (concat "review the diff in /srv/orc/trees/worker-2/orc"
+                            " and say whether each of its new tests can fail")
+              :kind "background" :status "busy"
+              :cwd "/srv/orc/trees/worker-1/orc"
+              :session-id "4444ffff-0000-4000-8000-000000000004"
+              :pane nil :transcript "/tmp/4444ffff.jsonl")))
 
 (defconst parley-switch-test--pane-locations
   '(("%23" . "app%8e:1.0")
@@ -97,31 +106,6 @@ there, so BODY must not open a buffer over one."
                 (lambda () (copy-sequence parley-switch-test--sessions))))
        ,@body)))
 
-(defconst parley-switch-test--expected-tags
-  '((1 . "app%8e:1.0 eb6ab7cd-21e6-434f-9bf6-f561b5852de2")
-    (2 . "orc-b3743fe3:2.0 1111ffff-0000-4000-8000-000000000001")
-    (3 . "7c1d0f9a-0000-4000-8000-000000000003")
-    (4 . "orc-b3743fe3:3.1 2222ffff-0000-4000-8000-000000000002")
-    (5 . "9a5a5635-26c3-4705-b06e-4dc108d75439")
-    (6 . "3333ffff-0000-4000-8000-000000000003"))
-  "The tag each fixture session is listed and named under, by pid.
-A whole session id, and where the session's pane is before it
-when tmux reports one -- never the pane id itself, which is what
-`tmux send-keys -t' takes and nothing the operator can act on.
-These are written out rather than computed with
-`parley-session-tag', so that a test comparing a tag against one
-of them is comparing it against something a change to that
-function cannot move with it.
-
-One location carries a `%' because a tmux session name may: tmux
-3.2a sanitises `:' and `.' in one and nothing else, so a `%' in a
-tag is a session name's and never a pane id.")
-
-(defun parley-switch-test--tag (pid)
-  "Return the tag the fixture session whose pid is PID is listed under."
-  (cdr (assq pid parley-switch-test--expected-tags)))
-
-
 ;;; Without sallet
 
 (ert-deftest parley-switch-test-falls-back-to-completing-read ()
@@ -152,7 +136,7 @@ tested there, so the command is stubbed here."
         (should (equal (mapcar (lambda (row) (car (split-string row)))
                                (all-completions "" collection))
                        '("orc-w1" "orc-w1" "orc-w1" "app-8e" "orc-w1"
-                         "unnamed")))
+                         "review" "unnamed")))
         (should (eq (alist-get 'display-sort-function
                                (cdr (completion-metadata "" collection nil)))
                     #'identity))
@@ -173,20 +157,25 @@ tested there, so the command is stubbed here."
 ;;; With sallet
 
 (ert-deftest parley-switch-test-candidate-carries-the-record ()
-  "A candidate is its fields and the record itself, in switcher order."
+  "A candidate is its fields and the record itself, in switcher order.
+The windows are written out rather than computed, so a test
+comparing against them compares against something a change to
+the fields cannot move with it.  One location carries a `%'
+because a tmux session name may, and the window is what follows
+the session name all the same."
   (parley-switch-test--with-sessions
     (let ((candidates (parley-switch--candidates)))
       (should (equal (mapcar (lambda (candidate)
-                               (plist-get (car candidate) :tag))
+                               (plist-get (car candidate) :window))
                              candidates)
-                     (mapcar #'parley-switch-test--tag '(2 4 6 1 5 3))))
+                     '("2.0" "3.1" "" "1.0" "" "" "")))
       ;; The record travels with the candidate, so nothing has to look
       ;; a session up by a name four of them share.
       (should (eq (cdr (nth 1 candidates)) (parley-switch-test--session 4)))
       (should (equal (mapcar (lambda (candidate)
                                (plist-get (cdr candidate) :pid))
                              candidates)
-                     '(2 4 6 1 5 3))))))
+                     '(2 4 6 1 5 7 3))))))
 
 (ert-deftest parley-switch-test-renderer-draws-every-field ()
   "The rendered candidate begins with the name and shows all four fields.
@@ -199,7 +188,7 @@ faces and the renderer hands that row over as it is."
       (cl-loop for (_key field) on (car candidate) by #'cddr
                do (should (string-match-p (regexp-quote field) rendered)))
       (should (equal (get-text-property 0 'face rendered) 'parley-row-name))
-      (should (equal (get-text-property 52 'face rendered)
+      (should (equal (get-text-property 72 'face rendered)
                      'parley-row-status-idle)))))
 
 (ert-deftest parley-switch-test-renderer-draws-a-session-with-a-buffer-open ()
@@ -220,12 +209,13 @@ column, and the three sessions sharing its name are not."
                                 (get-text-property 0 'face row)
                                 (next-single-property-change 0 'face row))))
                       (parley-switch--candidates))
-                     '((2 parley-row-name 50)
-                       (4 parley-row-name-open 50)
-                       (6 parley-row-name 50)
-                       (1 parley-row-name 50)
-                       (5 parley-row-name 50)
-                       (3 parley-row-name 50)))))))
+                     '((2 parley-row-name 70)
+                       (4 parley-row-name-open 70)
+                       (6 parley-row-name 70)
+                       (1 parley-row-name 70)
+                       (5 parley-row-name 70)
+                       (7 parley-row-name 70)
+                       (3 parley-row-name 70)))))))
 
 (ert-deftest parley-switch-test-action-opens-the-candidate-session ()
   "Acting on a candidate shows the record it carries and no other.
@@ -259,60 +249,97 @@ matcher test below is skipped."
                             (funcall (parley-switch--field-filter key)
                                      candidates indices pattern))))
           (should (equal (pids :name "app") '(1)))
-          (should (equal (pids :status "working") '(1 5)))
+          (should (equal (pids :status "working") '(1 5 7)))
           ;; The column holds the value and not the string the
           ;; session wrote, so that string finds nothing.
           (should-not (pids :status "busy"))
-          (should (equal (pids :mark "[RO]") '(5 3)))
-          (should (equal (pids :directory "/worker-2") '(4)))
-          (should (equal (pids :tag "orc-b3743fe3") '(2 4)))
-          (dolist (pattern '("working" "[RO]" "/worker-2" "orc-b3743fe3"))
+          (should (equal (pids :mark "[RO]") '(5 7 3)))
+          (should (equal (pids :window "3.1") '(4)))
+          (should (equal (pids :window ".0") '(2 1)))
+          (dolist (pattern '("working" "[RO]" "3.1"))
             (should-not (pids :name pattern))))))))
 
+(ert-deftest parley-switch-test-a-word-cut-off-the-row-still-matches ()
+  "A word in the part of a name the row cuts off still finds the session.
+The cut is the row's, and the name column a token is matched
+against holds the whole name.  The background agent's name ends
+past the seventy columns its row has room for, so the rendered
+row carries neither its last word nor its last whole words, and
+a token naming either finds it.
+
+The name filter is called with `sallet-candidate-aref' stood in
+for, as the field filter test does, so this runs where sallet is
+not on the load path; with sallet there the matcher is asked as
+well."
+  (parley-switch-test--with-sessions
+    (let* ((candidates (vconcat (parley-switch--candidates)))
+           (indices (number-sequence 0 (1- (length candidates))))
+           (agent (aref candidates 5))
+           (row (parley-switch--renderer agent nil nil)))
+      (should (eq (cdr agent) (parley-switch-test--session 7)))
+      (should (string-match-p "…" row))
+      (should-not (string-search "fail" row))
+      (should-not (string-search "new tests" row))
+      (cl-letf (((symbol-function 'sallet-candidate-aref)
+                 (lambda (candidates index) (car (aref candidates index)))))
+        (dolist (pattern '("fail" "new tests"))
+          (should (equal (mapcar (lambda (index)
+                                   (plist-get (cdr (aref candidates index))
+                                              :pid))
+                                 (funcall (parley-switch--field-filter :name)
+                                          candidates indices pattern))
+                         '(7)))))
+      (when (featurep 'sallet)
+        (should (equal (mapcar (lambda (index)
+                                 (let ((index (if (consp index)
+                                                  (car index)
+                                                index)))
+                                   (plist-get (cdr (aref candidates index))
+                                              :pid)))
+                               (parley-switch--matcher
+                                candidates (list (cons 'prompt "fail"))))
+                       '(7)))))))
+
 (ert-deftest parley-switch-test-matcher-matches-columns ()
-  "Each column is matched on its own, and the prompt is matched in order."
+  "Each column is matched on its own, and the prompt is matched in order.
+An @ token is matched against the WINDOW.PANE a row draws and
+against nothing else: neither the tmux session the pane is in nor
+the session id finds a session.  A / token is a word of the name:
+the one the background agent's prompt holds finds it, and not the
+session whose working directory it names."
   (skip-unless (featurep 'sallet))
   (parley-switch-test--with-sessions
     (let ((candidates (vconcat (parley-switch--candidates))))
-      (cl-flet ((tags (prompt)
+      (cl-flet ((pids (prompt)
                   (mapcar
                    (lambda (index)
                      (let ((index (if (consp index) (car index) index)))
-                       (plist-get (car (aref candidates index)) :tag)))
+                       (plist-get (cdr (aref candidates index)) :pid)))
                    (parley-switch--matcher
                     candidates (list (cons 'prompt prompt))))))
-        (should (equal (tags "")
-                       (mapcar #'parley-switch-test--tag '(2 4 6 1 5 3))))
-        (should (equal (tags "orc-w1")
-                       (mapcar #'parley-switch-test--tag '(2 4 6 5))))
-        (should (equal (tags "/worker-2") (list (parley-switch-test--tag 4))))
-        ;; An @ token matches the tag, so a window finds the session
-        ;; running in it and a tmux session all of its windows --
-        ;; though the tag it matches carries the session id too.
-        (should (equal (tags "@orc-b3743fe3:2.0")
-                       (list (parley-switch-test--tag 2))))
-        (should (equal (tags "@orc-b3743fe3")
-                       (mapcar #'parley-switch-test--tag '(2 4))))
-        (should (equal (tags "@2222ffff")
-                       (list (parley-switch-test--tag 4))))
-        ;; A `%' in a location is the tmux session name's, so the
-        ;; column carries it and the @ token finds it.
-        (should (equal (tags "@app%8e:1.0")
-                       (list (parley-switch-test--tag 1))))
+        (should (equal (pids "") '(2 4 6 1 5 7 3)))
+        (should (equal (pids "orc-w1") '(2 4 6 5)))
+        (should (equal (pids "/worker-2") '(7)))
+        (should (equal (pids "/srv/orc/trees/worker-1") nil))
+        ;; An @ token matches the window, so a window and pane finds
+        ;; the session running in it, and a window all of its panes.
+        (should (equal (pids "@3.1") '(4)))
+        (should (equal (pids "@2.0") '(2)))
+        (should (equal (pids "@.0") '(2 1)))
+        ;; The window of a location whose tmux session carries a `%'.
+        (should (equal (pids "@1.0") '(1)))
+        (should (equal (pids "@orc-b3743fe3") nil))
+        (should (equal (pids "@2222ffff") nil))
         ;; And a pane id finds nothing at all: no column carries one,
         ;; so a % token is matched against the name like any other.
-        (should (equal (tags "%61") nil))
-        (should (equal (tags ":working")
-                       (mapcar #'parley-switch-test--tag '(1 5))))
-        (should (equal (tags ":busy") nil))
-        (should (equal (tags ":idle")
-                       (mapcar #'parley-switch-test--tag '(2 4 6))))
-        (should (equal (tags "orc-w1 /worker-1")
-                       (mapcar #'parley-switch-test--tag '(2 6))))
-        (should (equal (tags "/worker-1 @orc-b3743fe3:2")
-                       (list (parley-switch-test--tag 2))))
-        (should (equal (tags "orc-w1 @app-8e") nil))
-        (should (equal (tags "nothing") nil))))))
+        (should (equal (pids "%61") nil))
+        (should (equal (pids ":working") '(1 5 7)))
+        (should (equal (pids ":busy") nil))
+        (should (equal (pids ":idle") '(2 4 6)))
+        (should (equal (pids "orc-w1 @3") '(4)))
+        (should (equal (pids ":idle @.0") '(2)))
+        (should (equal (pids "orc-w1 @app-8e") nil))
+        (should (equal (pids "nothing") nil))))))
 
 (provide 'parley-switch-test)
 ;;; parley-switch-test.el ends here

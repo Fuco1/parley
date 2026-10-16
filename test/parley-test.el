@@ -491,30 +491,31 @@ come out in the order discovery returned them in."
                              (parley-sessions-by-status))
                      '(5 3 1 6 2 4))))))
 
-(ert-deftest parley-test-a-session-is-five-fields ()
-  "A session is five fields: name, status, mark, directory, tag."
+(ert-deftest parley-test-a-session-is-four-fields ()
+  "A session is four fields: name, status, mark and window.
+The window is the WINDOW.PANE of the session's pane, without the
+tmux session in front of it, and the empty string for a session
+with no pane and for one whose pane tmux does not report."
   (let ((parley--pane-locations parley-test--pane-locations))
     (should (equal (parley-session-fields
                     (list :name "orc-w1" :status "idle" :pane "%61"
                           :cwd "/srv/orc/trees/worker-1/orc"
                           :session-id "1111ffff-0001"))
                    (list :name "orc-w1" :status "idle" :mark ""
-                         :directory "/srv/orc/trees/worker-1/orc"
-                         :tag "orc-orc-b3743fe3:3.1 1111ffff-0001")))
-    ;; The working directory is shown the way the operator writes it.
+                         :window "3.1")))
     (should (equal (plist-get (parley-session-fields
-                               (list :cwd (expand-file-name
-                                           "dev/ydistri/Ydistri.Pairing" "~")))
-                              :directory)
-                   "~/dev/ydistri/Ydistri.Pairing"))
+                               (list :name "orc-w1" :status "idle"
+                                     :pane "%999" :cwd "/srv/orc"
+                                     :session-id "3333ffff-0003"))
+                              :window)
+                   ""))
     ;; A name and a status `claude agents' did not report still leave
-    ;; five fields, and the tag column falls back to the session id.
+    ;; four fields.
     (should (equal (parley-session-fields
                     (list :name nil :status nil :pane nil :cwd "/srv/matus"
                           :session-id "7c1d0f9a-0003"))
                    (list :name "unnamed" :status "unknown" :mark "[RO]"
-                         :directory "/srv/matus"
-                         :tag "7c1d0f9a-0003")))))
+                         :window "")))))
 
 (ert-deftest parley-test-a-placeholder-stands-in-only-for-what-is-missing ()
   "The name placeholder and the read only mark each stand in for one field.
@@ -548,8 +549,8 @@ started outside tmux is as unreachable as a background agent
 dispatched from the agent view.
 
 It is read from the pane and not from its location either: one
-session here has a pane tmux reports nothing for, so its tag is
-its session id alone, and `send-keys -t' still takes that pane."
+session here has a pane tmux reports nothing for, so its row has
+no window to show, and `send-keys -t' still takes that pane."
   (let ((parley--pane-locations parley-test--pane-locations))
     (dolist (session (list (list :name "app-8e" :kind "interactive"
                                  :status "busy" :pane nil :cwd "/srv/app"
@@ -572,50 +573,49 @@ its session id alone, and `send-keys -t' still takes that pane."
         (should-not (string-match-p "\\[RO\\]"
                                     (parley-session-row fields)))))))
 
-(ert-deftest parley-test-row-begins-with-the-name ()
-  "Every row begins with the session name and carries every field."
-  (let ((parley--pane-locations parley-test--pane-locations))
-    (dolist (session (list (list :name "orc-w1" :status "idle" :pane "%61"
-                                 :cwd "/srv/orc/trees/worker-1/orc"
-                                 :session-id "1111ffff-0001")
-                           (list :name "app-8e" :status "busy" :pane "%999"
-                                 :cwd (expand-file-name "dev/app" "~")
-                                 :session-id "eb6ab7cd-0002")
-                           (list :name nil :status nil :pane nil
-                                 :cwd "/srv/matus"
-                                 :session-id "7c1d0f9a-0003")))
-      (let* ((fields (parley-session-fields session))
-             (row (parley-session-row fields)))
-        (should (string-prefix-p (plist-get fields :name) row))
-        (cl-loop for (_key field) on fields by #'cddr
-                 do (should (string-match-p (regexp-quote field) row)))))))
+(ert-deftest parley-test-a-row-is-the-name-the-status-and-the-window ()
+  "A row is three columns: the name, the status and the window.
+The status carries the read only mark after it, and the window
+is the WINDOW.PANE of the session's pane, empty for a session
+with no pane and for one whose pane tmux does not report.
 
-(ert-deftest parley-test-rows-are-unique ()
-  "No two sessions produce the same row, name sharing or not."
-  (let* ((parley--pane-locations parley-test--pane-locations)
-         (sessions (list (list :name "orc-w1" :status "idle" :pane "%61"
-                               :cwd "/srv/orc/trees/worker-1/orc"
-                               :session-id "1111ffff-0001")
-                         (list :name "orc-w1" :status "idle" :pane "%999"
-                               :cwd "/srv/orc/trees/worker-1/orc"
-                               :session-id "3333ffff-0003")
-                         (list :name "orc-w1" :status "idle" :pane "%238"
-                               :cwd "/srv/orc/trees/worker-2/orc"
-                               :session-id "2222ffff-0002")
-                         (list :name "app-8e" :status "busy" :pane nil
-                               :cwd "/srv/app" :session-id "eb6ab7cd-0004")))
-         (rows (mapcar (lambda (session)
-                         (parley-session-row (parley-session-fields session)))
-                       sessions)))
-    (should (equal (length (delete-dups (copy-sequence rows)))
-                   (length sessions)))))
+The rows are written out whole, so a column added anywhere, or
+one dropped, is a row that differs.  And what the records carry
+beyond those three is in no row: not the working directory, not
+the tmux session the pane is in and not the session id."
+  (let ((parley--pane-locations parley-test--pane-locations)
+        (sessions (list (list :name "orc-w1" :status "idle" :pane "%61"
+                              :cwd "/srv/orc/trees/worker-1/orc"
+                              :session-id "1111ffff-0001")
+                        (list :name "app-8e" :status "busy" :pane "%999"
+                              :cwd (expand-file-name "dev/app" "~")
+                              :session-id "eb6ab7cd-0002")
+                        (list :name nil :status nil :pane nil
+                              :cwd "/srv/matus"
+                              :session-id "7c1d0f9a-0003"))))
+    (should (equal (mapcar (lambda (session)
+                             (parley-session-row
+                              (parley-session-fields session)))
+                           sessions)
+                   (list (concat "orc-w1" (make-string 64 ?\s)
+                                 "  idle" (make-string 8 ?\s) "  3.1")
+                         (concat "app-8e" (make-string 64 ?\s)
+                                 "  working" (make-string 5 ?\s) "  ")
+                         (concat "unnamed" (make-string 63 ?\s)
+                                 "  unknown [RO]  "))))
+    (dolist (session sessions)
+      (let ((row (parley-session-row (parley-session-fields session))))
+        (dolist (absent (list (plist-get session :cwd)
+                              (abbreviate-file-name (plist-get session :cwd))
+                              "orc-orc-b3743fe3"
+                              (plist-get session :session-id)))
+          (should-not (string-search absent row)))))))
 
-;; The offsets below are the columns themselves: the name is 50 wide
-;; and the status 12, the working directory 40, and two spaces stand
-;; between one column and the next.  So a row begins its name at 0,
-;; its status at 52, its working directory at 66 and its tag at 108,
-;; and a test that reads a face at one of those is reading the column
-;; the width puts there.
+;; The offsets below are the columns themselves: the name is 70 wide
+;; and the status 12, and two spaces stand between one column and the
+;; next.  So a row begins its name at 0, its status at 72 and its
+;; window at 86, and a test that reads a face at one of those is
+;; reading the column the width puts there.
 
 (defun parley-test--display-column (row string)
   "Return the display column ROW draws STRING at.
@@ -626,7 +626,7 @@ it."
   (string-width (substring row 0 (string-match-p (regexp-quote string) row))))
 
 (ert-deftest parley-test-every-column-is-faced-apart ()
-  "Each of the four columns of a row carries a face of its own.
+  "Each of the three columns of a row carries a face of its own.
 The faces are on the row `parley-session-row' returns and not put
 there by whatever draws it, so the `completing-read' fallback
 shows what the sallet source shows.
@@ -648,28 +648,25 @@ differ."
                  (list :name "app-8e" :status "busy" :pane "%61"
                        :cwd "/srv/app" :session-id "eb6ab7cd-0001")))))
       (should (equal (get-text-property 0 'face row) 'parley-row-name))
-      (should (equal (get-text-property 52 'face row)
+      (should (equal (get-text-property 72 'face row)
                      'parley-row-status-working))
-      (should (equal (get-text-property 66 'face row) 'parley-row-directory))
-      (should (equal (get-text-property 108 'face row) 'parley-row-tag))
-      ;; Where each run ends: the name at 50, the status at 64 and
-      ;; the working directory at 106, which is each column's own
-      ;; width and none of the gap after it.  The tag is last and
-      ;; runs to the end of the row.
-      (should (equal (next-single-property-change 0 'face row) 50))
-      (should (equal (next-single-property-change 50 'face row) 52))
-      (should (equal (next-single-property-change 52 'face row) 64))
-      (should (equal (next-single-property-change 64 'face row) 66))
-      (should (equal (next-single-property-change 66 'face row) 106))
-      (should (equal (next-single-property-change 106 'face row) 108))
-      (should-not (next-single-property-change 108 'face row))
-      (dolist (gap '(50 51 64 65 106 107))
+      (should (equal (get-text-property 86 'face row) 'parley-row-window))
+      ;; Where each run ends: the name at 70 and the status at 84,
+      ;; which is each column's own width and none of the gap after
+      ;; it.  The window is last and runs to the end of the row.
+      (should (equal (next-single-property-change 0 'face row) 70))
+      (should (equal (next-single-property-change 70 'face row) 72))
+      (should (equal (next-single-property-change 72 'face row) 84))
+      (should (equal (next-single-property-change 84 'face row) 86))
+      (should-not (next-single-property-change 86 'face row))
+      (should (equal (substring row 86) "3.1"))
+      (dolist (gap '(70 71 84 85))
         (should-not (get-text-property gap 'face row))))))
 
 (ert-deftest parley-test-an-open-row-faces-its-name-column-and-nothing-else ()
   "A row drawn open has its whole name column in a face of its own.
 The padding after a short name is the name column too, so the
-face runs the whole fifty and not the length of the name.
+face runs the whole seventy and not the length of the name.
 
 The rest of the row is the rest of the row built from the same
 fields and not drawn open, face for face: the status colours
@@ -679,15 +676,15 @@ so a face that leaked past the name into one of them is found."
   (dolist (status '("idle" "working" "waiting" "unknown"))
     (dolist (mark '("" "[RO]"))
       (let* ((fields (list :name "orc-b3" :status status :mark mark
-                           :directory "/srv/orc" :tag "orc:1.0 1111ffff"))
+                           :window "1.0"))
              (plain (parley-session-row fields))
              (open (parley-session-row fields t)))
         (should (equal (get-text-property 0 'face open) 'parley-row-name-open))
-        (should (equal (next-single-property-change 0 'face open) 50))
+        (should (equal (next-single-property-change 0 'face open) 70))
         (should (equal (get-text-property 0 'face plain) 'parley-row-name))
-        (should (equal (next-single-property-change 0 'face plain) 50))
-        (should (equal-including-properties (substring open 50)
-                                            (substring plain 50)))))))
+        (should (equal (next-single-property-change 0 'face plain) 70))
+        (should (equal-including-properties (substring open 70)
+                                            (substring plain 70)))))))
 
 (ert-deftest parley-test-finds-no-buffer-without-the-view-loaded ()
   "Asking for a session's buffer with only `parley' loaded answers nil.
@@ -726,8 +723,8 @@ colour rather than one of theirs."
                                   (list :name "orc-w1" :status status
                                         :pane "%61" :cwd "/srv/orc"
                                         :session-id "1111ffff-0001")))))
-                       (list (car (split-string (substring row 52 64)))
-                             (get-text-property 52 'face row))))
+                       (list (car (split-string (substring row 72 84)))
+                             (get-text-property 72 'face row))))
                    '("idle" "busy" "waiting" "compacting" nil))))
       (should (equal columns '(("idle" parley-row-status-idle)
                                ("working" parley-row-status-working)
@@ -736,88 +733,90 @@ colour rather than one of theirs."
                                ("unknown" parley-row-status-other))))
       (should (equal (length (delete-dups (mapcar #'cadr columns))) 4)))))
 
-(ert-deftest parley-test-the-name-column-is-fifty-wide ()
-  "A short name puts the status where a fifty-character name does.
-Fifty is what the name is padded to, so the columns after it line
-up down the list whatever the sessions are called.
+(ert-deftest parley-test-the-name-column-is-seventy-wide ()
+  "Every name puts the status where a seventy-column name does.
+Seventy is what the name is padded to, and what a wider one is
+cut to, so the status after it lines up down the list whatever
+the sessions are called.
 
-Fifty columns as they are drawn, and not fifty characters: the
-name of a session working in a Japanese or Chinese tree is drawn
-two columns to the glyph, and a column counted in characters
-would put that row's status two columns past every other row's.
+A name wider than seventy columns is drawn as its first
+sixty-nine and an ellipsis: a background agent is named after its
+prompt, and a name drawn whole would push its row's status out
+of line with every other row's.
 
-A name longer than fifty is drawn whole and pushes the rest of
-its own row along: a background agent is named after its prompt,
-and cutting the name cuts the one handle the operator has on the
-session."
-  (let ((short (parley-session-row
-                (list :name "orc-w1" :status "idle" :mark ""
-                      :directory "/srv/orc" :tag "tag")))
-        (fifty (parley-session-row
-                (list :name (make-string 50 ?n) :status "idle" :mark ""
-                      :directory "/srv/orc" :tag "tag")))
-        (wide (parley-session-row
-               (list :name "追跡" :status "idle" :mark ""
-                     :directory "/srv/orc" :tag "tag")))
-        (long (parley-session-row
-               (list :name (make-string 62 ?n) :status "idle" :mark ""
-                     :directory "/srv/orc" :tag "tag"))))
-    (dolist (row (list short fifty wide))
-      (should (= (parley-test--display-column row "idle") 52))
-      (should (equal (get-text-property (string-match-p "idle" row) 'face row)
-                     'parley-row-status-idle)))
-    ;; Four display columns of name and four characters of it, so
-    ;; the row a character count lines up is the row it lines up
-    ;; wrong: its status would start two columns late.
-    (should (= (string-width "追跡") 4))
-    (should (string-prefix-p (make-string 62 ?n) long))
-    (should (= (parley-test--display-column long "idle") 64))))
+Seventy columns as they are drawn, and not seventy characters:
+the name of a session working in a Japanese or Chinese tree is
+drawn two columns to the glyph, and a column counted in
+characters would put that row's status past every other row's.
+Cut, such a name is the glyphs that fit, a space where half a
+glyph would have been, and then the ellipsis: the ellipsis is the
+last display column of the name on every row it is drawn on, the
+space in the name's face like the rest of the column."
+  (cl-flet ((row (name)
+              (parley-session-row
+               (list :name name :status "idle" :mark "" :window "3.1"))))
+    (let ((short (row "orc-w1"))
+          (seventy (row (make-string 70 ?n)))
+          (wide (row "追跡"))
+          (long (row (concat (make-string 69 ?n) "tail")))
+          (long-wide (row (make-string 40 ?追))))
+      (dolist (row (list short seventy wide long long-wide))
+        (should (= (parley-test--display-column row "idle") 72))
+        (should (equal (get-text-property (string-match-p "idle" row) 'face row)
+                       'parley-row-status-idle)))
+      ;; Four display columns of name and two characters of it, so
+      ;; the row a character count lines up is the row it lines up
+      ;; wrong: its status would start two columns late.
+      (should (= (string-width "追跡") 4))
+      ;; A name of exactly seventy is not cut.
+      (should (string-prefix-p (concat (make-string 70 ?n) "  idle") seventy))
+      ;; A wider one is cut to seventy with an ellipsis as the last,
+      ;; and the ellipsis is the name column's and is faced like it.
+      (should (string-prefix-p (concat (make-string 69 ?n) "…  idle") long))
+      (should-not (string-search "tail" long))
+      (should (equal (get-text-property 69 'face long) 'parley-row-name))
+      (should (string-prefix-p (concat (make-string 34 ?追) " …  idle")
+                               long-wide))
+      (dolist (row (list long long-wide))
+        (should (= (parley-test--display-column row "…") 69))
+        (should (equal (get-text-property 0 'face row) 'parley-row-name))
+        (should (= (next-single-property-change 0 'face row)
+                   (1+ (string-match-p "…" row))))))))
 
 (ert-deftest parley-test-a-status-never-runs-past-its-column ()
-  "A status of any length leaves the columns after it in line.
+  "A status of any length leaves the window after it in line.
 A status of any length at all is what `claude agents' may report
-tomorrow, and the one thing it may not do is carry every column
-after it out of line on that row.  It is listed as the value it
-is read as, `unknown', which fits the status column with the
-read only mark beside it, so no column is cut -- a name and a
-working directory are what the operator picks a session by, and
-both are drawn whole."
+tomorrow, and the one thing it may not do is carry the window out
+of line on that row.  It is listed as the value it is read as,
+`unknown', which fits the status column with the read only mark
+beside it, so the status is never cut."
   (let ((row (parley-session-row
               (parley-session-fields
                (list :name "orc-w1" :status "awaiting-approval" :pane nil
                      :cwd "/srv/go/orc" :session-id "9a5a5635-0005")))))
-    (should (equal (substring row 52 64) "unknown [RO]"))
-    (should (= (parley-test--display-column row "/srv/go/orc") 66))
-    ;; And a working directory past its own column is not cut: the
-    ;; tail of a path is what tells two worktrees apart.
-    (let ((deep (parley-session-row
-                 (list :name "orc-w1" :status "idle" :mark ""
-                       :directory
-                       "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here"
-                       :tag "tag"))))
-      (should (string-match-p
-               "/srv/orc/trees/worker-1/a/very/deep/tree/indeed/here" deep)))))
+    (should (equal (substring row 72 84) "unknown [RO]"))
+    (should (= (length row) 86))))
 
 (ert-deftest parley-test-the-read-only-mark-shares-the-status-column ()
   "The mark is drawn after the status, in the status column.
 No column is kept for it: one would be blank on every session
 that has a pane.  `waiting [RO]' is the longest the two come to
 together and is what twelve characters leave room for, so the
-working directory begins at the same offset marked or not."
+window begins at the same offset marked or not."
   (let ((marked (parley-session-row
                  (list :name "orc-w1" :status "waiting" :mark "[RO]"
-                       :directory "/srv/orc" :tag "tag")))
+                       :window "3.1")))
         (plain (parley-session-row
                 (list :name "orc-w1" :status "waiting" :mark ""
-                      :directory "/srv/orc" :tag "tag"))))
-    (should (equal (substring marked 52 64) "waiting [RO]"))
-    (should (equal (get-text-property 60 'face marked) 'parley-row-read-only))
+                      :window "3.1"))))
+    (should (equal (substring marked 72 84) "waiting [RO]"))
+    (should (equal (get-text-property 80 'face marked) 'parley-row-read-only))
     ;; The space between the two is the status column's own, so
     ;; nothing inside the column is left in the default face.
-    (should (equal (next-single-property-change 52 'face marked) 60))
-    (should (equal (next-single-property-change 60 'face marked) 64))
-    (should (equal (substring marked 66 74) "/srv/orc"))
-    (should (equal (substring plain 66 74) "/srv/orc"))
+    (should (equal (next-single-property-change 72 'face marked) 80))
+    (should (equal (next-single-property-change 80 'face marked) 84))
+    (should (equal (substring marked 86) "3.1"))
+    (should (equal (substring plain 86) "3.1"))
     (should-not (string-match-p "\\[RO\\]" plain))))
 
 (ert-deftest parley-test-the-placeholders-are-faced-like-a-value ()
@@ -833,36 +832,61 @@ to hide."
                      :session-id "7c1d0f9a-0003")))))
     (should (string-prefix-p "unnamed" row))
     (should (equal (get-text-property 0 'face row) 'parley-row-name))
-    (should (equal (substring row 52 64) "unknown [RO]"))
-    (should (equal (get-text-property 52 'face row)
+    (should (equal (substring row 72 84) "unknown [RO]"))
+    (should (equal (get-text-property 72 'face row)
                    'parley-row-status-other))
-    (should (equal (get-text-property 60 'face row)
+    (should (equal (get-text-property 80 'face row)
                    'parley-row-read-only))))
 
-(ert-deftest parley-test-resolves-the-row-picked-to-its-own-record ()
-  "Two sessions alike in every column but their id are still two rows.
+(ert-deftest parley-test-two-sessions-drawing-one-row-are-two-candidates ()
+  "Two sessions that draw one row are two candidates, each its own.
 A row is resolved back to its record by the string itself, so two
-records that produced one row would both resolve to the first of
+records offered under one row would both resolve to the first of
 them and the operator would land in the other one's conversation.
-`claude agents' really can report two live sessions with one
-name, one status and one working directory, and a session
-suspended in a pane with another started there gives them one
-pane, and so one location, as well: all that is left to tell them
-apart is the session id, and the whole of it -- these two agree
-on its first eight characters, which is all a head of it would
-carry."
-  (let* ((one (list :pid 11 :name "orc-w1" :status "idle"
-                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
-                    :session-id "11111111-0000-4000-8000-000000000001"))
-         (two (list :pid 12 :name "orc-w1" :status "idle"
-                    :cwd "/srv/orc/trees/worker-1/orc" :pane "%61"
-                    :session-id "11111111-ffff-4000-8000-000000000002"))
-         (parley--pane-locations parley-test--pane-locations)
-         (row (parley-session-row (parley-session-fields two))))
-    (should-not (equal row (parley-session-row (parley-session-fields one))))
-    (cl-letf (((symbol-function 'parley-sessions) (lambda () (list one two)))
-              ((symbol-function 'completing-read) (lambda (&rest _) row)))
-      (should (eq (parley-read-session) two)))))
+
+`claude agents' really can report two such sessions.  One
+suspended in a pane and another started there share a name, a
+status and a window; so do two in panes of two tmux sessions at
+the same window and pane index, the tmux session being no column
+of the row.  Two background agents named after one prompt share a
+name and a status and have no pane.  Each pair here is offered as
+two candidates, and picking either returns that session's own
+record and not the other's."
+  (let ((parley--pane-locations '(("%61" . "orc-orc-b3743fe3:3.1")
+                                  ("%72" . "home:3.1"))))
+    (dolist (pair (list (list (list :pid 11 :name "orc-w1" :status "idle"
+                                    :cwd "/srv/orc" :pane "%61"
+                                    :session-id "11111111-0001")
+                              (list :pid 12 :name "orc-w1" :status "idle"
+                                    :cwd "/srv/orc" :pane "%61"
+                                    :session-id "11111111-0002"))
+                        (list (list :pid 13 :name "orc-w1" :status "idle"
+                                    :cwd "/srv/orc" :pane "%61"
+                                    :session-id "11111111-0003")
+                              (list :pid 14 :name "orc-w1" :status "idle"
+                                    :cwd "/srv/home" :pane "%72"
+                                    :session-id "11111111-0004"))
+                        (list (list :pid 15 :name "fix the tests" :status "busy"
+                                    :cwd "/srv/orc" :pane nil
+                                    :session-id "11111111-0005")
+                              (list :pid 16 :name "fix the tests" :status "busy"
+                                    :cwd "/srv/orc" :pane nil
+                                    :session-id "11111111-0006"))))
+      (should (equal (parley-session-row (parley-session-fields (car pair)))
+                     (parley-session-row (parley-session-fields (cadr pair)))))
+      (let ((offered nil))
+        (cl-letf (((symbol-function 'parley-sessions) (lambda () (copy-sequence pair)))
+                  ((symbol-function 'completing-read)
+                   (lambda (_prompt collection &rest _)
+                     (setq offered (all-completions "" collection))
+                     (car offered))))
+          (parley-read-session))
+        (should (= (length (delete-dups (copy-sequence offered))) 2))
+        (dolist (picked (list 0 1))
+          (cl-letf (((symbol-function 'parley-sessions) (lambda () (copy-sequence pair)))
+                    ((symbol-function 'completing-read)
+                     (lambda (&rest _) (nth picked offered))))
+            (should (eq (parley-read-session) (nth picked pair)))))))))
 
 (ert-deftest parley-test-reading-with-nothing-running-says-so ()
   "Reading a session when none is running says so instead of asking.

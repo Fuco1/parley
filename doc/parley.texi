@@ -115,15 +115,17 @@ and what that costs the operator belongs to @ref{Typing}.
 @code{%15} says nothing about where that pane is, and its @code{%} reads
 as a stray format directive wherever it is displayed.  What locates a
 session is its tmux session, window and pane index —
-@code{orc-orc-b3743fe3:3.1} — so that is what the displayed forms of a
-session carry, and @code{tmux list-panes} is what maps a pane id to it.
+@code{orc-orc-b3743fe3:3.1} — so that is what a buffer name and its
+header line carry, a switcher row carries the window and pane index of
+it for the reason given below, and @code{tmux list-panes} is what maps a
+pane id to it.
 @strong{The pane id stays on the record} for @code{send-keys -t}, which
 is the only thing that takes it.
 
 @strong{One @code{list-panes -a} resolves the whole list.}  It prints
 every pane on the server, so the alternative — a @code{display-message -t
 <pane>} per session — would cost a dozen subprocesses to discover a dozen sessions instead of
-one.  The map is asked for when the first tag
+one.  The map is asked for when the first row or tag
 needs it and dropped whenever the session list is discovered again, so
 what is shown beside a list is no older than the list.
 
@@ -245,20 +247,42 @@ differently.
 
 @strong{A name is not unique.}  Two sessions in sibling worktrees come
 back under one, and a background agent is named after its prompt.  So a
-switcher row and a buffer name both carry a tag instead, and the tag is
-the session id with its pane's location before it when there is one.  A
+buffer name carries a tag after the session's name, and the tag is the
+session id with its pane's location before it when there is one.  A
 session with no location is tagged by its id alone.
 
 @strong{The location alone is not enough}, though it is what the operator
-recognises a session by and what he searches the switcher with: suspend
-the session running in a pane, start another there, and @code{claude
-agents} reports two live sessions in one location.
+recognises a session by: suspend the session running in a pane, start
+another there, and @code{claude agents} reports two live sessions in one
+location.
 
 @strong{The id goes in whole and never as a prefix.}  Two ids can share
 one, and two sessions sharing a name, a location and a prefix would be
 two the tag could not tell apart at all — which is the one thing it
-exists to do.  A long tag is the price, and it is the last column of a
-row and the tail of a buffer name.
+exists to do.  A long tag is the price, and it is the tail of a buffer
+name.
+
+@section A row is the name, the status and the window
+
+@strong{A switcher row draws three columns: the name, the status with the
+read only mark, and the window and pane index of the session's pane.}
+The name is what the operator picks a session by, and where its pane is
+is how he tells apart two sharing a name.  A session with no pane, or
+one whose pane tmux does not report, has that column empty.
+
+@strong{The working directory and the tmux session are not drawn.}  The
+sessions on a machine running one fleet run under that fleet's home and
+in its tmux session, so either column is one string repeated down the
+list, and it spends the width the columns that differ need.  What is
+left of a location is the window and pane index, which is the part that
+differs.  @strong{Nor is the session id}, which is not what the operator
+picks a session by.
+
+@strong{So two sessions can draw one row.}  One suspended in a pane and
+another started there share a name, a status and a window, and two
+background agents named after one prompt share a name and a status and
+have no pane.  The row carries nothing that tells them apart, and each
+frontend keeps them apart itself (@pxref{Switcher}).
 
 @section A row is coloured where it is built, and the status by its value
 
@@ -313,18 +337,17 @@ what it says is about the status: a session that cannot be typed into is
 idle in a way that matters.  So it is drawn after the status, inside that
 column.
 
-@strong{A name past its column's width is drawn whole.}  It pushes the
-columns after it along that one row, and the alternative cuts the handle
-the operator picks a session by — two sessions in sibling worktrees come
-back under one name, and a background agent is named after its prompt, so
-the tail of a name is where the difference often is.
+@strong{A name past its column's width is cut, with an ellipsis as its
+last.}  A background agent is named after its prompt, and a name drawn
+whole pushes the status along its own row and out of line with every
+other row's.  @strong{The cut is
+the row's and nothing else's}: the sallet matcher reads the whole name,
+so a word in the part a row cuts off still finds the session.
 
-@strong{No column is cut, the status included.}  The status column is as
-wide as the longest value with the read only mark beside it, and a status
-Claude Code starts writing tomorrow is listed @code{unknown} rather than
-carrying every column after it out of line.  The working directory is
-drawn whole for the reason the name is: the tail of a path is what tells
-two worktrees apart.
+@strong{The status is never cut.}  Its column is as wide as the longest
+value with the read only mark beside it, and a status Claude Code starts
+writing tomorrow is listed @code{unknown} rather than carrying the window
+after it out of line.
 
 @strong{A column is measured as it is drawn.}  A width in characters is
 not a width on screen: a name in a script drawn two columns to the glyph
@@ -346,16 +369,16 @@ returns, each under its own key, the matcher sends each token the
 operator types to the column it names — the name, unless a sigil says
 otherwise — and the renderer draws the columns as its row.  A word can
 then be aimed at a name without also matching every session whose
-working directory or tag happens to hold it.
+status or window happens to hold it.
 
-@strong{A flat row cannot be aimed, and the columns of one machine's
-sessions share their words.}  @code{completing-read} completes over
-strings, so the columns are baked into one and a token is matched against
-the whole of it.  Sessions working under one directory and running in one
-tmux session all carry that directory and that tmux session in their
-rows, so a word of either matches every row under the @code{substring}
-and @code{flex} completion styles; under @code{basic}, which matches the
-beginning of a row, a token reaches nothing but the head of the name.
+@strong{A flat row cannot be aimed.}  @code{completing-read} completes
+over strings, so the columns are baked into one and a token is matched
+against the whole of it.  Every session in one status carries its word,
+and a window and pane index is digits a name can carry too, so under the
+@code{substring} and @code{flex} completion styles a word aimed at a name
+also matches the rows holding it in another column; under @code{basic},
+which matches the beginning of a row, a token reaches nothing but the
+head of the name.
 The sallet matcher sends the same word to the name column, and it matches
 only the sessions named with it.
 
@@ -375,6 +398,15 @@ dependency parley has that is soft.
 What a row holds and how the two frontends draw it is the business of
 @ref{Discovery}.  What the fallback loses is the aim: a token is matched
 against the whole of a row, as above.
+
+@strong{A row drawn again is offered with a number after it.}
+@code{completing-read} returns a string, and the reader resolves it back
+to its record with @code{assoc}, so two sessions drawing one row
+(@pxref{Discovery}) would be one candidate resolving to the first of
+them: a buffer showing one conversation and typing into the other one's
+pane.  The row carries nothing that tells them apart, so the reader
+numbers the second the way a buffer name is made unique.  A sallet
+candidate carries its record and needs no number.
 
 The reader is in @file{parley.el} rather than beside the picker, because
 @code{parley-transcript} reads its session with it as well, and what the
@@ -1192,9 +1224,8 @@ long as the session runs.  That is the ceiling on it.  A session's end
 writes nothing to its transcript either, so a buffer left open over an
 ended session goes on showing the count it last had.
 
-@strong{The working directory is not on it.}  A switcher row carries it
-because the operator is choosing between sessions; inside the buffer it
-is @code{default-directory}, and a line repeating what the buffer already
+@strong{The working directory is not on it.}  Inside the buffer it is
+@code{default-directory}, and a line repeating what the buffer already
 is spends a line on nothing.
 
 @strong{The line and the cell in front of the prompt are not
