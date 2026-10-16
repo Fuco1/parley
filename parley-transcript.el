@@ -662,10 +662,9 @@ imenu index passes over, so a notification needs no third path
 through the pass.  Its text stands as it arrived, the summary
 being read out of it there.
 
-A paste is wrapped too, and wherever it stands: in a prompt that
-is nothing else, in one the operator typed around it, or in a
-slash command's argument.  `parley-transcript--unpasted' takes the
-tags off and leaves what was pasted where they stood.
+A paste is wrapped too, whether it is the whole prompt or stands
+in one the operator typed around it.  `parley-transcript--unpasted'
+takes the tags off and leaves what was pasted where they stood.
 
 Here, before the record is read for anything: what it renders to,
 what `parley-transcript--echoed-p' compares against what was
