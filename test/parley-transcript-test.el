@@ -98,6 +98,25 @@ Under the operator's role and unmarked, as the harness writes it."
   (parley-transcript-test--user-turn
    (concat "<local-command-stdout>" text "</local-command-stdout>")))
 
+(defun parley-transcript-test--paste (body &optional id)
+  "Return the block Claude Code writes to its transcript for a paste of BODY.
+A blank line, the opening tag on a line of its own, BODY, and the
+closing tag carrying the same ID on a line of its own -- byte for
+byte what a session on this machine wrote.  A prompt the operator
+typed on after the paste has a blank line under the block too,
+which is the caller's to add.  ID is `c192' by default."
+  (let ((id (or id "c192")))
+    (concat "\n\n<pasted_content id=\"" id "\">\n" body
+            "\n</pasted_content id=\"" id "\">\n")))
+
+(defun parley-transcript-test--prompt (text)
+  "Return a transcript line for a user turn that said TEXT.
+TEXT is encoded on the way in, which the tags of a paste need:
+their quotes would end the JSON string they stand in."
+  (format (concat "{\"type\":\"user\",\"message\":"
+                  "{\"role\":\"user\",\"content\":%s}}")
+          (json-serialize text)))
+
 (defun parley-transcript-test--meta-turn (text)
   "Return a transcript line for an injected turn carrying TEXT.
 A harness injection reaches a transcript under the operator's
@@ -961,6 +980,92 @@ nothing the name does not."
       (dolist (absent (list "<command" "</command" "one</" ">plugin<"))
         (goto-char (point-min))
         (should-not (search-forward absent nil t))))))
+
+(ert-deftest parley-transcript-test-renders-a-pasted-prompt-as-the-paste ()
+  "A prompt that is one pasted block is the operator's turn, showing the paste.
+
+The tags are the harness's and the body is his words, so the turn
+is the body quoted as every turn of his is -- each line under the
+mark, in his face -- and neither tag reaches the buffer.  One
+line and two, because a prompt sent as a single line comes back
+wrapped as well as one that went as a paste."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--prompt
+             (parley-transcript-test--paste "first line\nsecond line"))
+            (parley-transcript-test--prompt
+             (parley-transcript-test--paste "one line" "d228")))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 3 (length shown)) shown))))
+                   (list "❯ first line" "❯ second line" "❯ one line")))
+    (with-current-buffer buffer
+      (dolist (absent (list "pasted_content" "c192" "d228"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t)))
+      (goto-char (point-min))
+      (should (search-forward "❯ first line" nil t))
+      (should (eq (get-text-property (match-beginning 0) 'font-lock-face)
+                  'parley-user-marker))
+      (should (eq (get-text-property (1- (point)) 'font-lock-face)
+                  'parley-user)))))
+
+(ert-deftest parley-transcript-test-renders-a-paste-in-the-prompt-around-it ()
+  "A paste inside a prompt the operator typed stands where he pasted it.
+
+The harness wraps only the pasted part, and the line breaks it
+puts around the block are its own, so taking them off with the
+tags gives back the one line he typed.  The second prompt carries
+two pastes, so the first coming off does not stop the search for
+the next."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--prompt
+             (concat "when I run `"
+                     (parley-transcript-test--paste
+                      "claude agents --json" "d228")
+                     "\n` this session is listed as background, why?"))
+            (parley-transcript-test--prompt
+             (concat "compare `"
+                     (parley-transcript-test--paste "a.el" "1a2b")
+                     "\n` with `"
+                     (parley-transcript-test--paste "b.el" "3c4d")
+                     "\n`")))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 2 (length shown)) shown))))
+                   (list (concat "❯ when I run `claude agents --json`"
+                                 " this session is listed as background, why?")
+                         "❯ compare `a.el` with `b.el`")))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward "pasted_content" nil t)))))
+
+(ert-deftest parley-transcript-test-renders-an-unpaired-paste-tag-as-written ()
+  "An opening tag with no closing tag of its id is the operator's own words.
+
+A turn that mentions the tag carries no pair of one id, so it is
+quoted as written, tag and all: one whose block is closed under
+another id, and one that nothing closes."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--prompt
+             (concat "<pasted_content id=\"c192\">\nwhat is this\n"
+                     "</pasted_content id=\"d228\">"))
+            (parley-transcript-test--prompt
+             "it opens with\n<pasted_content id=\"c192\">\nand nothing closes it"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 6 (length shown)) shown))))
+                   (list "❯ <pasted_content id=\"c192\">"
+                         "❯ what is this"
+                         "❯ </pasted_content id=\"d228\">"
+                         "❯ it opens with"
+                         "❯ <pasted_content id=\"c192\">"
+                         "❯ and nothing closes it")))))
 
 
 (ert-deftest parley-transcript-test-renders-a-task-notification-as-its-summary ()
@@ -2033,6 +2138,44 @@ buffer that has seen the copy too."
       ;; answer when the guard misses it.
       (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown)))
       (should (equal (last shown 2) (list quoted "of course"))))))
+
+(ert-deftest parley-transcript-test-does-not-render-a-pasted-echo-twice ()
+  "A message whose transcript copy comes back as a paste appears once.
+
+Everything with a newline in it is sent as a bracketed paste, so
+its copy arrives as one pasted block, and a single line has come
+back wrapped too.  `parley-transcript--echoed-p' recognises a
+copy by the text that was sent, so the block has to come off
+before it compares or the copy matches nothing and stands in the
+buffer a second time, tags and all.  One message of each shape.
+
+The turn that follows them is what says the copies went by."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there")
+      (parley-transcript-test--submit buffer "first line\nsecond line"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--prompt
+                 (parley-transcript-test--paste "hello there" "d228"))
+                (parley-transcript-test--prompt
+                 (parley-transcript-test--paste "first line\nsecond line"))
+                (parley-transcript-test--text-turn "of course")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "of course"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((shown (parley-transcript-test--shown buffer)))
+      ;; Each line once, and the answer straight under the second
+      ;; message: a copy the guard missed stands between them.
+      (dolist (quoted '("❯ hello there" "❯ first line" "❯ second line"))
+        (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown))))
+      (should (equal (last shown 4)
+                     (list "❯ hello there" "❯ first line" "❯ second line"
+                           "of course")))
+      (should-not (seq-find (lambda (line) (string-search "pasted_content" line))
+                            shown)))))
 
 (ert-deftest parley-transcript-test-drops-an-echo-however-late-it-comes-back ()
   "Messages submitted at the prompt appear once each, however late they land.
@@ -5106,6 +5249,29 @@ number rather than by what he asked."
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
                    (list "/one what is here" "/one and what is there"
                          "/plugin")))))
+
+(ert-deftest parley-transcript-test-labels-a-pasted-prompt-by-the-paste ()
+  "A prompt that is one pasted block is indexed under the paste's first line.
+
+The index is recorded from the record's text, so a block indexed
+before its tags came off would be labelled with the opening tag
+-- one label for every paste of that id, and nothing he pasted in
+it.  The entry points at the line it names."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--prompt
+             (parley-transcript-test--paste "first line of it\nsecond line"))
+            (parley-transcript-test--prompt
+             (parley-transcript-test--paste "and another" "d228")))
+    (should (parley-transcript-test--wait
+             (lambda () (= 3 (length (parley-transcript-test--shown buffer))))))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index)
+                     (list "first line of it" "and another")))
+      (should (equal (mapcar (lambda (entry)
+                               (parley-transcript-test--at buffer entry))
+                             index)
+                     (list "❯ first line of it" "❯ and another"))))))
 
 (ert-deftest parley-transcript-test-tells-two-prompts-of-one-line-apart ()
   "Two prompts with one first line get a name each, and both can be reached.
