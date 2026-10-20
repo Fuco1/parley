@@ -56,6 +56,7 @@
 
 ;;; Code:
 
+(require 'ansi-color)
 (require 'comint)
 (require 'imenu)
 (require 'seq)
@@ -216,6 +217,14 @@ cannot come out looking different.")
   "Face for a line the renderer wrote rather than anyone in the conversation.
 The one line a run of tool calls collapses to, and the one a
 skill load collapses to."
+  :group 'parley)
+
+(defface parley-bash-output '((t :inherit fixed-pitch))
+  "Face for what a `!' command the operator ran printed.
+It is the reason the command ran and is read the way a terminal
+shows it, in columns, so it inherits `fixed-pitch' and nothing of
+`parley-user': it is not a turn of his.  Nor is it markdown, and
+it is not fontified as an assistant turn is."
   :group 'parley)
 
 (defvar parley-transcript--markdown-buffer nil
@@ -536,6 +545,74 @@ of his that quotes it on any line but the first is his own words.")
 The group does not cross a newline because the summary does not:
 a notification carrying one holds it on one line.")
 
+(defconst parley-transcript--bash-output-rx
+  "\\`<bash-stdout>"
+  "What the output of a `!' command opens with, and nothing else does.
+Anchored at the very first character, for the reason
+`parley-transcript--notification-rx' is: the harness writes the
+tag there, and a turn of the operator's that quotes it anywhere
+else is his own words.")
+
+(defun parley-transcript--bash-stream (text)
+  "Return the stream TEXT of a `!' command's output as the buffer shows it.
+
+Every ANSI escape sequence in it is taken out.  This buffer has
+`ansi-color-process-output' out of its filters, so nothing else
+would, and a command run with `--color=always' writes them.
+`ansi-color-context' is bound around the filter, so a sequence
+cut off at the end of one stream is dropped there rather than
+carried into the next text filtered in this buffer.
+
+It is trimmed of the blank lines it opens with and of the
+whitespace it ends with, and of nothing more.  The indent of its
+first line is a column the lines under it are aligned against --
+`wc -l' right-aligns its counts and `ps' its header -- so taking
+it off would shift that line alone."
+  (string-trim (let ((ansi-color-context nil))
+                 (ansi-color-filter-apply text))
+               "\\(?:[ \t\r]*\n\\)+"))
+
+(defun parley-transcript--bash-output (text)
+  "Return the block of buffer text the output of a `!' command, TEXT, renders to.
+
+The harness writes it as `<bash-stdout>', the stdout, a closing
+tag, `<bash-stderr>', the stderr and a closing tag.  The block is
+the stdout and then the stderr from the line under the stdout's
+last, each as `parley-transcript--bash-stream' shows it, and a
+stream with nothing in it renders no line.  It is in
+`parley-bash-output' from its first line to the newline it ends
+with, which is what the height of its last line comes from.  The
+blank line it opens with is left bare, being between two blocks.
+
+The streams are split at the last `</bash-stdout><bash-stderr>'
+in TEXT and not at the first.  A command can print those tags
+itself -- grepping a transcript does -- and it prints them to its
+stdout, which stands in front of the split."
+  (let ((between "</bash-stdout><bash-stderr>")
+        (split nil)
+        (from 0))
+    (while (setq from (string-search between text from))
+      (setq split from
+            from (1+ from)))
+    (let ((block
+           (parley-transcript--block
+            (string-join
+             (delete ""
+                     (mapcar #'parley-transcript--bash-stream
+                             (list (substring text (length "<bash-stdout>")
+                                              split)
+                                   (if split
+                                       (string-remove-suffix
+                                        "</bash-stderr>"
+                                        (substring text
+                                                   (+ split (length between))))
+                                     ""))))
+             "\n"))))
+      (unless (string= block "")
+        (put-text-property 1 (length block)
+                           'font-lock-face 'parley-bash-output block))
+      block)))
+
 (defun parley-transcript--injection (text)
   "Return the block of buffer text the harness injection TEXT renders to.
 
@@ -557,6 +634,13 @@ opens with no heading is named by the last segment of the
 directory instead.  The name is quoted, so a heading of several
 words cannot read as prose an agent wrote.
 
+What a `!' command printed renders as written, in a block of its
+own: `parley-transcript--bash-output' is where.  It is no turn of
+the operator's or of the agent's, and is an injection for that
+reason -- `parley-transcript--unwrapped' marks it one -- but
+unlike every other injection it is the very thing he ran the
+command to read.
+
 Every other injection renders nothing at all.  That is the empty
 string a turn which said nothing renders to, so such an injection
 is no break in a run of tool calls either.  A constant line
@@ -566,6 +650,8 @@ of a personal command, the notice the `Agent' tool writes about a
 fork -- each stand under a turn of the operator's that already
 says what he did."
   (cond
+   ((string-match-p parley-transcript--bash-output-rx text)
+    (parley-transcript--bash-output text))
    ((string-match-p parley-transcript--notification-rx text)
     (if (string-match parley-transcript--notification-summary-rx text)
         (parley-transcript--renderer-line (match-string 1 text))
@@ -648,13 +734,14 @@ on a long one."
 (defun parley-transcript--unwrapped (record)
   "Return RECORD with what the harness wrapped around its text dealt with.
 
-Three `user' records carry no turn of the conversation: the tags
+Five `user' records are a wrapper the harness wrote: the tags
 Claude Code writes when the operator types a slash command, the
-output a local command printed at his terminal, and the
-notification the harness writes when a background task reports
-back.  None carries `isMeta', so none reaches
-`parley-transcript--injection' on the mark, and all three would
-be quoted as his own words, tags and all.
+output a local command printed at his terminal, the notification
+the harness writes when a background task reports back, and the
+two a `!' command writes -- the line he typed and what it
+printed.  None carries `isMeta', so none reaches
+`parley-transcript--injection' on the mark, and all five would be
+quoted as his own words, tags and all.
 
 A slash command is three tags, and what he typed is the name and
 the argument on one line -- `<command-message>' is the name a
@@ -664,17 +751,24 @@ it is under `/plugin', and the trim is what leaves that turn the
 name alone.  The tags arrive in either order and under an indent,
 so each is looked up on its own.
 
+A `!' command he typed is the `<bash-input>' tag around what
+followed the `!', its space included, so the `!' in front of it
+is the line he typed: what `parley-transcript--send-input' sent,
+when he typed it here.  Opening the text at its first character
+and closing it at its last, as the harness writes it.
+
 A local command's own output renders nothing at all: it is the
 terminal answering, and his own turn invoking that command stands
 right above it saying what he did.
 
-A task notification is marked here and otherwise left alone.  It
-is an injection the harness did not mark, and the mark is the
-whole of the rule: an injection is already what the render pass
-hands to `parley-transcript--injection' and already what the
-imenu index passes over, so a notification needs no third path
-through the pass.  Its text stands as it arrived, the summary
-being read out of it there.
+A task notification and a `!' command's output are marked here
+and otherwise left alone.  Each is an injection the harness did
+not mark, and the mark is the whole of the rule: an injection is
+already what the render pass hands to
+`parley-transcript--injection' and already what the imenu index
+passes over, so neither needs a path of its own through the pass.
+Its text stands as it arrived, and what it renders to is read out
+of it there.
 
 A paste is wrapped too, whether it is the whole prompt or stands
 in one the operator typed around it.  `parley-transcript--unpasted'
@@ -690,12 +784,17 @@ out of one line a moment earlier and reaching nobody else."
                    (not (alist-get 'meta record))
                    (alist-get 'text record))))
     (when text
-      (if (string-match-p parley-transcript--notification-rx text)
+      (if (or (string-match-p parley-transcript--notification-rx text)
+              (string-match-p parley-transcript--bash-output-rx text))
           (setcdr (assq 'meta record) t)
         (setq text (parley-transcript--unpasted text))
         (setcdr (assq 'text record)
                 (cond
                  ((string-match-p parley-transcript--local-output-rx text) "")
+                 ((and (string-prefix-p "<bash-input>" text)
+                       (string-suffix-p "</bash-input>" text))
+                  (concat "!" (substring text (length "<bash-input>")
+                                         (- (length "</bash-input>")))))
                  ((string-match parley-transcript--command-name-rx text)
                   (let ((name (match-string 1 text)))
                     (string-trim
