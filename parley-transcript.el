@@ -768,8 +768,10 @@ so each is looked up on its own.
 A `!' command he typed is the `<bash-input>' tag around what
 followed the `!', its space included, so the `!' in front of it
 is the line he typed: what `parley-transcript--send-input' sent,
-when he typed it here.  Opening the text at its first character
-and closing it at its last, as the harness writes it.
+when he typed it here.  It is the tag opening the text at its
+first character and closing it at its last, as the harness writes
+it, and a turn of his quoting the tag anywhere else is his own
+words.
 
 A local command's own output renders nothing at all: it is the
 terminal answering, and his own turn invoking that command stands
