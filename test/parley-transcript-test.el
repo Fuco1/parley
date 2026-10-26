@@ -126,6 +126,23 @@ puts on what he did not type."
                   "{\"role\":\"user\",\"content\":%s}}")
           (json-serialize text)))
 
+(defun parley-transcript-test--bash-input (command)
+  "Return a transcript line for the `!' command the operator typed as COMMAND.
+COMMAND is what followed the `!', its space included, which is
+what the harness keeps.  Unmarked and under his role, the tag at
+the first character, as a session on this machine wrote it."
+  (parley-transcript-test--prompt
+   (concat "<bash-input>" command "</bash-input>")))
+
+(defun parley-transcript-test--bash-output (stdout stderr)
+  "Return a transcript line for a `!' command that printed STDOUT and STDERR.
+Both streams in their tags, nothing between the two and both
+there even when one is empty, unmarked and under the operator's
+role -- the shape a session on this machine wrote."
+  (parley-transcript-test--prompt
+   (concat "<bash-stdout>" stdout "</bash-stdout><bash-stderr>" stderr
+           "</bash-stderr>")))
+
 (defconst parley-transcript-test--skill-body
   "You are a lazy senior developer, and laziness is the whole of the law."
   "A line of the instructions a skill load carries into a transcript.
@@ -1003,6 +1020,150 @@ nothing the name does not."
       (dolist (absent (list "<command" "</command" "one</" ">plugin<"))
         (goto-char (point-min))
         (should-not (search-forward absent nil t))))))
+
+(ert-deftest parley-transcript-test-renders-a-bash-input-as-the-line-typed ()
+  "A `!' command's input is the line the operator typed, quoted as his turn.
+
+The harness keeps what followed the `!', its space included, so
+the `!' in front of it is the line he typed: with the space and
+without it.  A command spanning two lines renders as both, each
+quoted as the first is, and neither tag reaches the buffer.
+
+The whole buffer is compared against literal runs of text and
+face, so the mark and the band are the ones every turn of his
+carries."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--bash-input
+             " cd ~/dev/ydistri && rm CLAUDE.md")
+            (parley-transcript-test--bash-input "mkdir -p ~/.config/lcc")
+            (parley-transcript-test--bash-input
+             "for f in *.el; do\n  wc -l $f; done"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 4 (length shown)) shown))))
+                   (list "❯ ! cd ~/dev/ydistri && rm CLAUDE.md"
+                         "❯ !mkdir -p ~/.config/lcc"
+                         "❯ !for f in *.el; do"
+                         "❯   wc -l $f; done")))
+    (should (equal (parley-transcript-test--shape
+                    (with-current-buffer buffer (buffer-string)))
+                   '(("\n" . nil) ("❯ " . parley-user-marker)
+                     ("! cd ~/dev/ydistri && rm CLAUDE.md\n" . parley-user)
+                     ("\n" . nil) ("❯ " . parley-user-marker)
+                     ("!mkdir -p ~/.config/lcc\n" . parley-user)
+                     ("\n" . nil) ("❯ " . parley-user-marker)
+                     ("!for f in *.el; do\n" . parley-user)
+                     ("❯ " . parley-user-marker)
+                     ("  wc -l $f; done\n" . parley-user))))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward "bash-input" nil t)))))
+
+(ert-deftest parley-transcript-test-renders-a-bash-output-as-written ()
+  "A `!' command's output is its stdout and then its stderr, as written.
+
+Each stream is trimmed of the blank lines it opens with and the
+whitespace it ends with, and the stderr starts on the line under
+the stdout's last.  The indent of the first line is kept, because
+the lines under it are aligned against it.  A stream that is
+empty once trimmed renders no line: the first output here has
+both, the second an empty stderr, the third a stdout of
+whitespace, and the fourth nothing in either -- which renders no
+block at all, so the turn under it follows the third directly.
+
+No tag reaches the buffer, and the output is in a face of its
+own from its first line to the newline it ends with."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--bash-output
+             "\n\n   693 parley.el\n   156 parley-switch.el\n  \n"
+             "\nShell cwd was reset to /home/x/dev/orc\n")
+            (parley-transcript-test--bash-output
+             "(Bash completed with no output)" "")
+            (parley-transcript-test--bash-output
+             "  \n" "ls: cannot access 'x': No such file or directory")
+            (parley-transcript-test--bash-output "" "\n")
+            (parley-transcript-test--text-turn "after"))
+    (should (parley-transcript-test--wait
+             (lambda () (member "after" (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--shape
+                    (with-current-buffer buffer (buffer-string)))
+                   `(("\n" . nil)
+                     (,(concat "   693 parley.el\n"
+                               "   156 parley-switch.el\n"
+                               "Shell cwd was reset to /home/x/dev/orc\n")
+                      . parley-bash-output)
+                     ("\n" . nil)
+                     ("(Bash completed with no output)\n" . parley-bash-output)
+                     ("\n" . nil)
+                     ("ls: cannot access 'x': No such file or directory\n"
+                      . parley-bash-output)
+                     ("\nafter\n" . nil))))
+    (with-current-buffer buffer
+      (dolist (absent (list "bash-stdout" "bash-stderr"))
+        (goto-char (point-min))
+        (should-not (search-forward absent nil t))))))
+
+(ert-deftest parley-transcript-test-renders-a-bash-output-as-nobodys-turn ()
+  "A `!' command's output is neither quoted nor fontified.
+
+It is not the operator's turn, so no line of it carries the `❯ '
+mark, `parley-user' or `parley-user-marker'.  It is not an
+assistant turn, so the asterisks around a word are the
+characters it printed: both are in the buffer, neither hidden,
+and the word carries no emphasis face.  The one face on it is
+`parley-bash-output'."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--bash-output "*word*" "err"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 2 (length shown)) shown))))
+                   (list "*word*" "err")))
+    (should (equal (parley-transcript-test--shape
+                    (with-current-buffer buffer (buffer-string)))
+                   '(("\n" . nil) ("*word*\nerr\n" . parley-bash-output))))
+    (with-current-buffer buffer
+      (should-not (text-property-not-all (point-min) (point-max)
+                                         'invisible nil))
+      (goto-char (point-min))
+      (should-not (search-forward parley-transcript--quote-marker nil t)))))
+
+(ert-deftest parley-transcript-test-draws-a-bash-output-in-fixed-pitch ()
+  "The face a `!' command's output is in is parley's own, over `fixed-pitch'.
+Defined with `defface', so a theme or the operator can set it, and
+inheriting `fixed-pitch' because what a shell prints is laid out
+in columns."
+  (should (get 'parley-bash-output 'face-defface-spec))
+  (should (eq 'fixed-pitch (face-attribute 'parley-bash-output :inherit))))
+
+(ert-deftest parley-transcript-test-strips-the-escapes-from-a-bash-output ()
+  "No escape sequence a `!' command printed reaches the buffer.
+This buffer has `ansi-color-process-output' out of its filters,
+so an escape byte in the output would be inserted raw.  The colour
+a `--color=always' command writes comes off, and so does every
+other kind of sequence: a hyperlink to its string terminator, a
+window title to its BEL, the charset escape `tput sgr0' opens
+with and a cursor save -- the ones whose ESC
+`ansi-color-filter-apply' leaves behind."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--bash-output "\e[31mred\e[0m" "")
+            (parley-transcript-test--bash-output
+             (concat "\e]8;;file:///tmp/x\e\\link\e]8;;\e\\ and"
+                     "\e]0;title\a \e(B\e[mplain\e7")
+             "\e[1m"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 2 (length shown)) shown))))
+                   (list "red" "link and plain")))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward "\e" nil t)))))
 
 (ert-deftest parley-transcript-test-renders-a-pasted-prompt-as-the-paste ()
   "A prompt that is one pasted block is the operator's turn, showing the paste.
@@ -2232,6 +2393,32 @@ buffer that has seen the copy too."
       ;; answer when the guard misses it.
       (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown)))
       (should (equal (last shown 2) (list quoted "of course"))))))
+
+(ert-deftest parley-transcript-test-does-not-render-a-bash-command-twice ()
+  "A `!' command submitted at the prompt appears once and not twice.
+
+Its transcript copy is the `<bash-input>' tag around what
+followed the `!', so it matches what was sent only once it has
+been unwrapped into the line he typed.  The output that follows
+it is what says the copy went by, and is the line under the one
+copy of the command -- a copy rendered as its tags would stand
+between the two."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "! git status --short"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--bash-input " git status --short")
+                (parley-transcript-test--bash-output "?? notes.org" "")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "?? notes.org"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((shown (parley-transcript-test--shown buffer))
+          (quoted "❯ ! git status --short"))
+      (should (= 1 (seq-count (lambda (line) (equal line quoted)) shown)))
+      (should (equal (last shown 2) (list quoted "?? notes.org"))))))
 
 (ert-deftest parley-transcript-test-does-not-render-a-pasted-echo-twice ()
   "A message whose transcript copy comes back as a paste appears once.
@@ -5363,6 +5550,26 @@ number rather than by what he asked."
     (should (equal (mapcar #'car (parley-transcript-test--index buffer))
                    (list "/one what is here" "/one and what is there"
                          "/plugin")))))
+
+(ert-deftest parley-transcript-test-indexes-a-bash-input-and-not-its-output ()
+  "A `!' command's input is a prompt, and the output it printed is not.
+
+The input is indexed under the `!' line the buffer shows and points
+at it.  The output is the shell answering, which is not what the
+operator jumps through the index looking for, so the prompt typed
+under it is the only other entry."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--bash-input " git log --oneline -1")
+            (parley-transcript-test--bash-output "ce7675e feat: render it" "")
+            (parley-transcript-test--user-turn "and what did that do"))
+    (should (parley-transcript-test--wait
+             (lambda () (= 3 (length (parley-transcript-test--shown buffer))))))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index)
+                     (list "! git log --oneline -1" "and what did that do")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "❯ ! git log --oneline -1")))))
 
 (ert-deftest parley-transcript-test-labels-a-pasted-prompt-by-the-paste ()
   "A prompt that is one pasted block is indexed under the paste's first line.

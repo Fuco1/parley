@@ -542,8 +542,9 @@ Code writes when he invokes a skill by typing its slash command carries
 no mark, and is quoted, marked and indexed as any turn of his is.  A
 pattern in the body would decide the opposite, and would be deciding it
 about his own words.  A compaction summary carries a mark of its own
-instead.  The one injection the harness leaves unmarked says what it
-is in the first characters of its text, and the section below is where
+instead.  The two injections the harness leaves unmarked, a task
+notification and what a @code{!} command printed, each say what they are
+in the first characters of their text, and the section below is where
 that is read.
 
 @strong{A skill load is worth one line, and the skill's own name is that
@@ -582,10 +583,11 @@ turn, and its @samp{Compacted} output renders nothing as any local
 command's does; an automatic one leaves nothing else, so the line is the
 only sign it happened.
 
-@strong{Every other injection renders nothing at all.}  A constant line
-saying an injection happened carries no information, and the caveat and
-the command expansion each stand under a turn of the operator's that
-already says what he did.  Rendering nothing is the empty string a turn
+@strong{Every other injection renders nothing at all}, except what a
+@code{!} command printed, which the section below shows as written.  A
+constant line saying an injection happened carries no information, and
+the caveat and the command expansion each stand under a turn of the
+operator's that already says what he did.  Rendering nothing is the empty string a turn
 that said nothing renders to, so such an injection is no break in a run
 of tool calls either.
 
@@ -595,9 +597,10 @@ for what he typed.
 
 @subsection What the harness wrapped around a @code{user} record is not speech
 
-Three @code{user} records are a wrapper the harness wrote — a slash
-command, a local command's output and a task notification — and a paste
-is wrapped wherever it stands in one.  None of them carries
+Five @code{user} records are a wrapper the harness wrote — a slash
+command, a local command's output, a task notification, and the two a
+@code{!} command writes, the line he typed and what it printed — and a
+paste is wrapped wherever it stands in one.  None of them carries
 @code{isMeta}, so none is an injection the transcript marked, and quoted
 as it stands each puts tags in front of the operator as his own words.
 @strong{What the harness wrapped around the record is dealt with before
@@ -614,18 +617,53 @@ keeps them, each quoted as the first is.
 @strong{A local command's own output renders nothing at all.}  A
 @code{<local-command-stdout>} record is the terminal answering a command
 rather than a turn of the conversation, and his own turn invoking that
-command stands right above it saying what he did.  It is also the one
-place an escape byte could enter this buffer — a compaction notice
-arrives inside a real @code{ESC[2m}, and nothing strips one out here — so
-rendering nothing settles that as well.
+command stands right above it saying what he did.  It also carries
+escape bytes — a compaction notice arrives inside a real @code{ESC[2m},
+and the buffer has no filter that takes one out — so rendering nothing
+settles that as well.
 
-@strong{A task notification is marked as the injection it is, and its
-text is left alone.}  What it renders to is above, with the injections
-the harness does mark; the mark is what puts it there.  An injection is
-already what the render pass turns into a renderer line or into nothing,
-and already what the index passes over, so marking a notification is the
-whole of the rule and it needs no third path through the pass.  The
-summary is read out of the text where every injection's line is made.
+@strong{A @code{!} command's input renders to the line he typed.}
+@code{<bash-input>} holds what followed the @code{!}, its space included,
+so the @code{!} in front of it is that line.  It is quoted and indexed as
+any turn of his is, and a command over two lines renders as both, each
+quoted.
+
+@strong{What a @code{!} command printed renders as written, in a
+fixed-width block of its own}: the @code{<bash-stdout>} and then the
+@code{<bash-stderr>} from the line under its last, each trimmed, and a
+stream with nothing in it renders no line.  The trim takes off the blank
+lines a stream opens with and the whitespace it ends with, and leaves
+the first line's indent, because the lines under it are aligned against
+it.
+
+@strong{It is shown where a local command's output renders nothing,
+because it is why the command ran.}  The turn that invoked a local
+command already says what he did, and the command's output adds
+nothing he needs to read.  He runs a shell command to read what it
+prints, and parley is where he reads it.  It is not his turn, so it
+carries neither his mark nor his face.  It is not an assistant turn, so
+it is not fontified, and an asterisk it printed is an asterisk.  Its face
+inherits @code{fixed-pitch}, because what a shell prints is laid out in
+columns.
+
+@strong{Every escape sequence comes out of it first.}  The buffer has
+@code{ansi-color-process-output} out of its filters, so nothing else
+takes one out, and a @code{--color=always} command writes them.
+@code{ansi-color-filter-apply} is not enough: it takes out the control
+sequences that colour is written in and leaves the @code{ESC} of every
+other kind, such as a hyperlink or the charset escape @code{tput sgr0}
+writes.  So the sequences are matched as ECMA-48 frames them, and an
+@code{ESC} that opens none is taken out on its own.
+
+@strong{A task notification and a @code{!} command's output are each
+marked as the injection they are, and their text is left alone.}  What a
+notification renders to is above, with the injections the harness does
+mark, and what the output renders to is in the paragraphs above; the
+mark is what sends both there.  An injection is already what the render
+pass renders apart from speech, and already what the index passes over,
+so the mark is the whole of the rule and neither needs a path of its own
+through the pass.  What each
+renders to is read out of its text where every injection's is.
 
 @strong{A pasted block renders to what was pasted, where it stood.}
 Claude Code writes a paste as a blank line, a
@@ -642,15 +680,17 @@ renders as written.
 index.}  The echo guard (@pxref{Typing}) recognises parley's own copy of
 a message by the text that was sent, so a slash command submitted at
 parley's prompt matches nothing while it is still three tags, and stands
-in the buffer twice.  A paste is the same: every message with a newline
-in it is sent as a bracketed paste and comes back as one pasted block,
-and a single line has come back as one too, so a block that had not come
-off first would put each of them in the buffer a second time, tags and
-all.  The imenu entry is recorded from the record's text in the render
+in the buffer twice.  A @code{!} command is the same: what was sent is
+the @code{!} line, and the copy matches it only once its tag has become
+that line.  So is a paste: every message with a newline in it is sent
+as a bracketed paste and comes back as one pasted block, and a single
+line has come back as one too, so a block that had not come off first
+would put each of them in the buffer a second time, tags and all.  The imenu entry is recorded from the record's text in the render
 pass, so a turn indexed before it is unwrapped is labelled
 @code{<command-message>one</command-message>} — one label for every slash
 command of that name, and two of them told apart by a number rather than
-by what he asked — and a pasted prompt is labelled with its opening tag.
+by what he asked — a pasted prompt is labelled with its opening tag, and
+a @code{!} command with @code{<bash-input>}.
 
 @strong{What the text decides, it decides from the head of the record.}
 @code{<task-notification>} is matched at the very first character of the
@@ -663,6 +703,8 @@ does write one: a notification opens with the tag at character zero, and
 a record holding it anywhere else is prose quoting one.  Anywhere but the
 head, the text would be deciding about his words instead of the
 harness's, which is what @code{isMeta} is for and what it stays for.
+@code{<bash-stdout>} is matched at the first character for the same
+reason, and so is @code{<bash-input>}, whose closing tag ends the text.
 
 @subsection Fontification happens in another buffer, twice over
 
