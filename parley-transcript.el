@@ -56,7 +56,6 @@
 
 ;;; Code:
 
-(require 'ansi-color)
 (require 'comint)
 (require 'imenu)
 (require 'seq)
@@ -553,23 +552,38 @@ Anchored at the very first character, for the reason
 tag there, and a turn of the operator's that quotes it anywhere
 else is his own words.")
 
+(defconst parley-transcript--escape-rx
+  (concat "\e\\(?:\\[[0-?]*[ -/]*[@-~]?"
+          "\\|[]PX^_][^\a\e]*\\(?:\a\\|\e\\\\\\)?"
+          "\\|[ -/]*[0-~]\\)?")
+  "An escape sequence as ECMA-48 frames one, or an ESC opening none.
+
+A control sequence, which is what colour is written in; a command
+string, which is what a hyperlink and a window title are written
+in, to the BEL or the string terminator that ends it; and every
+other escape sequence, which is what `tput sgr0' opens with.  An
+ESC that opens none of them is matched alone, so no ESC is left
+once every match is taken out.
+
+`ansi-color-filter-apply' is not used because it takes out the
+control sequences alone, and leaves the ESC of every other
+sequence in the text.")
+
 (defun parley-transcript--bash-stream (text)
   "Return the stream TEXT of a `!' command's output as the buffer shows it.
 
-Every ANSI escape sequence in it is taken out.  This buffer has
+Every escape sequence in it is taken out, by
+`parley-transcript--escape-rx'.  This buffer has
 `ansi-color-process-output' out of its filters, so nothing else
 would, and a command run with `--color=always' writes them.
-`ansi-color-context' is bound around the filter, so a sequence
-cut off at the end of one stream is dropped there rather than
-carried into the next text filtered in this buffer.
 
 It is trimmed of the blank lines it opens with and of the
 whitespace it ends with, and of nothing more.  The indent of its
 first line is a column the lines under it are aligned against --
 `wc -l' right-aligns its counts and `ps' its header -- so taking
 it off would shift that line alone."
-  (string-trim (let ((ansi-color-context nil))
-                 (ansi-color-filter-apply text))
+  (string-trim (replace-regexp-in-string parley-transcript--escape-rx "" text
+                                         t t)
                "\\(?:[ \t\r]*\n\\)+"))
 
 (defun parley-transcript--bash-output (text)
