@@ -849,20 +849,15 @@ line the writer puts out is padded by them.  The row itself becomes
 
 @strong{The drawing costs the grid no width.}  Each character the grid is
 drawn in takes the one column the character it stands for took.  Under
-Emacs's default width table that is already so: @code{│}, @code{─},
-@code{═} and every junction and corner are one column, as @code{|} and
-@code{-} are.  Under the CJK one, which a Chinese, Japanese or Korean
-language environment installs, @code{│}, @code{─} and the single-line
-junctions and corners are two and @code{|} and @code{-} are still one —
-so a rule stands wider than the row it rules — while the header rule's
-@code{═}, @code{╞}, @code{╪} and @code{╡} are one under Japanese,
-Chinese-GB and Korean alike.  So the transcript buffer, and the buffer
-every cell is measured in, carry a @code{char-width-table} of their own:
-a child of the environment's, which counts every drawn character one
-column — the four that are one already included, since one column is
-what the grid needs of them and not what an environment happens to
-answer — and leaves every other width to its parent, so a CJK character
-in a cell is still the two columns it is.  A transcript buffer's parent
+Emacs's default width table that is already so.  Under the CJK one, which
+a Chinese, Japanese or Korean language environment installs, @code{│},
+@code{─} and the single-line junctions and corners are two and @code{|}
+and @code{-} are still one — so a rule stands wider than the row it
+rules.  So the transcript buffer, and the buffer every cell is measured
+in, carry a @code{char-width-table} of their own: a child of the
+environment's, which counts every drawn character one column and leaves
+every other width to its parent, so a CJK character in a cell is still
+the two columns it is.  A transcript buffer's parent
 is the table in force when it is set up, and one set up before a switch
 of language environment keeps the widths of the one it was set up under.
 The buffer cells are measured in is shared and outlives every transcript
@@ -1061,14 +1056,6 @@ A form is never the table it came from, whatever the agent lined up
 himself: the grid is drawn and his table is bars and dashes, so the first
 render of one always writes.
 
-@code{equal-including-properties} compares two property values with
-@code{eq} and a face markdown-mode painted a cell with is a fresh list
-every fontification, so two computations of one form do not compare
-equal either: a resize that leaves a table's grid unchanged still writes
-it into the buffer.  What that costs is the write and never the render,
-which has happened by the time the comparison is made, and the write is
-the small part of the two.
-
 @strong{A render costs more than handing the table to
 @code{markdown-table-align} would.}  The difference is the markup — the
 fontification the cells are read out of, and the property runs the form
@@ -1091,11 +1078,7 @@ of its characters fit in the pixels of the window's body.  A frame column
 is the wrong unit: the table face inherits @code{fixed-pitch}, which an
 operator's @code{variable-pitch-mode} setup enlarges with the prose, and
 a grid counted in frame columns then runs past the window edge and wraps
-line by line under @code{visual-line-mode}.  The face is measured as
-redisplay realizes it rather than with @code{window-font-width}, which
-merges the face alone over the frame's @code{default} and misses a
-remapped one — under @code{text-scale-set} it answers the width of the
-unscaled font and not of the one the grid is drawn in.
+line by line under @code{visual-line-mode}.
 
 @strong{A change of font renders the tables again.}  It changes the width
 without changing any window, so the window hook never hears of it;
