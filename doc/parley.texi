@@ -1094,8 +1094,9 @@ to an answer are worth one line however many there were, and the pane is
 still there for anyone who wants to watch the work.
 
 @strong{A @code{●} heads every line the renderer wrote rather than anyone
-in the conversation}, the run of tool calls and the skill load alike, and
-they stand in one face — so a line the renderer is telling the operator
+in the conversation}, whether a run of tool calls, a skill load, a task
+notification carrying a summary or a compaction summary collapsed to it,
+and they stand in one face — so a line the renderer is telling the operator
 something on cannot be read as one an agent typed.
 
 @strong{A line is as tall as the face of the newline ending it}, and not

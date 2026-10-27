@@ -214,8 +214,9 @@ cannot come out looking different.")
 
 (defface parley-tool-run '((t :inherit shadow))
   "Face for a line the renderer wrote rather than anyone in the conversation.
-The one line a run of tool calls collapses to, and the one a
-skill load collapses to."
+The one line each of these collapses to: a run of tool calls, a
+skill load, a task notification carrying a summary, and a
+compaction summary."
   :group 'parley)
 
 (defface parley-bash-output '((t :inherit fixed-pitch))
