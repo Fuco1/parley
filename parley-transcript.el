@@ -2074,11 +2074,11 @@ and never the objects."
   (declare-function adaptive-wrap-prefix-mode "adaptive-wrap")
   (when (require 'adaptive-wrap nil t)
     (adaptive-wrap-prefix-mode 1))
-  ;; An `:eval', so the line is built on every redisplay: which session
-  ;; the buffer follows is fixed, and what it is doing is not.
   ;; The grid is drawn in box-drawing characters, which a CJK language
   ;; environment makes two columns wide.
   (setq-local char-width-table (parley-transcript--drawn-width-table))
+  ;; An `:eval', so the line is built on every redisplay: which session
+  ;; the buffer follows is fixed, and what it is doing is not.
   (setq-local header-line-format '(:eval (parley-transcript--header-line))))
 
 (defun parley-transcript--buffer-name (session)
