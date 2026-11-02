@@ -42,9 +42,9 @@
 ;;   terminal_title = ["run-state", "spinner", "thread-id"]
 ;;
 ;; Neither is parley's to start -- tmux owns them, whether they were
-;; launched by hand or by something like orc.  A transcript buffer ends one only
-;; the way the operator would at its pane, by typing `/exit' there:
-;; see `parley-transcript-exit'.
+;; launched by hand or by something like orc.  A transcript buffer
+;; ends one only the way the operator would at its pane, by typing
+;; `/exit' there: see `parley-transcript-exit'.
 
 ;;; Code:
 
@@ -134,9 +134,9 @@ the single call exists to avoid.
 `parley-sessions' puts this back to `unasked', so the locations
 shown beside a list are no older than the list itself.  A pane
 the operator moved to another window is somewhere else now.  When
-a Codex process sends it to tmux for a pane's title, what tmux
-answered goes here, because that one answer says where every pane
-is as well.")
+listing them asks tmux for the title of a Codex TUI's pane, what
+tmux answered goes here, because that one answer says where every
+pane is as well.")
 
 (defun parley--tmux-panes ()
   "Return every tmux pane, as a list of (PANE-ID LOCATION TITLE).
@@ -167,8 +167,8 @@ a newline: tmux refuses a title with a control character in it."
                            ".#{pane_index}\t#{pane_title}"))))
       (delq nil
             (mapcar (lambda (line)
-                      (when (string-match "\\`\\([^ ]+\\) \\([^\t]+\\)\t\\(.*\\)\\'"
-                                          line)
+                      (when (string-match
+                             "\\`\\([^ ]+\\) \\([^\t]+\\)\t\\(.*\\)\\'" line)
                         (list (match-string 1 line) (match-string 2 line)
                               (match-string 3 line))))
                     (split-string (buffer-string) "\n" t))))))
@@ -258,8 +258,8 @@ A record is a plist with these keys:
 Sessions whose standard input is not a terminal are headless
 children -- a lane running `claude -p', Codex's daemon, a
 `codex exec' -- and are left out.  The Codex sessions come after
-the Claude Code ones, and which of them are listed is
-`parley--codex-sessions''s to say."
+the Claude Code ones, and `parley--codex-sessions' says which of
+them are listed."
   ;; The pane locations go back to unasked and are not resolved here:
   ;; what needs one is a row or a tag, and a list nothing draws asks
   ;; tmux nothing at all -- unless a Codex process asked it already.
