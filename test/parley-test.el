@@ -570,6 +570,11 @@ out."
                              :session-id parley-test--codex-id
                              :pane "%70"
                              :transcript rollout)))
+        ;; A row lists the word as the value it is read as, which is
+        ;; what a Claude Code session's status is listed as too.
+        (should (equal (plist-get (parley-session-fields (car (last sessions)))
+                                  :status)
+                       "idle"))
         (should (string-suffix-p
                  (concat "/sessions/2026/10/27/rollout-2026-10-27T05-00-00-"
                          parley-test--codex-id ".jsonl")
