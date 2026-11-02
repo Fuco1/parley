@@ -96,7 +96,7 @@
    " elif .type == \"attachment\" and .attachment.type == \"queued_command\" then"
    "   {ended: (.attachment.prompt | strings | ended)} | select(.ended != [])"
    " else empty end")
-  "The jq program every line of a transcript is passed through.
+  "The jq program every line of a Claude Code transcript is passed through.
 
 It emits what parley renders and no more: the role, whether the
 harness injected the turn, the text and how many tool calls the
@@ -156,8 +156,70 @@ stopped working -- exactly the frozen session `--unbuffered'
 exists to prevent.  Consecutive tool-only objects are the run,
 and joining them is the renderer's job.")
 
-(defun parley-transcript--command (file)
-  "Return the shell pipeline that projects the transcript FILE.
+(defconst parley-transcript--codex-projection
+  (concat
+   "def injected: startswith(\"<environment_context>\")"
+   "  or startswith(\"<recommended_plugins>\")"
+   "  or startswith(\"# AGENTS.md instructions\");"
+   " if .type != \"response_item\" then empty"
+   " elif .payload.type == \"message\" then"
+   "   .payload"
+   "   | select(.role == \"user\" or .role == \"assistant\")"
+   "   | {role, meta: false,"
+   "      text: ([.content[]?.text | strings] | join(\"\\n\"))}"
+   "   | select(.text != \"\""
+   "            and (.role == \"assistant\" or (.text | injected | not)))"
+   " elif .payload.type | IN(\"custom_tool_call\", \"function_call\","
+   "                         \"local_shell_call\", \"web_search_call\","
+   "                         \"tool_search_call\", \"image_generation_call\")"
+   " then {tools: 1}"
+   " else empty end")
+  "The jq program every line of a Codex rollout is passed through.
+
+It emits the objects `parley-transcript--projection' emits for a
+Claude Code transcript, so the render pass reads a Codex session
+as it reads any other, and it reads two kinds of line to make
+them.  A `response_item' message from the `user' or the
+`assistant' is a turn, its text the `text' of each of its content
+parts joined with newlines.  A `response_item' of one of the six
+call items is one tool call, emitted as a count of one: the run
+it belongs to is joined by the renderer, as a Claude Code run is.
+
+Every other line emits nothing.  That is reasoning, the `_output'
+item answering each call, which is a tool payload, and every
+line that is not a `response_item' at all.  An `event_msg' of
+type `item_completed' repeats every user and assistant message
+the rollout already holds as a `response_item', so reading it
+would show every turn twice.
+
+Codex writes no field marking what it injected, so its injected
+context is known by the head of its text: a `user' message whose
+text opens with `<environment_context>', `<recommended_plugins>'
+or `# AGENTS.md instructions', at its first character and with
+nothing tolerated in front -- the rule
+`parley-transcript--notification-rx' follows.  A turn quoting one
+of them anywhere else is the operator's.  A `developer' message
+is Codex's own instructions, every time.  Both are dropped here
+rather than emitted marked, because what an injection with no
+line of its own renders to is nothing, and the instructions are
+the bulk of a rollout's text.
+
+`meta' is written false on every turn because the render pass
+marks an injection Claude Code leaves unmarked by setting that
+field, and a Codex turn is read there as one of those is.")
+
+(defun parley-transcript--command (session)
+  "Return the shell pipeline that projects the transcript of SESSION.
+
+SESSION is a record as `parley-transcript' takes one, and its
+transcript is the file its `:transcript' names.  The program the
+transcript is projected through is the one for whoever wrote it:
+`parley-transcript--codex-projection' for a record whose
+`:vendor' is `codex', the thread's rollout, and
+`parley-transcript--projection' for a record without the key,
+which is a Claude Code session.  Any other vendor signals an
+error, because either program over a format it was not written
+for emits nothing, and an empty buffer would not say why.
 
 `-F' rather than `-f' because a session that has not spoken yet
 has no transcript to open; tail says so on stderr, which shares
@@ -177,9 +239,15 @@ the escape stripping out of the buffer, and `-M' is what keeps
 that safe if the pipeline ever ran on a terminal again.  It
 leaves no escape byte in the stream at all: a control character
 inside a JSON string is written as the six characters \\u001b."
-  (concat "tail -c +1 -F " (shell-quote-argument file)
+  (concat "tail -c +1 -F "
+          (shell-quote-argument (plist-get session :transcript))
           " | jq -M -c --unbuffered "
-          (shell-quote-argument parley-transcript--projection)))
+          (shell-quote-argument
+           (pcase (plist-get session :vendor)
+             ('nil parley-transcript--projection)
+             ('codex parley-transcript--codex-projection)
+             (vendor (error "No projection for a session of vendor %S"
+                            vendor))))))
 
 ;;; Rendering
 
@@ -2038,7 +2106,7 @@ It is the plist `parley-sessions' returned for that session.")
 (put 'parley-transcript-session 'permanent-local t)
 
 (define-derived-mode parley-transcript-mode comint-mode "Parley"
-  "Major mode for the transcript of a Claude Code session.
+  "Major mode for the transcript of a Claude Code or Codex session.
 
 The process writes one projected JSON object per message and
 `parley-transcript--filter' renders each into the buffer text
@@ -2206,7 +2274,7 @@ and history and all."
         (let ((process-connection-type nil))
           (make-comint-in-buffer
            (buffer-name) buffer "sh" nil "-c"
-           (parley-transcript--command (plist-get session :transcript))))
+           (parley-transcript--command session)))
         ;; The pipeline has no state to lose, so there is nothing to
         ;; stop and ask the operator about.
         (set-process-query-on-exit-flag (get-buffer-process buffer) nil)
