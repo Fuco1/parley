@@ -1911,7 +1911,12 @@ On `comint-output-filter-functions', which is the first moment
 the text exists: `parley-transcript--filter' ran before the
 insertion and could only say how far into its string each prompt
 was, and comint has just inserted that string at
-`comint-last-output-start'."
+`comint-last-output-start'.
+
+Ahead of `parley-transcript--align-output' on that hook, because
+writing a table aligned moves every prompt after it away from the
+offset it arrived at.  A prompt placed first is a marker by then,
+and the marker follows the move."
   (dolist (prompt (nreverse parley-transcript--pending))
     (parley-transcript--index-prompt
      (car prompt) (+ comint-last-output-start (cdr prompt))))
@@ -1975,6 +1980,47 @@ name would be."
         (puthash (car entry) n counts)
         (puthash label t names)
         (push (cons label (nth 1 entry)) index)))))
+
+(defun parley-transcript-next-prompt (n)
+  "Move point to the start of the Nth prompt after it.
+With N negative, move to the start of the -Nth prompt before it.
+Past the last prompt is the end of the buffer, where the next one
+is typed.  Asked for more prompts before point than there are, it
+goes back as far as they reach, and with none before point it
+stays where it is.  That is how `comint-next-prompt' counts.
+
+A prompt is an entry of the imenu index, and it starts where that
+entry points, so every prompt is a stop whichever way it reached
+the buffer and nothing else is.  `comint-next-prompt' stops where
+the `field' property turns nil, and in this buffer that is rarely
+a prompt: a prompt the transcript delivered is `field output'
+like everything around it, while a prompt typed here and a table
+written again at a new width carry no `field' at all.  An entry
+whose line has been deleted is dropped by the index, and so is
+not a stop either.
+
+`parley-transcript-mode-map' remaps `comint-next-prompt' to this,
+so it is what that command's key and menu item run here."
+  (interactive "^p")
+  (let* ((here (point))
+         (starts (mapcar #'cdr (parley-transcript--imenu-index)))
+         (before (nreverse (seq-filter (lambda (start) (< start here)) starts)))
+         (after (seq-filter (lambda (start) (> start here)) starts)))
+    (cond ((> n 0) (goto-char (or (nth (1- n) after) (point-max))))
+          ((and (< n 0) before)
+           (goto-char (or (nth (- -1 n) before) (car (last before))))))))
+
+(defun parley-transcript-previous-prompt (n)
+  "Move point to the start of the Nth prompt before it.
+With N negative, move to the start of the -Nth prompt after it.
+This is `parley-transcript-next-prompt' the other way, and what it
+says about where a prompt starts and about running out of prompts
+holds here too.
+
+`parley-transcript-mode-map' remaps `comint-previous-prompt' to
+this, so it is what that command's key and menu item run here."
+  (interactive "^p")
+  (parley-transcript-next-prompt (- n)))
 
 ;;; The buffer
 
@@ -2041,12 +2087,15 @@ and never the objects."
   ;; as well -- and the global value is where
   ;; `ansi-color-process-output' is, which this mode has just taken
   ;; pains to drop.
-  (add-hook 'comint-output-filter-functions
-            #'parley-transcript--index-output nil t)
+  ;;
   ;; Where the tables the render pass found are is known here and not
   ;; afterwards, for the reason the index is.
   (add-hook 'comint-output-filter-functions
             #'parley-transcript--align-output nil t)
+  ;; Added after the tables so that it runs before them, `add-hook'
+  ;; putting a function at the front of the hook.
+  (add-hook 'comint-output-filter-functions
+            #'parley-transcript--index-output nil t)
   ;; The grid a table is written to is what fits the window, so it is
   ;; written again when the window changes width.  Buffer locally,
   ;; which is what has Emacs run it for each window showing this
@@ -2081,6 +2130,14 @@ and never the objects."
   ;; An `:eval', so the line is built on every redisplay: which session
   ;; the buffer follows is fixed, and what it is doing is not.
   (setq-local header-line-format '(:eval (parley-transcript--header-line))))
+
+;; comint has no variable for its prompt motion to go through, so its
+;; two commands are remapped instead, which carries `C-c C-p', `C-c
+;; C-n' and the In/Out menu over to the index along with them.
+(define-key parley-transcript-mode-map [remap comint-previous-prompt]
+            #'parley-transcript-previous-prompt)
+(define-key parley-transcript-mode-map [remap comint-next-prompt]
+            #'parley-transcript-next-prompt)
 
 (defun parley-transcript--buffer-name (session)
   "Return the name of the buffer that follows SESSION.

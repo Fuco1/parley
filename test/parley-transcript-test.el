@@ -5981,5 +5981,208 @@ off it."
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "❯ after the run")))))
 
+(ert-deftest parley-transcript-test-indexes-a-prompt-after-a-table ()
+  "A prompt that arrives with a table before it points at itself.
+
+The render pass says how far into what it rendered each prompt
+and each table is, and the table is then written aligned, which
+moves every prompt after it in the same chunk.  An entry placed
+by its offset after that would point into the table instead, and
+the table written again at a new width would delete what it
+points at and the entry with it.  Both lines are written at once,
+so they arrive in one chunk."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--text-turn parley-transcript-test--table)
+            (parley-transcript-test--user-turn "after the table"))
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ after the table"
+                                (parley-transcript-test--shown buffer)))))
+    (should (parley-transcript-test--tables buffer))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) '("after the table")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "❯ after the table")))))
+
+(defun parley-transcript-test--press (key &optional n)
+  "Run what KEY is bound to here, N its prefix argument, and return where it went.
+The binding is looked up rather than the command called, because
+the key is how the operator reaches it.  What comes back is the
+line from point to its end, which is the prompt's own line when
+point is at the start of one and the empty input zone when point
+is at the end of the buffer."
+  (let ((current-prefix-arg n))
+    (call-interactively (key-binding (kbd key))))
+  (buffer-substring-no-properties (point) (line-end-position)))
+
+(defconst parley-transcript-test--three-prompts
+  (list (parley-transcript-test--user-turn "the first prompt")
+        (parley-transcript-test--text-turn "an answer")
+        (parley-transcript-test--user-turn "the second prompt")
+        (parley-transcript-test--text-turn "another answer")
+        (parley-transcript-test--user-turn "the third prompt"))
+  "A transcript of three prompts, with an answer between each two.")
+
+(ert-deftest parley-transcript-test-steps-through-the-prompts-it-read ()
+  "\\`C-c C-p' and \\`C-c C-n' stop at each prompt the transcript delivered.
+
+`comint-previous-prompt' stops where the `field' property turns
+nil, and `comint-output-filter' marks a prompt the transcript
+delivered `field output' like the rest of the output, so from the
+end of this buffer it does not move at all.  The keys run
+parley's commands instead, reached by remapping comint's, so the
+In/Out menu reaches them as well.
+
+Back from the end one prompt at a time and no further than the
+first, from where there is no prompt before point to go to;
+forward again one at a time and on to the end of the buffer,
+where the next prompt will be typed.  A numeric argument moves
+that many prompts, the other way when it is negative, and as far
+as there are prompts when it asks for more: back to the first,
+forward to the end -- as comint's own commands do."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--three-prompts
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ the third prompt"
+                                (parley-transcript-test--shown buffer)))))
+    (with-current-buffer buffer
+      (should (eq (key-binding (kbd "C-c C-p") t t) #'comint-previous-prompt))
+      (should (eq (key-binding (kbd "C-c C-n") t t) #'comint-next-prompt))
+      (should (eq (key-binding (kbd "C-c C-p"))
+                  #'parley-transcript-previous-prompt))
+      (should (eq (key-binding (kbd "C-c C-n"))
+                  #'parley-transcript-next-prompt))
+      (goto-char (point-max))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ the third prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ the second prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ the first prompt"))
+      (let ((first (point)))
+        (parley-transcript-test--press "C-c C-p")
+        (should (= (point) first)))
+      (goto-char (point-min))
+      (parley-transcript-test--press "C-c C-p")
+      (should (bobp))
+      (should (equal (parley-transcript-test--press "C-c C-n")
+                     "❯ the first prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-n")
+                     "❯ the second prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-n")
+                     "❯ the third prompt"))
+      (parley-transcript-test--press "C-c C-n")
+      (should (eobp))
+      (should (equal (parley-transcript-test--press "C-c C-p" 2)
+                     "❯ the second prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-n" -1)
+                     "❯ the first prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-p" -2)
+                     "❯ the third prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-p" 5)
+                     "❯ the first prompt"))
+      (parley-transcript-test--press "C-c C-n" 5)
+      (should (eobp)))))
+
+(ert-deftest parley-transcript-test-steps-onto-a-prompt-typed-here ()
+  "A prompt typed into the buffer is a stop, at its start, as a prompt read is.
+
+`parley-transcript--render-input' writes a typed prompt with no
+`field' property, so comint's own command stops on the blank line
+its block opens with rather than at the prompt, and can go no
+further back than that: the conversation before it is all `field
+output'.  From the end of the buffer the keys go to the typed
+prompt and then on to the one the transcript delivered, and
+forward again the same way."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "ask it something"))
+    (with-current-buffer buffer
+      (goto-char (point-max))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ ask it something"))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ what is here"))
+      (should (equal (parley-transcript-test--press "C-c C-n")
+                     "❯ ask it something"))
+      (parley-transcript-test--press "C-c C-n")
+      (should (eobp)))))
+
+(ert-deftest parley-transcript-test-steps-over-a-table-written-again ()
+  "A table rendered again at a new width is passed over, whichever way.
+
+`parley-transcript--replace-table' writes the table again with no
+`field' property, so comint's own command stops at its top
+border.  Each prompt here has a table after it, so a stop at
+either table is a stop the keys would make on the way to a
+prompt or on the way to the end of the buffer.  The tables are
+asserted to have been written again first, or the test would be
+over the tables the transcript delivered and nothing else."
+  (skip-unless (executable-find "jq"))
+  (let ((columns (frame-width)))
+    (unwind-protect
+        (parley-transcript-test--with-session
+            (list (parley-transcript-test--user-turn "before the table")
+                  (parley-transcript-test--text-turn
+                   parley-transcript-test--table)
+                  (parley-transcript-test--user-turn "after the table")
+                  (parley-transcript-test--text-turn
+                   parley-transcript-test--table))
+          (should (parley-transcript-test--wait
+                   (lambda () (= 2 (length (parley-transcript-test--tables
+                                            buffer))))))
+          (save-window-excursion
+            (set-window-buffer (selected-window) buffer)
+            (parley-transcript-test--resize buffer 100)
+            (let ((aligned (mapcar #'parley-transcript-test--form
+                                   (parley-transcript-test--tables buffer))))
+              (parley-transcript-test--resize buffer 20)
+              (should-not (seq-intersection
+                           aligned
+                           (mapcar #'parley-transcript-test--form
+                                   (parley-transcript-test--tables buffer)))))
+            (with-current-buffer buffer
+              (goto-char (point-max))
+              (should (equal (parley-transcript-test--press "C-c C-p")
+                             "❯ after the table"))
+              (should (equal (parley-transcript-test--press "C-c C-p")
+                             "❯ before the table"))
+              (should (equal (parley-transcript-test--press "C-c C-n")
+                             "❯ after the table"))
+              (parley-transcript-test--press "C-c C-n")
+              (should (eobp)))))
+      (set-frame-width (selected-frame) columns))))
+
+(ert-deftest parley-transcript-test-steps-over-a-deleted-prompt ()
+  "A prompt whose line has been deleted is no longer a stop.
+
+A marker in deleted text survives at the boundary of the
+deletion, so an entry for the deleted prompt would stop the keys
+at whatever line follows it now.  The operator who killed a prompt
+out of the conversation steps from the one after it straight to
+the one before it, and back."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--three-prompts
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ the third prompt"
+                                (parley-transcript-test--shown buffer)))))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should (search-forward "❯ the second prompt" nil t))
+      (let ((inhibit-read-only t))
+        (delete-region (line-beginning-position) (line-beginning-position 2)))
+      (should-not (member "❯ the second prompt"
+                          (parley-transcript-test--shown buffer)))
+      (goto-char (point-max))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ the third prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-p")
+                     "❯ the first prompt"))
+      (should (equal (parley-transcript-test--press "C-c C-n")
+                     "❯ the third prompt")))))
+
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
