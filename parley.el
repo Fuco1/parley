@@ -1,4 +1,4 @@
-;;; parley.el --- Read and drive local Claude Code sessions -*- lexical-binding: t -*-
+;;; parley.el --- Read and drive local Claude Code and Codex sessions -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2026 Matúš Goljer <matus.goljer@gmail.com>
 
@@ -25,27 +25,33 @@
 
 ;;; Commentary:
 
-;; A conversation view for the Claude Code sessions running on this
-;; machine.  Every session writes an append-only JSONL transcript, and
-;; every session started inside tmux carries the pane it lives in.
-;; Parley reads the first and types into the second.
+;; A conversation view for the Claude Code and Codex sessions running
+;; on this machine.  Every session writes an append-only JSONL
+;; transcript, and every session started inside tmux carries the pane
+;; it lives in.  Parley reads the first and types into the second.
 ;;
 ;; What you get is the conversation and nothing else: the tool calls an
 ;; agent makes on its way to an answer collapse to a single line saying
 ;; how many there were.
 ;;
-;; Sessions are discovered with `claude agents --json' and are not
-;; parley's to start -- tmux owns them, whether they were launched by
-;; hand or by something like orc.  A transcript buffer ends one only
-;; the way the operator would at its pane, by typing `/exit' there:
-;; see `parley-transcript-exit'.
+;; Claude Code sessions are discovered with `claude agents --json',
+;; and Codex sessions by the thread id a Codex TUI writes into its
+;; tmux pane's title, which it does once `~/.codex/config.toml' has
+;;
+;;   [tui]
+;;   terminal_title = ["run-state", "spinner", "thread-id"]
+;;
+;; Neither is parley's to start -- tmux owns them, whether they were
+;; launched by hand or by something like orc.  A transcript buffer
+;; ends one only the way the operator would at its pane, by typing
+;; `/exit' there: see `parley-transcript-exit'.
 
 ;;; Code:
 
 (require 'seq)
 
 (defgroup parley nil
-  "A conversation view for local Claude Code sessions."
+  "A conversation view for local Claude Code and Codex sessions."
   :group 'tools
   :prefix "parley-")
 
@@ -127,32 +133,53 @@ the single call exists to avoid.
 
 `parley-sessions' puts this back to `unasked', so the locations
 shown beside a list are no older than the list itself.  A pane
-the operator moved to another window is somewhere else now.")
+the operator moved to another window is somewhere else now.  When
+listing them asks tmux for the title of a Codex TUI's pane, what
+tmux answered goes here, because that one answer says where every
+pane is as well.")
 
-(defun parley--tmux-pane-locations ()
-  "Return where every tmux pane is, as an alist of (PANE-ID . LOCATION).
-LOCATION is the pane's SESSION:WINDOW.PANE.
+(defun parley--tmux-panes ()
+  "Return every tmux pane, as a list of (PANE-ID LOCATION TITLE).
+LOCATION is the pane's SESSION:WINDOW.PANE and TITLE the title
+its program last set, which is where a Codex TUI writes the
+thread it is on -- see `parley--codex-sessions'.
 
 Nil if tmux is not installed or has no server running, which is a
 machine nothing has a pane on anyway.
 
-The location is everything after the first space of a line and
-not the second field of it: a tmux session name may contain
-spaces and `list-panes' prints it as it is.  It may contain a `%'
-as well, which the location then carries and which is no pane id
--- measured against tmux 3.2a, which sanitises `:' and `.' in a
-session name and nothing else, a session named `parley %test'
-prints its first pane as `%0 parley %test:0.0'."
+The location is everything between the first space of a line and
+its first tab, and not the second field of it: a tmux session
+name may contain spaces and `list-panes' prints it as it is.  It
+may contain a `%' as well, which the location then carries and
+which is no pane id -- measured against tmux 3.2a, which
+sanitises `:' and `.' in a session name, a session named
+`parley %test' prints its first pane as `%0 parley %test:0.0'.
+It contains no tab, which tmux writes as the two characters \\t,
+so the tab is what ends it.
+
+The title is the rest of the line, and may hold any character but
+a newline: tmux refuses a title with a control character in it."
   (with-temp-buffer
     (when (eq 0 (ignore-error file-error
                   (call-process
                    "tmux" nil t nil "list-panes" "-a" "-F"
-                   "#{pane_id} #{session_name}:#{window_index}.#{pane_index}")))
+                   (concat "#{pane_id} #{session_name}:#{window_index}"
+                           ".#{pane_index}\t#{pane_title}"))))
       (delq nil
             (mapcar (lambda (line)
-                      (when (string-match "\\`\\([^ ]+\\) \\(.+\\)\\'" line)
-                        (cons (match-string 1 line) (match-string 2 line))))
+                      (when (string-match
+                             "\\`\\([^ ]+\\) \\([^\t]+\\)\t\\(.*\\)\\'" line)
+                        (list (match-string 1 line) (match-string 2 line)
+                              (match-string 3 line))))
                     (split-string (buffer-string) "\n" t))))))
+
+(defun parley--remember-pane-locations (panes)
+  "Make PANES what tmux last answered about where every pane is.
+PANES is what `parley--tmux-panes' returns, and what it says goes
+on `parley--pane-locations' for every lookup until the sessions
+are next listed."
+  (setq parley--pane-locations
+        (mapcar (lambda (pane) (cons (car pane) (nth 1 pane))) panes)))
 
 (defun parley-known-pane-location (pane)
   "Return where tmux pane PANE is by what tmux last answered.
@@ -171,7 +198,7 @@ Nil rather than an error: a pane can be closed while the session
 started in it outlives it, and a session that can no longer be
 typed into is still one to read."
   (when (eq parley--pane-locations 'unasked)
-    (setq parley--pane-locations (parley--tmux-pane-locations)))
+    (parley--remember-pane-locations (parley--tmux-panes)))
   (parley-known-pane-location pane))
 
 (defcustom parley-projects-directory "~/.claude/projects"
@@ -208,28 +235,37 @@ ENTRY is one element of `claude agents --json'."
             :transcript (parley--transcript-file cwd session-id)))))
 
 (defun parley-sessions ()
-  "Return one record per live Claude Code session on this machine.
+  "Return one record per live Claude Code or Codex session on this machine.
 A record is a plist with these keys:
 
+  :vendor      `codex' for a Codex session, and absent from a Claude
+               Code one
   :pid         the session process
-  :name        the name `claude agents' gives it, or nil
-  :kind        \"interactive\" or \"background\" as reported; a headless
-               lane says \"interactive\" too, so this is passed on and
-               not believed
+  :name        the name `claude agents' gives it, or the name Codex
+               gave the thread; nil when there is none
+  :kind        \"interactive\" or \"background\" as `claude agents'
+               reports it; a headless lane says \"interactive\" too,
+               so this is passed on and not believed.  Absent from a
+               Codex session
   :status      the status it reports, as `parley--statuses' spells
                one, or nil
   :cwd         its working directory
-  :session-id  its session id
+  :session-id  its session id, which for Codex is the thread's id
   :pane        the tmux pane it lives in, or nil if it is outside tmux
-  :transcript  the absolute path of its JSONL transcript
+  :transcript  the absolute path of its JSONL transcript, which for
+               Codex is the thread's rollout
 
 Sessions whose standard input is not a terminal are headless
-children -- a lane running `claude -p' -- and are left out."
+children -- a lane running `claude -p', Codex's daemon, a
+`codex exec' -- and are left out.  The Codex sessions come after
+the Claude Code ones, and `parley--codex-sessions' says which of
+them are listed."
   ;; The pane locations go back to unasked and are not resolved here:
   ;; what needs one is a row or a tag, and a list nothing draws asks
-  ;; tmux nothing at all.
+  ;; tmux nothing at all -- unless a Codex process asked it already.
   (setq parley--pane-locations 'unasked)
-  (delq nil (mapcar #'parley--session (parley--agents))))
+  (append (delq nil (mapcar #'parley--session (parley--agents)))
+          (parley--codex-sessions)))
 
 (defun parley-session-tag (session)
   "Return what tells SESSION apart from every other live session.
@@ -254,6 +290,148 @@ a prefix would be two the tag could not tell apart."
     (if location (concat location " " id) id)))
 
 
+;;; Discovering a Codex session
+
+;; Nothing on a Codex TUI's process says which thread it is on: the
+;; rollout is open in Codex's daemon and not in the TUI, and a TUI
+;; started as plain `codex' has no id among its arguments.  Its pane
+;; title does, once `tui.terminal_title' carries `thread-id', so the
+;; title is where a pane and a thread meet.
+
+(defcustom parley-codex-home "~/.codex"
+  "Directory Codex keeps its threads under.
+A thread's rollout is under `sessions/YYYY/MM/DD' here, and what
+the operator named each thread is in `session_index.jsonl'."
+  :type 'directory)
+
+(defun parley--processes-named (name)
+  "Return the pid of every process on this machine named NAME.
+A process's name is what `/proc/PID/comm' holds, which is the
+name of the file it runs and not a word of its arguments."
+  (with-temp-buffer
+    (set-buffer-multibyte nil)
+    ;; Nothing under /proc is a file a handler is for, and matching
+    ;; every handler's regexp against each of several hundred names is
+    ;; most of what the scan would cost otherwise.
+    (let ((file-name-handler-alist nil)
+          (comm (concat name "\n"))
+          (pids nil))
+      (dolist (pid (directory-files "/proc" nil "\\`[0-9]+\\'" t) pids)
+        (erase-buffer)
+        (when (and (ignore-errors
+                     (insert-file-contents-literally
+                      (format "/proc/%s/comm" pid))
+                     t)
+                   (equal (buffer-string) comm))
+          (push (string-to-number pid) pids))))))
+
+(defun parley--process-cwd (pid)
+  "Return the working directory of PID, nil if unreadable."
+  (file-symlink-p (format "/proc/%s/cwd" pid)))
+
+(defun parley--codex-title-thread (title)
+  "Return the start of the thread id in pane title TITLE, nil if none.
+Codex writes the first twenty-nine characters of the id, the hex
+digits grouped 8-4-4-4-5, and three dots after them."
+  (let ((case-fold-search nil))
+    (and title
+         (string-match (concat "[0-9a-f]\\{8\\}-[0-9a-f]\\{4\\}-[0-9a-f]\\{4\\}"
+                               "-[0-9a-f]\\{4\\}-[0-9a-f]\\{5\\}")
+                       title)
+         (match-string 0 title))))
+
+(defun parley--codex-rollout (prefix)
+  "Return the rollout of the thread whose id starts with PREFIX, nil if none.
+PREFIX is what `parley--codex-title-thread' read.  The id's first
+twelve hex digits are the thread's creation time in Unix
+milliseconds, and Codex files the rollout under the day that time
+falls on in local time, as
+`sessions/YYYY/MM/DD/rollout-YYYY-MM-DDTHH-MM-SS-ID.jsonl' under
+`parley-codex-home'.  That one directory is the only place looked
+in.
+
+Codex writes the rollout when the thread is sent its first
+message, so a thread nothing has been sent yet has none."
+  (let ((created (string-to-number (concat (substring prefix 0 8)
+                                           (substring prefix 9 13))
+                                   16)))
+    (car (file-expand-wildcards
+          (expand-file-name
+           (format-time-string
+            (format "sessions/%%Y/%%m/%%d/rollout-*-%s???????.jsonl" prefix)
+            (/ created 1000))
+           parley-codex-home)))))
+
+(defun parley--codex-thread-names ()
+  "Return what the operator named each Codex thread, as (ID . NAME).
+Read from `session_index.jsonl' under `parley-codex-home', which
+Codex appends a line to on each rename, so the newest name of a
+thread is the first `assoc' finds here.  Nil if there is no such
+file."
+  (with-temp-buffer
+    (ignore-error file-missing
+      (insert-file-contents
+       (expand-file-name "session_index.jsonl" parley-codex-home)))
+    (let ((names nil))
+      (dolist (line (split-string (buffer-string) "\n" t) names)
+        (let ((entry (ignore-errors
+                       (json-parse-string line :object-type 'alist
+                                          :null-object nil))))
+          (push (cons (alist-get 'id entry) (alist-get 'thread_name entry))
+                names))))))
+
+(defun parley--codex-session (pid panes names)
+  "Return the record of the Codex TUI PID, nil if parley cannot follow it.
+PANES is what `parley--tmux-panes' returned and NAMES what
+`parley--codex-thread-names' did.  PID gets a record when its
+TMUX_PANE names a pane among PANES, that pane's title carries a
+thread id, and the thread has a rollout."
+  (let* ((pane (parley--environ-tmux-pane (parley--process-environ pid)))
+         (title (nth 2 (assoc pane panes)))
+         (prefix (parley--codex-title-thread title))
+         (rollout (and prefix (parley--codex-rollout prefix))))
+    (when rollout
+      ;; The file name ends in the whole id, which the title cuts short.
+      (let ((id (substring (file-name-base rollout) -36)))
+        (list :vendor 'codex
+              :pid pid
+              :name (cdr (assoc id names))
+              :status (parley--codex-title-status title)
+              :cwd (parley--process-cwd pid)
+              :session-id id
+              :pane pane
+              :transcript rollout)))))
+
+(defun parley--codex-sessions ()
+  "Return one record per Codex TUI on this machine parley can follow.
+A Codex TUI is a process named `codex' with a terminal on standard
+input.  Codex's daemon, `codex app-server', is named `codex' too
+and has the null device there, and a `codex exec' has a pipe, so
+`parley--terminal-device-p' leaves both out as it leaves out a
+headless Claude Code.
+
+Which thread a TUI is on is read from its pane's title, the one
+place the pane and the thread meet, and a TUI whose title carries
+no thread id, or whose thread has no rollout yet, gets no record:
+see `parley--codex-session'.
+
+tmux is asked once for the whole list, and only when there is a
+TUI to ask about.  The same answer says where every pane is, so
+it is kept for the rows and tags drawn from the list rather than
+asked for again."
+  (let ((pids (seq-filter (lambda (pid)
+                            (parley--terminal-device-p
+                             (parley--stdin-target pid)))
+                          (parley--processes-named "codex"))))
+    (when pids
+      (let ((panes (parley--tmux-panes))
+            (names (parley--codex-thread-names)))
+        (parley--remember-pane-locations panes)
+        (delq nil (mapcar (lambda (pid)
+                            (parley--codex-session pid panes names))
+                          pids))))))
+
+
 ;;; What a session is doing
 
 ;; A session writes what it is doing to `PID.json' under
@@ -271,6 +449,11 @@ a prefix would be two the tag could not tell apart."
 ;; `procStart' has to be the one /proc reports, because a pid that has
 ;; been handed to an unrelated process would otherwise read as that
 ;; session forever.
+;;
+;; A Codex session writes no such file, and outside its daemon the one
+;; place it says what it is doing is its pane's title -- the title its
+;; thread id is read from -- so that is read instead, and the thread
+;; id in it is what stands in for the comparisons.
 
 (defcustom parley-sessions-directory "~/.claude/sessions"
   "Directory Claude Code keeps one file per session under.
@@ -280,9 +463,16 @@ and the `procStart' of the process writing it."
   :type 'directory)
 
 (defconst parley--statuses
-  '(("busy" . working) ("waiting" . waiting) ("idle" . idle))
+  '(("busy" . working) ("waiting" . waiting) ("idle" . idle)
+    ("Ready" . idle) ("Working" . working) ("Thinking" . working)
+    ("Action Required" . waiting))
   "What each status a session writes about itself is read as.
-A status not named here is read as `unknown'.")
+The first three are what Claude Code writes into the file it
+keeps about itself.  The rest are what a Codex TUI writes into its
+pane's title: its run state, which is `Ready', `Working' or
+`Thinking', and `Action Required' while it waits on the operator
+to approve something.  A status not named here is read as
+`unknown'.")
 
 (defun parley--status-value (status)
   "Return the value STATUS, as a session writes it, is read as.
@@ -290,6 +480,19 @@ The value `parley--statuses' maps STATUS to, and `unknown' for a
 STATUS that table does not name -- including the nil `claude
 agents' reports for a session it knows no status for."
   (or (cdr (assoc status parley--statuses)) 'unknown))
+
+(defun parley--codex-title-status (title)
+  "Return the status pane title TITLE says, nil if it says none.
+That is the first status `parley--statuses' names that stands in
+TITLE as words of its own.  A Codex TUI writes its run state at
+the head of its title, and while it waits on the operator writes
+`Action Required' there instead, behind a `[ ! ]' or a `[ . ]'
+that alternate."
+  (let ((case-fold-search nil))
+    (and title
+         (string-match (regexp-opt (mapcar #'car parley--statuses) 'words)
+                       title)
+         (match-string 0 title))))
 
 (defun parley--status-file (pid)
   "Return what session PID says about itself, nil if it says nothing.
@@ -346,17 +549,34 @@ A status this does not know, a file that is not there, a file
 about another session and a process that is gone all return
 `unknown', and none of them ever returns `working': what draws a
 status draws working as motion, and motion that never stops is
-worse than no indicator at all."
-  (let* ((pid (plist-get session :pid))
-         (id (plist-get session :session-id))
-         (fields (and pid (parley--status-file pid)))
-         (start (and fields (parley--process-start pid))))
-    (or (and start
-             (stringp id)
-             (equal (alist-get 'sessionId fields) id)
-             (equal (alist-get 'procStart fields) start)
-             (cdr (assoc (alist-get 'status fields) parley--statuses)))
-        'unknown)))
+worse than no indicator at all.
+
+A Codex session, one whose `:vendor' is `codex', writes no such
+file, and what it is doing is read from its pane's title as tmux
+reports it now, by `parley--codex-title-status', which costs a
+subprocess.  The title has to carry the start of SESSION's thread
+id: Codex moves the title to another thread on `/new' and
+`/resume', and the status beside that id is another thread's.  A
+title carrying another id or none, and a pane tmux does not
+report, return `unknown'."
+  (if (eq (plist-get session :vendor) 'codex)
+      (let* ((id (plist-get session :session-id))
+             (title (nth 2 (assoc (plist-get session :pane)
+                                  (parley--tmux-panes))))
+             (prefix (parley--codex-title-thread title)))
+        (if (and prefix (stringp id) (string-prefix-p prefix id))
+            (parley--status-value (parley--codex-title-status title))
+          'unknown))
+    (let* ((pid (plist-get session :pid))
+           (id (plist-get session :session-id))
+           (fields (and pid (parley--status-file pid)))
+           (start (and fields (parley--process-start pid))))
+      (or (and start
+               (stringp id)
+               (equal (alist-get 'sessionId fields) id)
+               (equal (alist-get 'procStart fields) start)
+               (cdr (assoc (alist-get 'status fields) parley--statuses)))
+          'unknown))))
 
 
 ;;; Listing a session, and reading one
@@ -678,7 +898,7 @@ them alphabetically and lose the status order."
               rows)))
     (setq rows (nreverse rows))
     (unless rows
-      (user-error "No live Claude Code session"))
+      (user-error "No live Claude Code or Codex session"))
     (cdr (assoc (completing-read
                  "Session: "
                  (lambda (string predicate action)

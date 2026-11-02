@@ -1,13 +1,17 @@
 # parley
 
-A conversation view for the Claude Code sessions running on this machine.
+A conversation view for the Claude Code and Codex sessions running on this
+machine.
 
-Every session writes an append-only JSONL transcript under
+Every Claude Code session writes an append-only JSONL transcript under
 `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`, and every session started
 inside tmux inherits `TMUX_PANE`. Parley reads the first and types into the
-second. It never starts a session, which is the job of whatever launched it in
-tmux — a hand or a fleet runner like [orc](https://github.com/Fuco1/orc) — and
-it ends one only by typing `/exit` into its pane.
+second. A Codex session running in tmux is found by the thread id its TUI
+writes into the pane's title, and read from that thread's rollout under
+`~/.codex/sessions`. It never starts a session, which is the job of whatever
+launched it in tmux — a hand or a fleet runner like
+[orc](https://github.com/Fuco1/orc) — and it ends one only by typing `/exit`
+into its pane.
 
 ## What it shows
 
@@ -55,6 +59,12 @@ builds from [`doc/parley.texi`](doc/parley.texi). Once the package is installed
 ## Requirements
 
 - Emacs 28.1, `markdown-mode`, `jq`, `tmux`, Linux (`/proc`)
+- For Codex sessions, this under `[tui]` in `~/.codex/config.toml`, which puts
+  the thread id in the pane's title; without it no Codex session is listed:
+
+  ```toml
+  terminal_title = ["run-state", "spinner", "thread-id"]
+  ```
 - [sallet](https://github.com/Fuco1/sallet) is optional; without it the session
   switcher falls back to `completing-read`.
 - `ccarchive` is optional, and only `parley-transcript-exit-and-archive` needs
