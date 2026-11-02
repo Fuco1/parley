@@ -291,6 +291,78 @@ under the one saying the launch worked."
     "**done** now")
   "The conversation `parley-transcript-test--lines' must render to.")
 
+;; A Codex rollout, in the shapes codex-cli 0.162.1 wrote them on this
+;; machine.  Every line carries the envelope Codex writes, a timestamp
+;; and a type around a payload, and a line the buffer shows nothing of
+;; carries the payload string, so one that reached Emacs is one a test
+;; can find.
+
+(defun parley-transcript-test--codex-line (type payload)
+  "Return a rollout line of TYPE around PAYLOAD, an alist."
+  (json-serialize `((timestamp . "2026-11-02T13:47:38.600Z")
+                    (type . ,type)
+                    (payload . ,payload))))
+
+(defun parley-transcript-test--codex-message (role &rest texts)
+  "Return a rollout line for a message from ROLE in parts saying TEXTS.
+ROLE is `user', `assistant' or `developer', as Codex spells them,
+and each of TEXTS is one content part, of the type Codex writes
+for ROLE.  An injection of Codex's own context comes in two parts
+as often as in one."
+  (parley-transcript-test--codex-line
+   "response_item"
+   `((type . "message")
+     (role . ,role)
+     (content . ,(vconcat
+                  (mapcar (lambda (text)
+                            `((type . ,(if (equal role "assistant")
+                                           "output_text"
+                                         "input_text"))
+                              (text . ,text)))
+                          texts))))))
+
+(defconst parley-transcript-test--codex-calls
+  '("custom_tool_call" "function_call" "local_shell_call" "web_search_call"
+    "tool_search_call" "image_generation_call")
+  "The six call items the codex binary lists, each of them one tool call.")
+
+(defun parley-transcript-test--codex-call (type)
+  "Return a rollout line for a call item of TYPE.
+Its input is the payload, which is what must not come with it."
+  (parley-transcript-test--codex-line
+   "response_item"
+   `((type . ,type) (status . "completed") (call_id . "call_1")
+     (name . "exec") (input . ,parley-transcript-test--payload))))
+
+(defun parley-transcript-test--codex-output ()
+  "Return a rollout line for what a custom tool call sent back."
+  (parley-transcript-test--codex-line
+   "response_item"
+   `((type . "custom_tool_call_output") (call_id . "call_1")
+     (output . ,parley-transcript-test--payload))))
+
+(defun parley-transcript-test--codex-completed (role text)
+  "Return the `event_msg' line repeating the message ROLE said as TEXT.
+Codex writes one of type `item_completed' for every user and
+assistant message beside the `response_item' that is the message,
+so a rollout holds each turn twice."
+  (parley-transcript-test--codex-line
+   "event_msg"
+   `((type . "item_completed")
+     (thread_id . "01a19c83-f4da-7763-b88e-73235e9f28bb")
+     (item . ((type . ,(if (equal role "user") "UserMessage" "AgentMessage"))
+              (id . "01a19c83-fee3-79f1-bef3-1ca9dac1261a")
+              (content . [((type . ,(if (equal role "user") "text" "Text"))
+                           (text . ,text))]))))))
+
+(defconst parley-transcript-test--codex-tags
+  '("<environment_context>" "<recommended_plugins>" "# AGENTS.md instructions")
+  "What each user message carrying Codex's injected context opens with.")
+
+(defun parley-transcript-test--codex-injection (tag)
+  "Return the text of a user message Codex injects, opening with TAG."
+  (concat tag "\n  <cwd>/home/x/" parley-transcript-test--payload "</cwd>\n"))
+
 
 ;;; Driving a real buffer
 
@@ -385,17 +457,17 @@ apart by."
                 (buffer-local-value 'parley-transcript-session buffer))
               (buffer-list)))
 
-(defmacro parley-transcript-test--with-session (lines &rest body)
-  "Run BODY over a transcript buffer following a file holding LINES.
-BODY sees `file', the transcript, and `buffer', the buffer
-`parley-transcript' opened for a session record naming it.  The
-buffer is the one that turned up rather than the one the naming
-looked up, so a test that leaked one is a test that fails here
-and not one that quietly reads someone else's buffer.  Both the
-buffer and the file are gone afterwards, and so -- this being the
-point of the last test -- is the pipeline."
+(defmacro parley-transcript-test--with-record (record &rest body)
+  "Run BODY over a transcript buffer following the session RECORD.
+BODY sees `file', the transcript RECORD names, and `buffer', the
+buffer `parley-transcript' opened for RECORD.  The buffer is the
+one that turned up rather than the one the naming looked up, so a
+test that leaked one is a test that fails here and not one that
+quietly reads someone else's buffer.  Both the buffer and the
+file are gone afterwards, and so -- this being the point of the
+last test -- is the pipeline."
   (declare (indent 1) (debug (form body)))
-  `(let* ((session (parley-transcript-test--session "test" ,lines))
+  `(let* ((session ,record)
           (file (plist-get session :transcript))
           (buffer nil))
      (unwind-protect
@@ -406,6 +478,25 @@ point of the last test -- is the pipeline."
            ,@body)
        (when (buffer-live-p buffer) (kill-buffer buffer))
        (delete-file file))))
+
+(defmacro parley-transcript-test--with-session (lines &rest body)
+  "Run BODY over a transcript buffer following a file holding LINES.
+The record is a Claude Code session's, and BODY sees what
+`parley-transcript-test--with-record' gives it."
+  (declare (indent 1) (debug (form body)))
+  `(parley-transcript-test--with-record
+       (parley-transcript-test--session "test" ,lines)
+     ,@body))
+
+(defmacro parley-transcript-test--with-rollout (lines &rest body)
+  "Run BODY over a transcript buffer following a Codex rollout of LINES.
+The record's `:vendor' is `codex', and BODY sees what
+`parley-transcript-test--with-record' gives it."
+  (declare (indent 1) (debug (form body)))
+  `(parley-transcript-test--with-record
+       (plist-put (parley-transcript-test--session "test" ,lines)
+                  :vendor 'codex)
+     ,@body))
 
 
 ;;; The pipeline
@@ -549,6 +640,102 @@ buffer with no idea why."
                                  (string-match-p (regexp-quote file) line))
                                (parley-transcript-test--shown buffer))))))
       (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
+(ert-deftest parley-transcript-test-projects-only-the-turns-and-calls-of-a-rollout ()
+  "A Codex rollout crosses the pipe as its turns and one count per call.
+One line of every kind a rollout holds goes in, and an object
+comes out for a user or an assistant message and for each of the
+six call items, and for nothing else: not the session's metadata,
+its turn context, its world state or its token usage, not the
+reasoning, not what a call sent back, and not the `event_msg'
+lines -- the `item_completed' ones among them repeating the two
+messages, which would put each turn on the pipe a second time.
+
+What comes out of a message is its role and the text of its parts
+joined, and a call is a count of one.  The payload the skipped
+lines and the calls carry is in none of it."
+  (skip-unless (executable-find "jq"))
+  (let ((payload parley-transcript-test--payload)
+        (projected
+         (with-temp-buffer
+           (insert
+            (mapconcat
+             (lambda (line) (concat line "\n"))
+             (append
+              (list (parley-transcript-test--codex-line
+                     "session_meta"
+                     `((id . "01a19c83") (cwd . ,parley-transcript-test--payload)
+                       (originator . "codex-tui")))
+                    (parley-transcript-test--codex-line
+                     "turn_context"
+                     `((cwd . ,parley-transcript-test--payload)
+                       (model . "gpt-5.6-terra")))
+                    (parley-transcript-test--codex-line
+                     "world_state"
+                     `((full . t) (state . ,parley-transcript-test--payload)))
+                    (parley-transcript-test--codex-line
+                     "event_msg" '((type . "task_started")))
+                    (parley-transcript-test--codex-message "user" "list it")
+                    (parley-transcript-test--codex-completed "user" "list it")
+                    (parley-transcript-test--codex-line
+                     "response_item"
+                     `((type . "reasoning") (summary . [])
+                       (encrypted_content . ,parley-transcript-test--payload))))
+              (mapcar #'parley-transcript-test--codex-call
+                      parley-transcript-test--codex-calls)
+              (list (parley-transcript-test--codex-output)
+                    (parley-transcript-test--codex-line
+                     "response_item"
+                     `((type . "function_call_output") (call_id . "call_2")
+                       (output . ,parley-transcript-test--payload)))
+                    (parley-transcript-test--codex-message
+                     "assistant" "Here it is." "All of it.")
+                    (parley-transcript-test--codex-completed
+                     "assistant" "Here it is.\nAll of it.")
+                    (parley-transcript-test--codex-line
+                     "event_msg"
+                     `((type . "token_count")
+                       (info . ,parley-transcript-test--payload)))
+                    (parley-transcript-test--codex-line
+                     "token_usage_record"
+                     `((usage . ,parley-transcript-test--payload)))))
+             ""))
+           (call-process-region (point-min) (point-max) "jq" t t nil
+                                "-M" "-c" parley-transcript--codex-projection)
+           (split-string (buffer-string) "\n" t))))
+    (should (equal projected
+                   (append
+                    (list "{\"role\":\"user\",\"meta\":false,\"text\":\"list it\"}")
+                    (make-list 6 "{\"tools\":1}")
+                    (list (concat "{\"role\":\"assistant\",\"meta\":false,"
+                                  "\"text\":\"Here it is.\\nAll of it.\"}")))))
+    (should-not (seq-find (lambda (line) (string-search payload line))
+                          projected))))
+
+(ert-deftest parley-transcript-test-follows-a-codex-rollout ()
+  "A record whose `:vendor' is `codex' is followed through the Codex program.
+The Claude Code program emits nothing for a rollout's lines, none
+of them being a `user' or an `assistant' record, so a turn
+showing at all is the Codex program at work -- and so is the
+turn showing once, past the `event_msg' repeating it.  Any other
+vendor is refused, because neither program would show it a
+thing."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-rollout
+      (list (parley-transcript-test--codex-message "user" "what is here")
+            (parley-transcript-test--codex-completed "user" "what is here")
+            (parley-transcript-test--codex-message "assistant" "Nothing yet.")
+            (parley-transcript-test--codex-completed "assistant" "Nothing yet."))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (= 2 (length shown)) shown))))
+                   (list "❯ what is here" "Nothing yet.")))
+    (should (string-search
+             (shell-quote-argument parley-transcript--codex-projection)
+             (car (last (process-command (get-buffer-process buffer)))))))
+  (should-error (parley-transcript--command
+                 (list :vendor 'gemini :transcript "/tmp/x.jsonl"))))
 
 
 ;;; Rendering
@@ -1447,6 +1634,197 @@ quoted and indexed as any turn of his is."
         (should (= 1 (length index)))
         (should (equal (parley-transcript-test--at buffer (car index))
                        quoted))))))
+
+(ert-deftest parley-transcript-test-quotes-a-codex-user-turn ()
+  "A Codex user message is the operator's turn, quoted and indexed.
+Its text is quoted as typed and in his face, and not fontified:
+the asterisks he typed stand, and the word between them is his
+and no markdown emphasis.  The imenu entry points at it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-rollout
+      (list (parley-transcript-test--codex-message
+             "user" "list the *files* here"))
+    (should (parley-transcript-test--wait
+             (lambda ()
+               (equal (parley-transcript-test--shown buffer)
+                      (list "❯ list the *files* here")))))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should (search-forward "files" nil t))
+      (should (eq (get-text-property (match-beginning 0) 'font-lock-face)
+                  'parley-user)))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) (list "list the *files* here")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "❯ list the *files* here")))))
+
+(ert-deftest parley-transcript-test-fontifies-a-codex-assistant-turn ()
+  "A Codex assistant message is markdown, fontified from the text of its parts.
+Two parts, and both are shown, the second under the first.  It is
+no prompt and takes no imenu entry."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-rollout
+      (list (parley-transcript-test--codex-message
+             "assistant" "**done** now" "and that is all"))
+    (should (parley-transcript-test--wait
+             (lambda ()
+               (equal (parley-transcript-test--shown buffer)
+                      (list "**done** now" "and that is all")))))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should (search-forward "done" nil t))
+      (should (memq 'markdown-bold-face
+                    (ensure-list (get-text-property (match-beginning 0)
+                                                    'font-lock-face)))))
+    (should-not (parley-transcript-test--index buffer))))
+
+(ert-deftest parley-transcript-test-shows-nothing-for-codex-injected-context ()
+  "A user message opening with Codex's injected context renders nothing.
+One opening with each of the three tags, at its first character,
+and none of them reaches the buffer or the index: what stands
+there is the operator's own turn under them, and the index holds
+that turn alone.  Rendering nothing, none of them breaks the run
+of tool calls it stands in either.
+
+The tag that opens a message of two parts is the first part's,
+which is how Codex writes its recommended plugins and its
+environment together."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-rollout
+      (append
+       (list (parley-transcript-test--codex-call "custom_tool_call"))
+       (mapcar (lambda (tag)
+                 (parley-transcript-test--codex-message
+                  "user" (parley-transcript-test--codex-injection tag)))
+               parley-transcript-test--codex-tags)
+       (list (parley-transcript-test--codex-message
+              "user"
+              (parley-transcript-test--codex-injection "<recommended_plugins>")
+              (parley-transcript-test--codex-injection "<environment_context>"))
+             (parley-transcript-test--codex-call "custom_tool_call")
+             (parley-transcript-test--codex-message "user" "go on")))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (member "❯ go on" shown) shown))))
+                   (list "● 2 tool calls" "❯ go on")))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "go on")))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward parley-transcript-test--payload nil t)))))
+
+(ert-deftest parley-transcript-test-quotes-a-codex-turn-quoting-injected-context ()
+  "A user message with a Codex tag anywhere but its head is the operator's turn.
+Each of the three tags after words of his, and two of them after
+nothing but whitespace -- the blank line he opened with, and a
+space.  A pattern that stepped over whitespace before the tag
+would take those two for Codex's, and drop his words with them.
+Every one of the five is quoted and indexed as any turn of his
+is."
+  (skip-unless (executable-find "jq"))
+  (let ((tags parley-transcript-test--codex-tags))
+    (parley-transcript-test--with-rollout
+        (append
+         (mapcar (lambda (tag)
+                   (parley-transcript-test--codex-message
+                    "user" (concat "why is this here " tag)))
+                 tags)
+         (list (parley-transcript-test--codex-message
+                "user" (concat "\n" (nth 0 tags) " after a blank line"))
+               (parley-transcript-test--codex-message
+                "user" (concat " " (nth 2 tags) " after a space"))))
+      (should (equal (parley-transcript-test--wait
+                      (lambda ()
+                        (let ((shown (parley-transcript-test--shown buffer)))
+                          (and (= 5 (length shown)) shown))))
+                     (list "❯ why is this here <environment_context>"
+                           "❯ why is this here <recommended_plugins>"
+                           "❯ why is this here # AGENTS.md instructions"
+                           "❯ <environment_context> after a blank line"
+                           "❯ # AGENTS.md instructions after a space")))
+      (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                     (list "why is this here <environment_context>"
+                           "why is this here <recommended_plugins>"
+                           "why is this here # AGENTS.md instructions"
+                           "<environment_context> after a blank line"
+                           "# AGENTS.md instructions after a space"))))))
+
+(ert-deftest parley-transcript-test-shows-nothing-for-a-codex-developer-message ()
+  "A Codex developer message renders nothing and takes no imenu entry.
+Every one is Codex's own instructions, so its role decides and
+not its text: the one in the middle of the run opens with no tag
+at all, and is still not shown, and is no break in the run
+either."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-rollout
+      (list (parley-transcript-test--codex-message
+             "developer"
+             (concat "<permissions instructions>\n"
+                     parley-transcript-test--payload)
+             (concat "You are `/root`, the primary agent. "
+                     parley-transcript-test--payload))
+            (parley-transcript-test--codex-message "user" "start")
+            (parley-transcript-test--codex-call "custom_tool_call")
+            (parley-transcript-test--codex-message
+             "developer"
+             (concat "Keep going. " parley-transcript-test--payload))
+            (parley-transcript-test--codex-call "custom_tool_call"))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (member "● 2 tool calls" shown) shown))))
+                   (list "❯ start" "● 2 tool calls")))
+    (should (equal (mapcar #'car (parley-transcript-test--index buffer))
+                   (list "start")))
+    (with-current-buffer buffer
+      (goto-char (point-min))
+      (should-not (search-forward parley-transcript-test--payload nil t)))))
+
+(ert-deftest parley-transcript-test-counts-each-codex-call-item-as-one-call ()
+  "Each of the six call items is one call in the line a run collapses to.
+A `custom_tool_call', which is the call Codex writes, is a line
+saying one call, and the line is rewritten as the other five
+arrive -- each between the reasoning before it and the output
+after it, neither of which is a call or a break in the run.  The
+answer the agent gave once it was done stands under the line
+saying six."
+  (skip-unless (executable-find "jq"))
+  (let ((reasoning (parley-transcript-test--codex-line
+                    "response_item"
+                    `((type . "reasoning") (summary . [])
+                      (encrypted_content . ,parley-transcript-test--payload)))))
+    (parley-transcript-test--with-rollout
+        (list (parley-transcript-test--codex-message "user" "go")
+              reasoning
+              (parley-transcript-test--codex-call "custom_tool_call")
+              (parley-transcript-test--codex-output))
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (equal (parley-transcript-test--shown buffer)
+                        (list "❯ go" "● 1 tool call")))))
+      (parley-transcript-test--write
+       file (apply #'append
+                   (mapcar (lambda (type)
+                             (list reasoning
+                                   (parley-transcript-test--codex-call type)
+                                   (parley-transcript-test--codex-output)))
+                           (cdr parley-transcript-test--codex-calls))))
+      (should (parley-transcript-test--wait
+               (lambda ()
+                 (equal (parley-transcript-test--shown buffer)
+                        (list "❯ go" "● 6 tool calls")))))
+      (parley-transcript-test--write
+       file (list (parley-transcript-test--codex-message
+                   "assistant" "Six of them.")))
+      (should (equal (parley-transcript-test--wait
+                      (lambda ()
+                        (let ((shown (parley-transcript-test--shown buffer)))
+                          (and (= 3 (length shown)) shown))))
+                     (list "❯ go" "● 6 tool calls" "Six of them.")))
+      (with-current-buffer buffer
+        (goto-char (point-min))
+        (should-not (search-forward parley-transcript-test--payload nil t))))))
 
 
 ;;; The buffer

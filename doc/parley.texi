@@ -33,11 +33,11 @@ of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
                   why sallet is optional, and the minibuffer reader the
                   pick falls back to without it.
 * Transcript::  The pipeline that reads a transcript, the projection it
-                  is filtered through, the render pass, the conversation
-                  above the input zone being read-only, a table rendered
-                  into the buffer, the index over the prompts, one buffer
-                  per session found by id, and the line at the top of the
-                  buffer.
+                  is filtered through and the one a Codex rollout is, the
+                  render pass, the conversation above the input zone
+                  being read-only, a table rendered into the buffer, the
+                  index over the prompts, one buffer per session found by
+                  id, and the line at the top of the buffer.
 * Typing::      The pane as the only way into a session, the input zone
                   and what marks it, the cell in front of the prompt
                   saying what the session is doing, the two send shapes,
@@ -496,6 +496,49 @@ Killing the buffer stops the pipeline either way.  Emacs puts the process
 in a group of its own whichever it allocates and signals the group, so
 @command{sh}, @command{tail} and @command{jq} go together.
 
+@section A Codex rollout has a projection of its own
+
+A Codex thread's transcript is its rollout file, which Codex appends one
+JSON object a line to as the thread runs, and a session record whose
+@code{:vendor} is @code{codex} is followed through a jq program written
+for that format.  @strong{The two formats share no record shape}, so one
+program reading both would be two programs in one, every line tested
+against the shapes of the other.  What the two programs emit is one kind
+of object, so the render pass reads a Codex session as it reads a Claude
+Code one.
+
+@strong{It reads two kinds of line.}  A @code{response_item} whose
+@code{payload.type} is @code{message} is a turn when its role is
+@code{user} or @code{assistant}, and its text is the @code{text} of each
+of its content parts, joined.  A @code{response_item} of one of the six
+call items — @code{custom_tool_call}, @code{function_call},
+@code{local_shell_call}, @code{web_search_call}, @code{tool_search_call}
+and @code{image_generation_call} — is one tool call, and is emitted as a
+count of one, which the render pass joins into the run it stands in as it
+joins a Claude Code one.
+
+Every other line emits nothing: the reasoning, the @code{_output} item
+answering each call, which is a tool payload, and every line that is not
+a @code{response_item} — the thread's metadata, its turn context, its
+world state, its token usage and its events.
+
+@strong{@code{event_msg} is skipped although it holds every turn.}  Codex
+writes an @code{event_msg} of type @code{item_completed} for each user
+and assistant message beside the @code{response_item} that is the
+message, so a program reading both would show every turn twice.  The
+rest of what it writes there — a turn starting and ending, a token count
+— is nothing the buffer shows.
+
+@strong{Codex writes no field marking what it injected, so its text
+decides.}  Its injected context arrives as @code{user} messages opening
+with one of three tags, which the paragraph below on what the text
+decides names, and every @code{developer} message is Codex's own
+instructions.  Both are dropped in jq rather than emitted with a mark,
+for the reason a Claude Code message that renders to nothing is: an
+injection with no line of its own renders to nothing, and Codex's
+instructions are the bulk of a rollout's text.  Dropped, neither is an
+imenu entry or a break in a run of tool calls.
+
 @section The objects become conversation on the way in
 
 The render pass runs on @code{comint-preoutput-filter-functions}, so a
@@ -705,6 +748,11 @@ head, the text would be deciding about his words instead of the
 harness's, which is what @code{isMeta} is for and what it stays for.
 @code{<bash-stdout>} is matched at the first character for the same
 reason, and so is @code{<bash-input>}, whose closing tag ends the text.
+So are the three tags a Codex rollout's injected context opens with,
+@code{<environment_context>}, @code{<recommended_plugins>} and
+@code{# AGENTS.md instructions}, which its projection matches: a
+@code{user} message opening with one of them at its first character is
+Codex's, and one carrying it anywhere else is the operator's turn.
 
 @subsection Fontification happens in another buffer, twice over
 
