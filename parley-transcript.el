@@ -1911,7 +1911,12 @@ On `comint-output-filter-functions', which is the first moment
 the text exists: `parley-transcript--filter' ran before the
 insertion and could only say how far into its string each prompt
 was, and comint has just inserted that string at
-`comint-last-output-start'."
+`comint-last-output-start'.
+
+Ahead of `parley-transcript--align-output' on that hook, because
+writing a table aligned moves every prompt after it away from the
+offset it arrived at.  A prompt placed first is a marker by then,
+and the marker follows the move."
   (dolist (prompt (nreverse parley-transcript--pending))
     (parley-transcript--index-prompt
      (car prompt) (+ comint-last-output-start (cdr prompt))))
@@ -2041,12 +2046,15 @@ and never the objects."
   ;; as well -- and the global value is where
   ;; `ansi-color-process-output' is, which this mode has just taken
   ;; pains to drop.
-  (add-hook 'comint-output-filter-functions
-            #'parley-transcript--index-output nil t)
+  ;;
   ;; Where the tables the render pass found are is known here and not
   ;; afterwards, for the reason the index is.
   (add-hook 'comint-output-filter-functions
             #'parley-transcript--align-output nil t)
+  ;; Added after the tables so that it runs before them, `add-hook'
+  ;; putting a function at the front of the hook.
+  (add-hook 'comint-output-filter-functions
+            #'parley-transcript--index-output nil t)
   ;; The grid a table is written to is what fits the window, so it is
   ;; written again when the window changes width.  Buffer locally,
   ;; which is what has Emacs run it for each window showing this

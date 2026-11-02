@@ -5981,5 +5981,28 @@ off it."
       (should (equal (parley-transcript-test--at buffer (cadr index))
                      "❯ after the run")))))
 
+(ert-deftest parley-transcript-test-indexes-a-prompt-after-a-table ()
+  "A prompt that arrives with a table before it points at itself.
+
+The render pass says how far into what it rendered each prompt
+and each table is, and the table is then written aligned, which
+moves every prompt after it in the same chunk.  An entry placed
+by its offset after that would point into the table instead, and
+the table written again at a new width would delete what it
+points at and the entry with it.  Both lines are written at once,
+so they arrive in one chunk."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--text-turn parley-transcript-test--table)
+            (parley-transcript-test--user-turn "after the table"))
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ after the table"
+                                (parley-transcript-test--shown buffer)))))
+    (should (parley-transcript-test--tables buffer))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) '("after the table")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "❯ after the table")))))
+
 (provide 'parley-transcript-test)
 ;;; parley-transcript-test.el ends here
