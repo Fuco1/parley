@@ -2374,10 +2374,11 @@ that was asked for."
 
 ;;; The session's live status
 
-;; The record the buffer was opened with carries the status `claude
-;; agents' reported then, and a conversation is read for minutes.  What
-;; the session is doing now is in the session's own file, so the buffer
-;; reads that file itself, on a tick.
+;; The record the buffer was opened with carries the status the session
+;; reported then, and a conversation is read for minutes.  What the
+;; session is doing now is in the session's own file, or in its pane's
+;; title for a Codex session, so the buffer reads that itself, on a
+;; tick.
 ;;
 ;; A tick and not a watch.  Nothing but a buffer someone is looking at
 ;; consumes a status -- the switcher builds every row from the `claude
@@ -2387,7 +2388,7 @@ that was asked for."
 ;; buffer's own, so killing the buffer is the whole of stopping it.
 
 (defconst parley-transcript--status-interval 1
-  "Seconds between two reads of the session's own file.
+  "Seconds between two reads of what the session is doing.
 About a second, which is the rate a status is read at and well
 under the time the operator would otherwise spend looking at a
 stale one.")
