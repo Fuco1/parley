@@ -81,20 +81,51 @@
 ;; Standard input per pid, as `readlink /proc/PID/fd/0' gave it: a
 ;; terminal for every entry but the lane running `claude -p', whose
 ;; standard input is a pipe.
+;;
+;; The pids from 3100 up are processes named `codex': a TUI, Codex's
+;; daemon with the null device on standard input, a `codex exec' with
+;; the prompt on a pipe, a TUI whose title carries no thread id and a
+;; TUI on a thread nothing has been sent yet.
 (defconst parley-test--stdin
   '((4079793 . "/dev/pts/44")
     (1334764 . "/dev/pts/23")
     (40796 . "pipe:[175832757]")
-    (652261 . "/dev/pts/180")))
+    (652261 . "/dev/pts/180")
+    (3100 . "/dev/pts/50")
+    (3101 . "/dev/null")
+    (3102 . "pipe:[175833001]")
+    (3103 . "/dev/pts/51")
+    (3104 . "/dev/pts/52")))
 
 ;; Environment blocks per pid.  The worker lane has a TMUX_PANE too --
 ;; tmux exports it into every descendant of the pane -- which is why
-;; nothing about the pane can be used to exclude it.
+;; nothing about the pane can be used to exclude it.  Codex's daemon
+;; carries the TMUX_PANE of whichever pane started it, which here is
+;; the TUI's.
 (defconst parley-test--environ
   '((4079793 . "SHELL=/bin/bash\0TMUX_PANE=%61\0TMUX=/tmp/tmux-1000/default,3661208,3\0")
     (1334764 . "SHELL=/bin/bash\0TERM=xterm-256color\0")
     (40796 . "TMUX_PANE=%627\0TMUX=/tmp/tmux-1000/default,3661208,3\0")
-    (652261 . "TMUX_PANE=%238\0SHELL=/bin/bash\0")))
+    (652261 . "TMUX_PANE=%238\0SHELL=/bin/bash\0")
+    (3100 . "TMUX_PANE=%70\0SHELL=/bin/bash\0")
+    (3101 . "TMUX_PANE=%70\0SHELL=/bin/bash\0")
+    (3102 . "TMUX_PANE=%72\0SHELL=/bin/bash\0")
+    (3103 . "TMUX_PANE=%73\0SHELL=/bin/bash\0")
+    (3104 . "TMUX_PANE=%74\0SHELL=/bin/bash\0")))
+
+;; Working directories per pid, as `readlink /proc/PID/cwd' gave it.
+(defconst parley-test--cwd
+  '((3100 . "/home/matus/dev/parley")
+    (3101 . "/home/matus/dev/parley")
+    (3102 . "/home/matus/dev/orc/trees/review-1/parley")
+    (3103 . "/home/matus/dev/orc")
+    (3104 . "/home/matus")))
+
+(defvar parley-test--codex-pids nil
+  "The pids discovery finds named `codex'.
+None, but in a test about Codex: a test that does not bind this
+lists the Claude Code fixtures alone, whatever runs on the
+machine.")
 
 (defmacro parley-test--with-fixtures (&rest body)
   "Run BODY with discovery reading the fixtures instead of the machine."
@@ -105,7 +136,12 @@
                ((symbol-function 'parley--stdin-target)
                 (lambda (pid) (alist-get pid parley-test--stdin)))
                ((symbol-function 'parley--process-environ)
-                (lambda (pid) (alist-get pid parley-test--environ))))
+                (lambda (pid) (alist-get pid parley-test--environ)))
+               ((symbol-function 'parley--processes-named)
+                (lambda (name)
+                  (and (equal name "codex") parley-test--codex-pids)))
+               ((symbol-function 'parley--process-cwd)
+                (lambda (pid) (alist-get pid parley-test--cwd))))
        ,@body)))
 
 
@@ -234,7 +270,8 @@ dozen subprocesses the one call exists to avoid."
       (cl-letf (((symbol-function 'call-process)
                  (lambda (program &rest arguments)
                    (push (cons program (nthcdr 3 arguments)) calls)
-                   (insert "%61 orc-orc-b3743fe3:3.1\n%238 home:0.0\n")
+                   (insert "%61 orc-orc-b3743fe3:3.1\tparmenides\n"
+                           "%238 home:0.0\tparmenides\n")
                    0)))
         (let ((sessions (parley-sessions)))
           (should (equal (mapcar #'parley-session-tag sessions)
@@ -246,7 +283,7 @@ dozen subprocesses the one call exists to avoid."
           (should (equal (length calls) 1))
           (should (equal (car calls)
                          '("tmux" "list-panes" "-a" "-F"
-                           "#{pane_id} #{session_name}:#{window_index}.#{pane_index}"))))
+                           "#{pane_id} #{session_name}:#{window_index}.#{pane_index}\t#{pane_title}"))))
         (mapc #'parley-session-tag (parley-sessions))
         (should (equal (length calls) 2))))
     (let ((calls nil)
@@ -280,7 +317,7 @@ that asked it would find the pane rather than nothing."
     (cl-letf (((symbol-function 'call-process)
                (lambda (program &rest _)
                  (push program calls)
-                 (insert "%61 orc-orc-b3743fe3:3.1\n")
+                 (insert "%61 orc-orc-b3743fe3:3.1\tparmenides\n")
                  0)))
       (should-not (parley-known-pane-location "%61"))
       (should (eq parley--pane-locations 'unasked))
@@ -302,6 +339,12 @@ tmux 3.2a sanitises `:' and `.' in a session name and nothing
 else, measured here -- so what the tag is free of is the pane id
 and not the character it begins with.
 
+A pane's title is read in the same call, after a tab, and a title
+holding spaces, a `%' and what reads as a location of its own
+leaves the location where it was.  A session named with a tab in
+it is printed with the two characters \\t, which is why no
+location runs past the tab.
+
 A pane the server does not report resolves to no location and to
 no error either, which is the third tag shape."
   (skip-unless (executable-find "tmux"))
@@ -316,20 +359,28 @@ no error either, which is the third tag shape."
         (progn
           (parley-fixtures-tmux "-f" "/dev/null" "new-session" "-d"
                              "-s" "parley %test")
+          ;; The split runs `cat', which sets no title of its own over
+          ;; the one set here, as a shell drawing its prompt may.
           (let ((split (parley-fixtures-tmux "split-window" "-d" "-P"
                                           "-F" "#{pane_id}"
-                                          "-t" "parley %test:"))
+                                          "-t" "parley %test:" "cat"))
                 (window (parley-fixtures-tmux "new-window" "-d" "-P"
                                            "-F" "#{pane_id}"
                                            "-t" "parley %test:")))
             (should (string-prefix-p "%" split))
             (should (string-prefix-p "%" window))
-            (let ((locations (parley--tmux-pane-locations)))
-              (should (equal (cdr (assoc split locations)) "parley %test:0.1"))
-              (should (equal (cdr (assoc window locations)) "parley %test:1.0"))
-              (should (equal (sort (mapcar #'cdr locations) #'string<)
+            (parley-fixtures-tmux "select-pane" "-t" split "-T"
+                                  "Ready | x %test:2.0 y")
+            (parley-fixtures-tmux "new-session" "-d" "-s" "tab\there")
+            (let ((panes (parley--tmux-panes)))
+              (should (equal (assoc split panes)
+                             (list split "parley %test:0.1"
+                                   "Ready | x %test:2.0 y")))
+              (should (equal (nth 1 (assoc window panes)) "parley %test:1.0"))
+              (should (equal (sort (mapcar (lambda (pane) (nth 1 pane)) panes)
+                                   #'string<)
                              '("parley %test:0.0" "parley %test:0.1"
-                               "parley %test:1.0"))))
+                               "parley %test:1.0" "tab\\there:0.0"))))
             (should (equal (parley-session-tag
                             (list :pane window :session-id "abc"))
                            "parley %test:1.0 abc"))
@@ -381,6 +432,236 @@ no error either, which is the third tag shape."
                          (concat "/home/matus/.claude/projects"
                                  "/-home-matus"
                                  "/7c1d0f9a-0000-4000-8000-000000000003.jsonl"))))))
+
+
+;;; Discovering a Codex session
+
+;; Every fixture thread was created at 2026-10-26T20:00:00Z, which is
+;; what the first twelve hex digits of each id say in milliseconds.
+;; That is the 26th in UTC and the 27th in Japan, and the tests run in
+;; Japan's time, so a rollout looked for by the UTC day is not found.
+
+(defconst parley-test--codex-id "01a179cc-6200-7a1c-8e2d-4f60b1c2d3e4"
+  "The thread the fixture TUI is on.")
+
+(defconst parley-test--codex-other-id "01a179cc-6200-7b33-9c41-0a1b2c3d4e5f"
+  "Another thread with a rollout, which the `codex exec' is on.")
+
+(defconst parley-test--codex-unsent-id "01a179cc-6200-7d55-a2b6-112233445566"
+  "A thread nothing has been sent yet, which has no rollout.")
+
+(defconst parley-test--codex-rollout
+  "sessions/2026/10/27/rollout-2026-10-27T05-00-00-%s.jsonl"
+  "Where Codex files the rollout of a fixture thread, the id for the %s.")
+
+(defun parley-test--codex-title (format id)
+  "Return a pane title in FORMAT about the thread ID.
+Codex writes the first twenty-nine characters of the id and three
+dots, and FORMAT has a %s where they go."
+  (format format (concat (substring id 0 29) "...")))
+
+(defconst parley-test--codex-titles
+  `(("%70" . ,(parley-test--codex-title "Ready | %s" parley-test--codex-id))
+    ("%72" . ,(parley-test--codex-title "Working ⠦ %s"
+                                        parley-test--codex-other-id))
+    ("%73" . "Ready | parley")
+    ("%74" . ,(parley-test--codex-title "Ready | %s"
+                                        parley-test--codex-unsent-id)))
+  "The title tmux reports for each fixture Codex pane.")
+
+(defvar parley-test--titles nil
+  "The title of each pane the tmux standing in for the real one reports.")
+
+(defun parley-test--write-rollout (id &optional path)
+  "Write an empty rollout of thread ID under `parley-codex-home'.
+PATH is where it goes in the home, with a %s for ID, and
+`parley-test--codex-rollout' by default.  Return its absolute
+path."
+  (let ((file (expand-file-name (format (or path parley-test--codex-rollout)
+                                        id)
+                                parley-codex-home)))
+    (make-directory (file-name-directory file) t)
+    (write-region "" nil file nil 'silent)
+    file))
+
+(defun parley-test--write-index (&rest names)
+  "Write `session_index.jsonl' under `parley-codex-home'.
+NAMES are (ID . NAME), one line each and in that order, as Codex
+appends one on each rename."
+  (with-temp-file (expand-file-name "session_index.jsonl" parley-codex-home)
+    (dolist (name names)
+      (insert (json-serialize
+               `((id . ,(car name))
+                 (thread_name . ,(cdr name))
+                 (updated_at . "2026-10-26T20:05:02.784346296Z")))
+              "\n"))))
+
+(defmacro parley-test--with-codex-home (pids &rest body)
+  "Run BODY with discovery finding the fixture Codex processes PIDS.
+Over the Claude Code fixtures, with `parley-codex-home' an empty
+directory of its own and the local time Japan's."
+  (declare (indent 1))
+  (let ((zone (make-symbol "zone")))
+    `(let ((parley-test--codex-pids ,pids)
+           (parley-codex-home (make-temp-file "parley-test-codex-" t))
+           (,zone (getenv "TZ")))
+       (unwind-protect
+           (progn
+             (set-time-zone-rule "JST-9")
+             (parley-test--with-fixtures ,@body))
+         (set-time-zone-rule ,zone)
+         (delete-directory parley-codex-home t)))))
+
+(defmacro parley-test--with-codex (pids &rest body)
+  "Run BODY as `parley-test--with-codex-home' does, over a fixture tmux.
+The tmux reports the panes of `parley-test--titles', which starts
+as `parley-test--codex-titles', and reads it when it is asked, so
+BODY changes a title by setting it there."
+  (declare (indent 1))
+  `(parley-test--with-codex-home ,pids
+     (let ((parley-test--titles (copy-alist parley-test--codex-titles)))
+       (cl-letf (((symbol-function 'parley--tmux-panes)
+                  (lambda ()
+                    (mapcar (lambda (pane)
+                              (list (car pane) "codex:0.0" (cdr pane)))
+                            parley-test--titles))))
+         ,@body))))
+
+(ert-deftest parley-test-finds-a-process-by-its-name ()
+  "A process is found by the name /proc gives it, and by that name only.
+This Emacs is the process, and its name is taken from
+`process-attributes', which reads it out of `/proc/PID/stat' and
+not out of the file the finder reads."
+  (let ((name (alist-get 'comm (process-attributes (emacs-pid)))))
+    (should (memq (emacs-pid) (parley--processes-named name)))
+    (should-not (memq (emacs-pid) (parley--processes-named (concat name "x"))))
+    (should-not (memq (emacs-pid)
+                      (parley--processes-named (substring name 0 -1))))))
+
+(defun parley-test--codex-sessions ()
+  "Return the records `parley-sessions' lists for Codex."
+  (seq-filter (lambda (session) (eq (plist-get session :vendor) 'codex))
+              (parley-sessions)))
+
+(ert-deftest parley-test-builds-a-codex-record-from-its-process-and-pane ()
+  "A Codex TUI is listed after the Claude Code sessions, from what it left.
+The pid, the pane and the working directory are the process's,
+the status the word its pane's title opens with, the id the one
+its rollout's file name ends in -- whole, where the title cuts it
+short -- and the name what the operator called the thread.
+
+Codex's daemon is named `codex' as well and carries the TUI's
+pane, and the `codex exec' is in a pane whose title names a
+thread with a rollout.  Standard input is all that leaves either
+out."
+  (parley-test--with-codex '(3100 3101 3102)
+    (let ((rollout (parley-test--write-rollout parley-test--codex-id)))
+      (parley-test--write-rollout parley-test--codex-other-id)
+      (parley-test--write-index (cons parley-test--codex-id "Reply with pong"))
+      (let ((sessions (parley-sessions)))
+        (should (equal (mapcar (lambda (s) (plist-get s :pid)) sessions)
+                       '(4079793 1334764 652261 3100)))
+        (should (equal (car (last sessions))
+                       (list :vendor 'codex
+                             :pid 3100
+                             :name "Reply with pong"
+                             :status "Ready"
+                             :cwd "/home/matus/dev/parley"
+                             :session-id parley-test--codex-id
+                             :pane "%70"
+                             :transcript rollout)))
+        (should (string-suffix-p
+                 (concat "/sessions/2026/10/27/rollout-2026-10-27T05-00-00-"
+                         parley-test--codex-id ".jsonl")
+                 rollout))))))
+
+(ert-deftest parley-test-a-codex-title-without-a-thread-id-gets-no-record ()
+  "A TUI whose pane title carries no thread id is not listed.
+That is a Codex whose `tui.terminal_title' leaves out `thread-id'.
+The TUI beside it is listed, so the fixture is one that lists a
+TUI when it can."
+  (parley-test--with-codex '(3100 3103)
+    (parley-test--write-rollout parley-test--codex-id)
+    (should (equal (mapcar (lambda (s) (plist-get s :pid))
+                           (parley-test--codex-sessions))
+                   '(3100)))))
+
+(ert-deftest parley-test-a-codex-thread-without-a-rollout-gets-no-record ()
+  "A TUI on a thread with no rollout is not listed until it has one.
+Codex writes the rollout when the thread is sent its first
+message, and a thread nothing has been sent has nothing to read."
+  (parley-test--with-codex '(3100 3104)
+    (parley-test--write-rollout parley-test--codex-id)
+    (should (equal (mapcar (lambda (s) (plist-get s :pid))
+                           (parley-test--codex-sessions))
+                   '(3100)))
+    (parley-test--write-rollout parley-test--codex-unsent-id)
+    (should (equal (mapcar (lambda (s) (plist-get s :pid))
+                           (parley-test--codex-sessions))
+                   '(3100 3104)))))
+
+(ert-deftest parley-test-looks-for-a-rollout-only-on-its-local-day ()
+  "A rollout is looked for under the day its id was created on, locally.
+The fixture id was created on the 26th in UTC and the 27th in
+Japan, where the tests run.  A rollout under the 26th, under the
+28th or straight under `sessions' is not found, and one under the
+27th is."
+  (parley-test--with-codex '(3100)
+    (dolist (path '("sessions/2026/10/26/rollout-2026-10-26T20-00-00-%s.jsonl"
+                    "sessions/2026/10/28/rollout-2026-10-27T05-00-00-%s.jsonl"
+                    "sessions/rollout-2026-10-27T05-00-00-%s.jsonl"))
+      (parley-test--write-rollout parley-test--codex-id path))
+    (should-not (parley-test--codex-sessions))
+    (parley-test--write-rollout parley-test--codex-id)
+    (should (equal (mapcar (lambda (s) (plist-get s :pid))
+                           (parley-test--codex-sessions))
+                   '(3100)))))
+
+(ert-deftest parley-test-names-a-codex-thread-by-its-last-index-line ()
+  "A thread's name is the one on the last index line with its id.
+Codex appends a line on each rename, so an earlier line is a name
+the thread had.  A thread no line names, and a home with no index
+at all, leave the name nil."
+  (parley-test--with-codex '(3100)
+    (parley-test--write-rollout parley-test--codex-id)
+    (should-not (plist-get (car (parley-test--codex-sessions)) :name))
+    (parley-test--write-index
+     (cons parley-test--codex-id "Reply with pong")
+     (cons parley-test--codex-other-id "Review the diff")
+     (cons parley-test--codex-id "Pong, renamed")
+     (cons parley-test--codex-other-id "Review it again"))
+    (should (equal (plist-get (car (parley-test--codex-sessions)) :name)
+                   "Pong, renamed"))
+    (parley-test--write-index
+     (cons parley-test--codex-other-id "Review the diff"))
+    (should-not (plist-get (car (parley-test--codex-sessions)) :name))))
+
+(ert-deftest parley-test-asks-tmux-once-for-codex-titles-and-the-rows ()
+  "A Codex title and every pane's location cost one tmux call together.
+The `list-panes' that reads a TUI's title says where every pane
+is as well, so the tags drawn from the list ask tmux nothing
+more.  Without a Codex TUI on the machine, discovery asks tmux
+nothing, which the Claude Code test of the one call already says."
+  (parley-test--with-codex-home '(3100)
+    (parley-test--write-rollout parley-test--codex-id)
+    (let ((calls 0)
+          (parley--pane-locations 'unasked))
+      (cl-letf (((symbol-function 'call-process)
+                 (lambda (&rest _)
+                   (setq calls (1+ calls))
+                   (insert "%61 orc-orc-b3743fe3:3.1\tparmenides\n"
+                           "%70 codex:2.0\t"
+                           (cdr (assoc "%70" parley-test--codex-titles))
+                           "\n")
+                   0)))
+        (let ((sessions (parley-sessions)))
+          (should (equal (mapcar #'parley-session-tag sessions)
+                         (list (concat "orc-orc-b3743fe3:3.1 "
+                                       "9a5a5635-26c3-4705-b06e-4dc108d75439")
+                               "eb6ab7cd-21e6-434f-9bf6-f561b5852de2"
+                               "7c1d0f9a-0000-4000-8000-000000000003"
+                               (concat "codex:2.0 " parley-test--codex-id))))
+          (should (equal calls 1)))))))
 
 
 ;;; What a session is doing
@@ -464,6 +745,81 @@ to say about a process that is not there."
       (parley-fixtures-write-session-file
        pid parley-test--session-id "busy" :proc-start :null)
       (should (eq (parley-test--status pid) 'unknown)))))
+
+
+;; A Codex session's status is its pane's title, read by the fixture
+;; tmux of `parley-test--with-codex'.  Each test lists the session
+;; under one title and asks again under another, so a reader that
+;; answered from the record rather than the pane gets one of the two
+;; wrong.
+
+(defun parley-test--reads-a-codex-title (title word value)
+  "Assert a Codex session whose pane says TITLE reads as VALUE.
+TITLE has a %s for the thread id.  The record lists WORD as its
+status, `parley--statuses' reads WORD as VALUE, and so does
+`parley-session-status' while the pane says TITLE.  Under a
+title saying another status it reads that one, which is the pane
+being read when asked and not the record."
+  (let ((other (if (eq value 'idle) "Working ⠦ %s" "Ready | %s")))
+    (parley-test--with-codex '(3100)
+      (parley-test--write-rollout parley-test--codex-id)
+      (setf (alist-get "%70" parley-test--titles nil nil #'equal)
+            (parley-test--codex-title title parley-test--codex-id))
+      (let ((session (car (parley-test--codex-sessions))))
+        (should (equal (plist-get session :status) word))
+        (should (eq (cdr (assoc word parley--statuses)) value))
+        (should (eq (parley-session-status session) value))
+        (setf (alist-get "%70" parley-test--titles nil nil #'equal)
+              (parley-test--codex-title other parley-test--codex-id))
+        (should-not (eq (parley-session-status session) value))
+        (setf (alist-get "%70" parley-test--titles nil nil #'equal)
+              (parley-test--codex-title title parley-test--codex-id))
+        (should (eq (parley-session-status session) value))))))
+
+(ert-deftest parley-test-reads-a-ready-codex-title-as-idle ()
+  "A Codex TUI that says `Ready' has finished and reads what is typed next."
+  (parley-test--reads-a-codex-title "Ready | %s" "Ready" 'idle))
+
+(ert-deftest parley-test-reads-a-working-codex-title-as-working ()
+  "A Codex TUI that says `Working' is going."
+  (parley-test--reads-a-codex-title "Working ⠦ %s" "Working" 'working))
+
+(ert-deftest parley-test-reads-a-thinking-codex-title-as-working ()
+  "A Codex TUI that says `Thinking' is going too, and not waiting."
+  (parley-test--reads-a-codex-title "Thinking ⠴ %s" "Thinking" 'working))
+
+(ert-deftest parley-test-reads-an-action-required-codex-title-as-waiting ()
+  "A Codex TUI that says `Action Required' waits on the operator.
+It said so while it held an approval prompt open, with `[ ! ]'
+and `[ . ]' taking turns in front of the words, and either of
+them reads the same."
+  (parley-test--reads-a-codex-title
+   "[ ! ] Action Required | %s" "Action Required" 'waiting)
+  (parley-test--reads-a-codex-title
+   "[ . ] Action Required | %s" "Action Required" 'waiting))
+
+(ert-deftest parley-test-a-codex-title-on-another-thread-is-unknown ()
+  "A title that has moved to another thread says nothing about this one.
+Codex moves the title to the new thread on `/new' and `/resume',
+and what it says there is that thread's status.  A title with no
+id in it is unknown too, and so is a pane tmux no longer reports.
+The thread's own id put back reads again, so the fixture is one
+that reads a status when it can."
+  (parley-test--with-codex '(3100)
+    (parley-test--write-rollout parley-test--codex-id)
+    (let ((session (car (parley-test--codex-sessions))))
+      (dolist (title (list (parley-test--codex-title
+                            "Working ⠦ %s" parley-test--codex-other-id)
+                           "Working ⠦ parley"
+                           ""))
+        (setf (alist-get "%70" parley-test--titles nil nil #'equal) title)
+        (should (eq (parley-session-status session) 'unknown)))
+      (setf (alist-get "%70" parley-test--titles nil 'remove #'equal) nil)
+      (should (eq (parley-session-status session) 'unknown))
+      (push (cons "%70" (parley-test--codex-title
+                         "Working ⠦ %s" parley-test--codex-id))
+            parley-test--titles)
+      (should (eq (parley-session-status session) 'working)))))
 
 
 ;;; Listing a session, and reading one
