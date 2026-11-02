@@ -38,7 +38,8 @@ parley is for reading what it said.
 - `(parley-transcript-follow-pane PANE)` opens the conversation of the session
   a program has just started in tmux pane `PANE`, once it appears there.
   orc-mode calls it for a crew session it starts in a tmux window.
-- `M-x imenu` in a transcript buffer jumps between the prompts.
+- `M-x imenu` in a transcript buffer jumps between the prompts, and `C-c C-p`
+  and `C-c C-n` step to the previous and the next one.
 - `M-x parley-transcript-exit` in a transcript buffer ends its session by
   typing `/exit` into the pane. `M-x parley-transcript-exit-and-archive` does
   the same and then runs `ccarchive archive` on the session once its process

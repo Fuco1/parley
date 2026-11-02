@@ -1185,11 +1185,21 @@ the distinct first lines in a pass of their own would leave that one bare
 operator to learn.
 
 @strong{@code{imenu-create-index-function} is the whole of the
-interface, and parley ships no jump command of its own.}  @kbd{M-x imenu}
-is always there and @code{sallet-imenu} is another front end over the
-same index; a third would be parley's to keep working against both.  That
-is also what forces the disambiguation into the label: imenu offers no
-seam at which a choice could be resolved any other way.
+interface for going to a prompt by name.}  @kbd{M-x imenu} is always
+there and @code{sallet-imenu} is another front end over the same index;
+a third would be parley's to keep working against both.  That is also
+what forces the disambiguation into the label: imenu offers no seam at
+which a choice could be resolved any other way.
+
+@strong{@kbd{C-c C-p} and @kbd{C-c C-n} step over the same index, and
+not over comint's fields.}  comint's own prompt motion stops wherever the
+@code{field} property turns nil, and in this buffer that is rarely a
+prompt: a prompt the transcript delivered is marked as output along with
+everything around it, while a prompt typed here and a table written again
+at a new width carry no field at all.  The index has an entry at every
+prompt whichever way it arrived and at nothing else, and drops one whose
+line was deleted, so stepping over it stops at every prompt and only
+there.
 
 @section One buffer per session, found by id
 
