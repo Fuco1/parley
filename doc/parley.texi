@@ -15,8 +15,8 @@
 @node Top
 @top Parley
 
-parley shows the Claude Code sessions running on this machine as
-conversations, and types into them.  It reads each session's append-only
+parley shows the Claude Code and Codex sessions running on this machine
+as conversations, and types into them.  It reads each session's append-only
 JSONL transcript and writes to the session's tmux pane.  It never starts
 a session, and it ends one only by typing @code{/exit} into its pane.
 
@@ -27,8 +27,8 @@ of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
 
 @menu
 * Discovery::   What a session is, how one is found, why standard input
-                  is the discriminator, and where what it is doing now is
-                  read from.
+                  is the discriminator, how a Codex session is found by its
+                  pane title, and where what it is doing now is read from.
 * Switcher::    Picking a session: why the switcher is built on sallet,
                   why sallet is optional, and the minibuffer reader the
                   pick falls back to without it.
@@ -73,6 +73,8 @@ exactly what @code{tmux send-keys -t} takes.
 parley reads the first and writes to the second.  It never starts a
 session — tmux owns that — and it ends one only the way the operator
 would at the pane, by typing @code{/exit} into it (@pxref{Ending}).
+A Codex session has a transcript and a pane as well, and what ties the
+two together is its pane's title (@pxref{Finding a Codex session}).
 
 @section Standard input is the discriminator, not the reported kind
 
@@ -144,6 +146,65 @@ Building the path is one substitution and needs no directory scan.
 Nothing here reads the file.  What the path is for belongs to
 @ref{Transcript}.
 
+@section A Codex session is found by its pane title
+@anchor{Finding a Codex session}
+
+@strong{A Codex TUI is a process named @code{codex} with a terminal on
+@code{fd 0}.}  There is no @code{claude agents} for Codex, so the
+process table is what is read, by the name in
+@file{/proc/<pid>/comm}.  Standard input is the discriminator here too:
+Codex's shared daemon, @code{codex app-server}, is named @code{codex} as
+well and has @file{/dev/null} there, and a @code{codex exec} has its
+prompt on a pipe.
+
+@strong{The pane title is the one place a TUI's pane and its thread
+meet.}  Nothing on the TUI's process says which thread it is on.  The
+rollout is open in the daemon and not in the TUI, the daemon's
+@env{TMUX_PANE} is that of whichever pane started it, and a TUI started
+as plain @code{codex} has no thread id among its arguments.  Codex
+writes the id into its pane's title once @file{~/.codex/config.toml} has
+this under @code{[tui]}:
+
+@example
+terminal_title = ["run-state", "spinner", "thread-id"]
+@end example
+
+@noindent
+and without that line no Codex session is listed.  It writes the first
+twenty-nine characters of the id with three dots after them, sets the
+title before the thread's first message, and moves it to the new
+thread's id on @code{/new} and @code{/resume}.
+
+@strong{The title is read in the call that says where every pane is.}
+One @code{list-panes -a} answers both, and the title goes after a tab.
+A location is everything after the first space of a line because a
+session name may hold spaces, so a space cannot end it when a title
+follows, and a title may hold a space or anything else printable.  tmux
+writes a tab in a session name as @code{\t} and refuses a title with a
+control character in it, so the first tab is where the location ends.
+tmux is asked only when there is a Codex TUI to ask about, and the
+locations its answer carries are the ones the list is then drawn with.
+
+@strong{The rollout's path is derived from the id, not searched for.}
+The id's first twelve hex digits are the thread's creation time in Unix
+milliseconds, and Codex files the rollout as
+@file{sessions/YYYY/MM/DD/rollout-YYYY-MM-DDTHH-MM-SS-<id>.jsonl} under
+its home, that time in local time.  So the one directory the time falls
+on is globbed for the twenty-nine characters the title carries, and the
+file's name ends in the whole id the title cut short — which is the id
+the record carries.  A glob over every day would find the same file
+after reading every directory Codex ever wrote one in.
+
+@strong{A thread nothing has been sent is not listed yet.}  Codex writes
+the rollout when the thread is sent its first message, so until then
+there is nothing to read; the TUI is listed once it has been sent one.
+A TUI whose title carries no id is not listed at all.
+
+@strong{A thread's name is the last one Codex wrote for it.}  Codex
+appends a line to @file{session_index.jsonl} under its home on each
+rename, so the @code{thread_name} of the last line with the thread's id
+is its name, and a thread no line names has none.
+
 @section A live status is read from the session's own file
 
 @strong{Every session writes what it is doing to
@@ -180,6 +241,29 @@ for that pid — field 22 of @file{/proc/<pid>/stat} — because
 moment an unrelated process inherits the pid.  A stale file is not
 hypothetical: a session with no process left sat on disk saying
 @code{idle}.
+
+@subsection A Codex session's status is read from its pane title
+
+@strong{Codex writes no file about itself.}  Outside its daemon, the one
+place a Codex session's status shows is its pane's title, the title its
+thread id is read from, so that is what the status is read from: the run
+state at its head, or @code{Action Required} while the TUI holds an
+approval prompt open.  @code{Ready} reads as idle, @code{Working} and
+@code{Thinking} as working, and @code{Action Required} as waiting, in the
+one table that reads what a Claude Code session writes.
+
+@strong{The title is read as tmux reports it when asked}, on the tick a
+Claude Code session's file is read on, and never taken from the record:
+the record's status is what the title said when the sessions were last
+listed.  That costs a subprocess per read, which the file below is read
+to avoid, and there is no file to read instead.
+
+@strong{The title has to carry the start of the thread's id.}  Codex
+moves the title to another thread on @code{/new} and @code{/resume}, and
+what it says beside another id is that thread's status, so a title
+carrying another id or none reads as unknown.  So does a pane tmux no
+longer reports.  That one comparison is what stands in for the two a
+Claude Code session's file needs.
 
 @subsection The file rather than @code{claude agents --json}
 
@@ -223,8 +307,9 @@ no status for.
 
 @strong{The order is over the values a status is read as}, not over a
 second list of the strings a session writes.  @code{claude agents}
-reports the status out of the same file the status reader reads, so a
-record's status is spelled the way that file spells it and is mapped
+reports the status out of the same file the status reader reads, and a
+Codex record's status is the word its pane title showed, so a record's
+status is spelled the way the session spells it and is mapped
 through the reader's table before it is ranked — otherwise
 @code{waiting} is written in two places in one file that have to agree
 about how Claude Code spells it.

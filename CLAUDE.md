@@ -1,7 +1,7 @@
 # parley — repo conventions
 
-parley is an Emacs package that shows the Claude Code sessions running on this
-machine as conversations, and types into them. It reads each session's
+parley is an Emacs package that shows the Claude Code and Codex sessions running
+on this machine as conversations, and types into them. It reads each session's
 append-only JSONL transcript and writes to the session's tmux pane. It never
 starts a session, and ends one only by typing `/exit` into its pane.
 
@@ -78,7 +78,7 @@ exist.
 
 | file | holds |
 |---|---|
-| `parley.el` | discovery: `claude agents --json`, the stdin discriminator, the pane id, the transcript path, and the tag that tells two sessions apart. What a session is doing, read from the file it writes about itself. Then listing what it found: the status order, the five columns a session is listed by, the one `completing-read` over them, and the lookup that says whether a session already has a transcript buffer. The base of the package |
+| `parley.el` | discovery: `claude agents --json`, the stdin discriminator, the pane id, the transcript path, and the tag that tells two sessions apart. A Codex TUI found by the thread id in its pane title, and its rollout. What a session is doing, read from the file it writes about itself, or from the pane title for Codex. Then listing what it found: the status order, the five columns a session is listed by, the one `completing-read` over them, and the lookup that says whether a session already has a transcript buffer. The base of the package |
 | `parley-switch.el` | picking a session with sallet: the source, the matcher that keeps the columns apart, the renderer, and the fallback to the minibuffer reader when sallet is missing |
 | `parley-transcript.el` | the conversation view: the `tail`/`jq` pipeline, the render pass, the conversation above the input zone being read-only, the table writer, the imenu index, the buffer and the session record it follows, opening the session that starts in a given pane, the session's live status, the header line, typing into the pane, and ending the session |
 | `test/` | one file per source file, named `<source>-test.el` |
