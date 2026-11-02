@@ -2437,6 +2437,21 @@ BODY sees `tmux-log', the file every call appends a record to;
                           (buffer-string))
                         "\n--end--\n" t)))
 
+(defun parley-transcript-test--paste-runs (pane)
+  "Return the argument vectors of the three tmux runs pasting a message into PANE.
+The text goes into a named paste buffer from standard input,
+which is the first run's, the buffer is pasted bracketed and
+deleted, and an `Enter' submits it."
+  `(("load-buffer" "-b" "parley" "-")
+    ("paste-buffer" "-d" "-p" "-b" "parley" "-t" ,pane)
+    ("send-keys" "-t" ,pane "Enter")))
+
+(defun parley-transcript-test--pasted (calls)
+  "Return what each `load-buffer' run among CALLS read, in order.
+CALLS is what `parley-transcript-test--calls' returned."
+  (mapcar #'cdr (seq-filter (lambda (call) (equal (caar call) "load-buffer"))
+                            calls)))
+
 (defun parley-transcript-test--pane (buffer pane)
   "Tell BUFFER's session that it lives in tmux pane PANE."
   (with-current-buffer buffer
@@ -2474,17 +2489,21 @@ comparison of the two has no business failing over that."
         (setq position next)))
     (nreverse runs)))
 
-(ert-deftest parley-transcript-test-sends-a-line-to-the-pane ()
-  "A submitted line is typed into the session's pane and submitted there.
+(ert-deftest parley-transcript-test-pastes-a-line-into-the-pane ()
+  "A submitted line reaches the session's pane as one bracketed paste.
 It leaves by `comint-input-sender' and not down the process,
 whose standard input is a `tail' reading a file and reaches
-nobody.  `-l' is what stops tmux reading the text as key names,
-and the `Enter' after it is what submits it.
+nobody.  Codex reads a line typed key by key as a paste and the
+`Enter' after it as a newline in that paste, so a typed line
+stands unsent in its input box; a bracketed paste with the
+`Enter' after it is submitted.
 
-The trailing semicolon of the second line is escaped because tmux
-reads one at the end of an argument as the separator between two
-of its own commands and drops it -- so `select 1;' would arrive
-as `select 1', which is a different question."
+The second line ends in a semicolon, which tmux reads at the end
+of an argument as the separator between two of its own commands
+and drops.  It reads none in what it is given on standard input,
+so the line is pasted as it was written, with no backslash in
+front of the semicolon -- `select 1;' and not `select 1', which
+is a different question."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -2494,11 +2513,12 @@ as `select 1', which is a different question."
     (parley-transcript-test--with-tmux
       (parley-transcript-test--submit buffer "hello there")
       (parley-transcript-test--submit buffer "select 1;")
-      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
-                     '(("send-keys" "-t" "%7" "-l" "--" "hello there")
-                       ("send-keys" "-t" "%7" "Enter")
-                       ("send-keys" "-t" "%7" "-l" "--" "select 1\\;")
-                       ("send-keys" "-t" "%7" "Enter")))))))
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       (append (parley-transcript-test--paste-runs "%7")
+                               (parley-transcript-test--paste-runs "%7"))))
+        (should (equal (parley-transcript-test--pasted calls)
+                       '("hello there" "select 1;")))))))
 
 (ert-deftest parley-transcript-test-pastes-input-with-a-newline-in-it ()
   "Input with a newline in it reaches the pane as one bracketed paste.
@@ -2519,10 +2539,9 @@ where he left it."
       (parley-transcript-test--submit buffer "first line\nsecond line")
       (let ((calls (parley-transcript-test--calls tmux-log)))
         (should (equal (mapcar #'car calls)
-                       '(("load-buffer" "-b" "parley" "-")
-                         ("paste-buffer" "-d" "-p" "-b" "parley" "-t" "%7")
-                         ("send-keys" "-t" "%7" "Enter"))))
-        (should (equal (cdar calls) "first line\nsecond line"))))))
+                       (parley-transcript-test--paste-runs "%7")))
+        (should (equal (parley-transcript-test--pasted calls)
+                       '("first line\nsecond line")))))))
 
 (defun parley-transcript-test--open-line (buffer)
   "Press S-<return> in BUFFER, as the operator does to open a line.
@@ -2581,10 +2600,9 @@ string.  Measured against Emacs 28.2, which is why the send is
 driven with point on the second of three lines and two lines of
 text standing after it.
 
-One paste and not three sends is what says the three lines
-arrived as one string, since a string with a newline in it is
-what chooses the paste shape and the text tmux was given on
-standard input is that string."
+One paste and not three is what says the three lines arrived as
+one string, since every string submitted is one paste and the
+text tmux was given on standard input is that string."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -2600,9 +2618,7 @@ standard input is that string."
         (comint-send-input))
       (let ((calls (parley-transcript-test--calls tmux-log)))
         (should (equal (mapcar #'car calls)
-                       '(("load-buffer" "-b" "parley" "-")
-                         ("paste-buffer" "-d" "-p" "-b" "parley" "-t" "%7")
-                         ("send-keys" "-t" "%7" "Enter"))))
+                       (parley-transcript-test--paste-runs "%7")))
         (should (equal (cdar calls)
                        "first line\nsecond line\nthird line"))))))
 
@@ -2801,9 +2817,9 @@ between the two."
 (ert-deftest parley-transcript-test-does-not-render-a-pasted-echo-twice ()
   "A message whose transcript copy comes back as a paste appears once.
 
-Everything with a newline in it is sent as a bracketed paste, so
-its copy arrives as one pasted block, and a single line has come
-back wrapped too.  `parley-transcript--echoed-p' recognises a
+Every message is sent as a bracketed paste, so its copy can
+arrive as one pasted block, a single line as well as several.
+`parley-transcript--echoed-p' recognises a
 copy by the text that was sent, so the block has to come off
 before it compares or the copy matches nothing and stands in the
 buffer a second time, tags and all.  One message of each shape.
@@ -2835,6 +2851,42 @@ The turn that follows them is what says the copies went by."
                            "of course")))
       (should-not (seq-find (lambda (line) (string-search "pasted_content" line))
                             shown)))))
+
+(ert-deftest parley-transcript-test-does-not-render-a-codex-echo-twice ()
+  "A message sent from a Codex session's buffer appears once when its copy lands.
+Codex writes what was pasted to its rollout as the text sent, a
+message of two lines as well as one, and that text is what
+`parley-transcript--echoed-p' compares.  The rollout holds each
+copy twice, as the message and as the `event_msg' repeating it,
+and the projection reads only the first.
+
+The turn that follows them is what says the copies went by, and
+the whole buffer is compared: a copy the guard missed stands
+anywhere in it a second time."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-rollout
+      (list (parley-transcript-test--codex-message "assistant" "Ready."))
+    (should (parley-transcript-test--wait
+             (lambda () (equal (parley-transcript-test--shown buffer)
+                               '("Ready.")))))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there")
+      (parley-transcript-test--submit buffer "first line\nsecond line"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--codex-message "user" "hello there")
+                (parley-transcript-test--codex-completed "user" "hello there")
+                (parley-transcript-test--codex-message
+                 "user" "first line\nsecond line")
+                (parley-transcript-test--codex-completed
+                 "user" "first line\nsecond line")
+                (parley-transcript-test--codex-message "assistant" "of course")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "of course"
+                                (parley-transcript-test--shown buffer)))))
+    (should (equal (parley-transcript-test--shown buffer)
+                   '("Ready." "❯ hello there" "❯ first line" "❯ second line"
+                     "of course")))))
 
 (ert-deftest parley-transcript-test-drops-an-echo-however-late-it-comes-back ()
   "Messages submitted at the prompt appear once each, however late they land.
@@ -2945,8 +2997,8 @@ line whole.  Measured on Emacs 28.2 over this fixture with point
 in the rendered `what is here', it returns \"❯ what is here\",
 and the session is asked a question opening with a quote mark.
 
-One `send-keys' and not a paste is also what says no newline came
-with it, which is the shape the other branch returns."
+What was pasted is the one line, which is also what says no
+newline came with it, the shape the other branch returns."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (should (parley-transcript-test--settled buffer))
@@ -2954,9 +3006,11 @@ with it, which is the shape the other branch returns."
     (parley-transcript-test--with-tmux
       (parley-transcript-test--resubmit
        buffer (parley-transcript-test--after buffer "what is here"))
-      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
-                     '(("send-keys" "-t" "%7" "-l" "--" "what is here")
-                       ("send-keys" "-t" "%7" "Enter")))))))
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       (parley-transcript-test--paste-runs "%7")))
+        (should (equal (parley-transcript-test--pasted calls)
+                       '("what is here")))))))
 
 (ert-deftest parley-transcript-test-sends-every-line-of-a-past-turn ()
   "RET on a turn of several lines sends all of them and not the one under point.
@@ -2979,9 +3033,7 @@ is what says the three reached the pane as one message."
        buffer (parley-transcript-test--after buffer "beta line"))
       (let ((calls (parley-transcript-test--calls tmux-log)))
         (should (equal (mapcar #'car calls)
-                       '(("load-buffer" "-b" "parley" "-")
-                         ("paste-buffer" "-d" "-p" "-b" "parley" "-t" "%7")
-                         ("send-keys" "-t" "%7" "Enter"))))
+                       (parley-transcript-test--paste-runs "%7")))
         (should (equal (cdar calls)
                        "alpha line\nbeta line\ngamma line"))))))
 
@@ -3019,8 +3071,8 @@ of one of them."
         (parley-transcript-test--resubmit buffer submitted)
         (setq second (parley-transcript-test--calls tmux-log)))
       (should (equal (mapcar #'car first)
-                     '(("send-keys" "-t" "%7" "-l" "--" "what is here")
-                       ("send-keys" "-t" "%7" "Enter"))))
+                     (parley-transcript-test--paste-runs "%7")))
+      (should (equal (parley-transcript-test--pasted first) '("what is here")))
       (should (equal first second)))))
 
 (ert-deftest parley-transcript-test-refuses-a-turn-that-is-not-the-operators ()
@@ -3158,9 +3210,10 @@ in it has gone to the pane."
     (should (parley-transcript-test--marked-zone buffer))
     (parley-transcript-test--with-tmux
       (parley-transcript-test--submit buffer "hello there")
-      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
-                     '(("send-keys" "-t" "%7" "-l" "--" "hello there")
-                       ("send-keys" "-t" "%7" "Enter"))))
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       (parley-transcript-test--paste-runs "%7")))
+        (should (equal (parley-transcript-test--pasted calls) '("hello there"))))
       (should (parley-transcript-test--marked-zone buffer))
       (should (equal "" (parley-transcript-test--zone buffer))))))
 
@@ -3762,11 +3815,12 @@ process and killed afterwards, and `session', the record whose
     (insert-file-contents file)
     (split-string (buffer-string) "\n" t)))
 
-(ert-deftest parley-transcript-test-exit-types-exit-into-an-idle-session ()
-  "Exiting an idle session types `/exit' into its pane and submits it.
-As a single line is sent: `-l' so tmux does not read the text as
-key names, then an `Enter'.  The buffer and its pipeline are left
-as they were, because killing them is the operator's act."
+(ert-deftest parley-transcript-test-exit-pastes-exit-into-an-idle-session ()
+  "Exiting an idle session pastes `/exit' into its pane and submits it.
+As every message is sent, as one bracketed paste with an `Enter'
+after it: Codex leaves a line typed key by key unsent.  The
+buffer and its pipeline are left as they were, because killing
+them is the operator's act."
   (skip-unless (executable-find "jq"))
   (parley-transcript-test--with-session parley-transcript-test--lines
     (parley-transcript-test--pane buffer "%7")
@@ -3774,9 +3828,10 @@ as they were, because killing them is the operator's act."
       (with-current-buffer buffer
         (setq parley-transcript-status 'idle)
         (call-interactively #'parley-transcript-exit))
-      (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
-                     '(("send-keys" "-t" "%7" "-l" "--" "/exit")
-                       ("send-keys" "-t" "%7" "Enter"))))
+      (let ((calls (parley-transcript-test--calls tmux-log)))
+        (should (equal (mapcar #'car calls)
+                       (parley-transcript-test--paste-runs "%7")))
+        (should (equal (parley-transcript-test--pasted calls) '("/exit"))))
       (should (buffer-live-p buffer))
       (should (process-live-p (get-buffer-process buffer))))))
 
@@ -3851,9 +3906,9 @@ being done."
     (parley-transcript-test--with-tmux
       (parley-transcript-test--with-ccarchive 0
         (call-interactively #'parley-transcript-exit-and-archive)
-        (should (equal (mapcar #'car (parley-transcript-test--calls tmux-log))
-                       '(("send-keys" "-t" "%7" "-l" "--" "/exit")
-                         ("send-keys" "-t" "%7" "Enter"))))
+        (should (equal (parley-transcript-test--pasted
+                        (parley-transcript-test--calls tmux-log))
+                       '("/exit")))
         (parley-transcript-test--idle-for
          (* 3 parley-transcript--archive-interval))
         (should-not (file-exists-p archive-log))

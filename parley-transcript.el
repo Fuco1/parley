@@ -3034,44 +3034,44 @@ error beats a send that silently goes nowhere."
                   (or (plist-get parley-transcript-session :name)
                       (plist-get parley-transcript-session :session-id)))))
 
+(defun parley-transcript--paste (pane string)
+  "Paste STRING into tmux PANE as one bracketed paste, and submit it.
+
+`paste-buffer -p' wraps the text in a bracketed paste, which the
+CLI takes as one paste and so as one message however many lines
+it has, and the `Enter' after it is what submits it.  Every
+message goes this way, of one line or several, for the reason
+Info node `(parley)Typing' gives: Codex reads a line typed key by
+key as a paste, and the `Enter' after it as a newline inside that
+paste, so a typed line stands unsent in its input box.
+
+Signal a `user-error' carrying what tmux said if any of the three
+tmux runs fails."
+  ;; From standard input, so a paste is never an argument vector
+  ;; however long it is, and tmux parses no command separator there:
+  ;; a message ending in `;' arrives with it.
+  (parley-transcript--tmux string "load-buffer" "-b" "parley" "-")
+  ;; Named and deleted on the way out, so the operator's own paste
+  ;; buffer stack is where he left it.
+  (parley-transcript--tmux nil "paste-buffer" "-d" "-p"
+                           "-b" "parley" "-t" pane)
+  (parley-transcript--tmux nil "send-keys" "-t" pane "Enter"))
+
 (defun parley-transcript--send-input (_process string)
-  "Type STRING into the pane of this buffer's session and submit it.
+  "Paste STRING into the pane of this buffer's session and submit it.
 
 This is the buffer's `comint-input-sender', which comint calls
 with what was submitted instead of writing it to the process.  It
 has to be: the process is a `tail' over a file, and its standard
 input reaches nobody.  The pane is the session's own terminal and
-is the only way in.
-
-A single line goes as one `send-keys -l', where `-l' is what
-stops tmux reading the text as key names, and an `Enter' after it
-is what submits it.
-
-Anything with a newline in it goes through a paste buffer
-instead.  `send-keys' would type the newline and the CLI would
-submit at it, so a three line message would arrive as three
-messages; `paste-buffer -p' wraps the text in a bracketed paste,
-which the CLI takes as one paste and so as one message however
-many lines it has.  The text goes to tmux on standard input, so a
-paste is never an argument vector however long it is.
+is the only way in, and `parley-transcript--paste' is how
+anything goes through it.
 
 A session started outside tmux has no pane and cannot be typed
 into at all, and `parley-transcript--pane' is where the operator
 finds that out."
   (let ((pane (parley-transcript--pane)))
-    (if (string-match-p "\n" string)
-        (progn
-          (parley-transcript--tmux string "load-buffer" "-b" "parley" "-")
-          ;; Named and deleted on the way out, so the operator's own
-          ;; paste buffer stack is where he left it.
-          (parley-transcript--tmux nil "paste-buffer" "-d" "-p"
-                                   "-b" "parley" "-t" pane))
-      (parley-transcript--tmux
-       nil "send-keys" "-t" pane "-l" "--"
-       ;; tmux drops a trailing semicolon unless a backslash escapes
-       ;; it, as Info node `(parley)Typing' says.
-       (replace-regexp-in-string ";\\'" "\\\\;" string)))
-    (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
+    (parley-transcript--paste pane string)
     (push (string-trim string) parley-transcript--sent)
     ;; Last, so that a send that raised leaves the operator his text
     ;; where he typed it rather than quoted into the conversation as
@@ -3179,11 +3179,6 @@ on what the operator was looking at when he ran it."
                 parley-transcript-status))
   (parley-transcript--pane))
 
-(defun parley-transcript--type-exit (pane)
-  "Type `/exit' into tmux PANE and submit it, as a single line is sent."
-  (parley-transcript--tmux nil "send-keys" "-t" pane "-l" "--" "/exit")
-  (parley-transcript--tmux nil "send-keys" "-t" pane "Enter"))
-
 (defun parley-transcript-exit ()
   "End this buffer's session by typing `/exit' into its pane.
 Only an idle session is ended, and one with no pane cannot be --
@@ -3192,7 +3187,7 @@ see `parley-transcript--exit-pane' for why each is refused.
 The buffer is left as it is, and so is its process: killing it is
 the operator's to do, and does nothing to the session."
   (interactive)
-  (parley-transcript--type-exit (parley-transcript--exit-pane)))
+  (parley-transcript--paste (parley-transcript--exit-pane) "/exit"))
 
 (defun parley-transcript-exit-and-archive ()
   "End this buffer's session as `parley-transcript-exit' does, then archive it.
@@ -3207,6 +3202,7 @@ and a message says which.
 The session is refused as `parley-transcript-exit' refuses one,
 and so is the whole command when the program cannot be found:
 nothing is typed into the pane, rather than a session ended that
+It goes as every message does, by `parley-transcript--paste'.
 nothing can then archive.
 
 The buffer is left as it is, and so is its process.  The timer is
@@ -3218,7 +3214,7 @@ archive."
     (unless (executable-find parley-ccarchive-program)
       (user-error "No `%s' to archive session %s with: not exiting it"
                   parley-ccarchive-program (parley-session-name session)))
-    (parley-transcript--type-exit pane)
+    (parley-transcript--paste pane "/exit")
     (run-with-timer parley-transcript--archive-interval nil
                     #'parley-transcript--archive-once-ended session
                     (+ (float-time) parley-transcript--archive-timeout))))
