@@ -46,9 +46,9 @@
 ;;
 ;; The session is ended through the pane as well, by `/exit' typed
 ;; there: `parley-transcript-exit', and
-;; `parley-transcript-exit-and-archive' to archive it with `ccarchive'
-;; once its process has ended.  Killing the buffer stops its pipeline
-;; and nothing else.
+;; `parley-transcript-exit-and-archive' to archive it once its process
+;; has ended, with `ccarchive', or with `codex archive' for a Codex
+;; session.  Killing the buffer stops its pipeline and nothing else.
 ;;
 ;; A caller that has just started Claude Code in a tmux pane hands
 ;; the pane to `parley-transcript-follow-pane', which waits for the
@@ -3034,44 +3034,44 @@ error beats a send that silently goes nowhere."
                   (or (plist-get parley-transcript-session :name)
                       (plist-get parley-transcript-session :session-id)))))
 
+(defun parley-transcript--paste (pane string)
+  "Paste STRING into tmux PANE as one bracketed paste, and submit it.
+
+`paste-buffer -p' wraps the text in a bracketed paste, which the
+CLI takes as one paste and so as one message however many lines
+it has, and the `Enter' after it is what submits it.  Every
+message goes this way, of one line or several, for the reason
+Info node `(parley)Typing' gives: Codex reads a line typed key by
+key as a paste, and the `Enter' after it as a newline inside that
+paste, so a typed line stands unsent in its input box.
+
+Signal a `user-error' carrying what tmux said if any of the three
+tmux runs fails."
+  ;; From standard input, so a paste is never an argument vector
+  ;; however long it is, and tmux parses no command separator there:
+  ;; a message ending in `;' arrives with it.
+  (parley-transcript--tmux string "load-buffer" "-b" "parley" "-")
+  ;; Named and deleted on the way out, so the operator's own paste
+  ;; buffer stack is where he left it.
+  (parley-transcript--tmux nil "paste-buffer" "-d" "-p"
+                           "-b" "parley" "-t" pane)
+  (parley-transcript--tmux nil "send-keys" "-t" pane "Enter"))
+
 (defun parley-transcript--send-input (_process string)
-  "Type STRING into the pane of this buffer's session and submit it.
+  "Paste STRING into the pane of this buffer's session and submit it.
 
 This is the buffer's `comint-input-sender', which comint calls
 with what was submitted instead of writing it to the process.  It
 has to be: the process is a `tail' over a file, and its standard
 input reaches nobody.  The pane is the session's own terminal and
-is the only way in.
-
-A single line goes as one `send-keys -l', where `-l' is what
-stops tmux reading the text as key names, and an `Enter' after it
-is what submits it.
-
-Anything with a newline in it goes through a paste buffer
-instead.  `send-keys' would type the newline and the CLI would
-submit at it, so a three line message would arrive as three
-messages; `paste-buffer -p' wraps the text in a bracketed paste,
-which the CLI takes as one paste and so as one message however
-many lines it has.  The text goes to tmux on standard input, so a
-paste is never an argument vector however long it is.
+is the only way in, and `parley-transcript--paste' is how
+anything goes through it.
 
 A session started outside tmux has no pane and cannot be typed
 into at all, and `parley-transcript--pane' is where the operator
 finds that out."
   (let ((pane (parley-transcript--pane)))
-    (if (string-match-p "\n" string)
-        (progn
-          (parley-transcript--tmux string "load-buffer" "-b" "parley" "-")
-          ;; Named and deleted on the way out, so the operator's own
-          ;; paste buffer stack is where he left it.
-          (parley-transcript--tmux nil "paste-buffer" "-d" "-p"
-                                   "-b" "parley" "-t" pane))
-      (parley-transcript--tmux
-       nil "send-keys" "-t" pane "-l" "--"
-       ;; tmux drops a trailing semicolon unless a backslash escapes
-       ;; it, as Info node `(parley)Typing' says.
-       (replace-regexp-in-string ";\\'" "\\\\;" string)))
-    (parley-transcript--tmux nil "send-keys" "-t" pane "Enter")
+    (parley-transcript--paste pane string)
     (push (string-trim string) parley-transcript--sent)
     ;; Last, so that a send that raised leaves the operator his text
     ;; where he typed it rather than quoted into the conversation as
@@ -3151,13 +3151,34 @@ a session whose process is still running."
   :type 'string
   :group 'parley)
 
+(defcustom parley-codex-program "codex"
+  "The `codex' executable `parley-transcript-exit-and-archive' runs on Codex.
+It archives a session whose `:vendor' is `codex', given `archive'
+and the thread's id, and `codex unarchive' with that id undoes
+it."
+  :type 'string
+  :group 'parley)
+
+(defun parley-transcript--archive-program (session)
+  "Return the program that archives SESSION.
+`parley-codex-program' for a record whose `:vendor' is `codex',
+and `parley-ccarchive-program' for a record without the key,
+which is a Claude Code session.  Any other vendor signals an
+error rather than handing its id to a program that archives
+something else."
+  (pcase (plist-get session :vendor)
+    ('nil parley-ccarchive-program)
+    ('codex parley-codex-program)
+    (vendor (error "No archive program for a session of vendor %S" vendor))))
+
 (defconst parley-transcript--archive-interval 0.5
   "Seconds between two looks at whether an exited session's process is gone.")
 
 (defconst parley-transcript--archive-timeout 30
   "Seconds an exited session's process is waited for before the archive gives up.
 A session that has not ended by then is left where it is, and
-running `parley-ccarchive-program' by hand is what archives it.")
+running its archive program by hand is what archives it: see
+`parley-transcript--archive-program' for which that is.")
 
 (defun parley-transcript--exit-pane ()
   "Return the pane of this buffer's session, if `/exit' may be typed there.
@@ -3179,30 +3200,30 @@ on what the operator was looking at when he ran it."
                 parley-transcript-status))
   (parley-transcript--pane))
 
-(defun parley-transcript--type-exit (pane)
-  "Type `/exit' into tmux PANE and submit it, as a single line is sent."
-  (parley-transcript--tmux nil "send-keys" "-t" pane "-l" "--" "/exit")
-  (parley-transcript--tmux nil "send-keys" "-t" pane "Enter"))
-
 (defun parley-transcript-exit ()
   "End this buffer's session by typing `/exit' into its pane.
+It goes as every message does, by `parley-transcript--paste'.
 Only an idle session is ended, and one with no pane cannot be --
 see `parley-transcript--exit-pane' for why each is refused.
 
 The buffer is left as it is, and so is its process: killing it is
 the operator's to do, and does nothing to the session."
   (interactive)
-  (parley-transcript--type-exit (parley-transcript--exit-pane)))
+  (parley-transcript--paste (parley-transcript--exit-pane) "/exit"))
 
 (defun parley-transcript-exit-and-archive ()
   "End this buffer's session as `parley-transcript-exit' does, then archive it.
-The archive is `parley-ccarchive-program' run with `archive' and
-the session's id, and it runs only once the process the session's
-`:pid' names has ended, because the program refuses a session
-whose process is still running.  The process is looked for on a
-timer and Emacs takes input meanwhile; a session still running
-after `parley-transcript--archive-timeout' seconds is not archived,
-and a message says which.
+The archive is the session's program run with `archive' and the
+session's id: `parley-ccarchive-program' for a Claude Code
+session, and `parley-codex-program' for one whose `:vendor' is
+`codex'.  It runs only once the process the session's `:pid'
+names has ended, because `ccarchive' refuses a session whose
+process is still running, and a Codex thread is archived once its
+TUI has ended, the state `codex archive' is known to work in.
+The process is looked for on a timer and Emacs takes input
+meanwhile; a session still running after
+`parley-transcript--archive-timeout' seconds is not archived, and
+a message says which.
 
 The session is refused as `parley-transcript-exit' refuses one,
 and so is the whole command when the program cannot be found:
@@ -3213,12 +3234,13 @@ The buffer is left as it is, and so is its process.  The timer is
 not the buffer's, so killing the buffer does not stop the
 archive."
   (interactive)
-  (let ((pane (parley-transcript--exit-pane))
-        (session parley-transcript-session))
-    (unless (executable-find parley-ccarchive-program)
+  (let* ((pane (parley-transcript--exit-pane))
+         (session parley-transcript-session)
+         (program (parley-transcript--archive-program session)))
+    (unless (executable-find program)
       (user-error "No `%s' to archive session %s with: not exiting it"
-                  parley-ccarchive-program (parley-session-name session)))
-    (parley-transcript--type-exit pane)
+                  program (parley-session-name session)))
+    (parley-transcript--paste pane "/exit")
     (run-with-timer parley-transcript--archive-interval nil
                     #'parley-transcript--archive-once-ended session
                     (+ (float-time) parley-transcript--archive-timeout))))
@@ -3249,12 +3271,14 @@ nothing is archived past the bound the wait promises."
                     session deadline))))
 
 (defun parley-transcript--archive (session)
-  "Run `parley-ccarchive-program' to archive SESSION, and say how it went.
-A program that exits non-zero has what it printed put in the
+  "Run SESSION's archive program on it, and say how it went.
+The program is the one `parley-transcript--archive-program'
+returns.  One that exits non-zero has what it printed put in the
 message, since that is what says why, and from a timer a message
 is the one way it reaches the operator."
   (with-temp-buffer
-    (if (eq 0 (call-process parley-ccarchive-program nil t nil
+    (if (eq 0 (call-process (parley-transcript--archive-program session)
+                            nil t nil
                             "archive" (plist-get session :session-id)))
         (message "Archived session %s (%s)"
                  (parley-session-name session)

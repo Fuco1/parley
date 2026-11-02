@@ -40,15 +40,16 @@ of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
                   id, and the line at the top of the buffer.
 * Typing::      The pane as the only way into a session, the input zone
                   and what marks it, the cell in front of the prompt
-                  saying what the session is doing, the two send shapes,
-                  a session with no pane being read only, the echo, and
-                  sending a past turn again.
+                  saying what the session is doing, every message going
+                  as one bracketed paste, a session with no pane being
+                  read only, the echo, and sending a past turn again.
 * Following::   Opening the session a caller has just started in a tmux
                   pane: why it is found by its pane and not by its id,
                   the wait for it, and the window it is shown in.
 * Ending::      Ending a session by typing @code{/exit} into its pane, why
-                  only an idle session is ended, and why the archive waits
-                  for the session's process to end.
+                  only an idle session is ended, the program each kind of
+                  session is archived with, and why the archive waits for
+                  the session's process to end.
 @end menu
 
 @node Discovery
@@ -810,11 +811,12 @@ a message by the text that was sent, so a slash command submitted at
 parley's prompt matches nothing while it is still three tags, and stands
 in the buffer twice.  A @code{!} command is the same: what was sent is
 the @code{!} line, and the copy matches it only once its tag has become
-that line.  So is a paste: every message with a newline in it is sent
-as a bracketed paste and comes back as one pasted block, and a single
-line has come back as one too, so a block that had not come off first
-would put each of them in the buffer a second time, tags and all.  The imenu entry is recorded from the record's text in the render
-pass, so a turn indexed before it is unwrapped is labelled
+that line.  So is a paste: every message is sent as a bracketed paste
+and can come back as one pasted block, a single line as well as several,
+so a block that had not come off first would put each of them in the
+buffer a second time, tags and all.  The imenu entry is recorded from
+the record's text in the render pass, so a turn indexed before it is
+unwrapped is labelled
 @code{<command-message>one</command-message>} — one label for every slash
 command of that name, and two of them told apart by a number rather than
 by what he asked — a pasted prompt is labelled with its opening tag, and
@@ -1633,27 +1635,29 @@ what it costs in the transcript he is watching, and the same timer left
 running in every transcript nobody is looking at is redisplay drawn for
 no one.
 
-@section Two send shapes, and the newline is what chooses
+@section Every message goes as one bracketed paste
 
-@strong{A single line goes as one @code{send-keys -l}}, where @code{-l}
-is what stops tmux reading the text as key names, with an @code{Enter}
-after it to submit.
+@strong{Every message, of one line or of several, goes through a paste
+buffer and @code{paste-buffer -p}, with an @code{Enter} after it to
+submit.}  @code{/exit} goes the same way (@pxref{Ending}).
 
-@strong{Anything with a newline in it goes through a paste buffer
-instead.}  @code{send-keys} would type the newline and the CLI would
-submit at it, so a three-line message would arrive as three messages.
-@code{paste-buffer -p} wraps the text in a bracketed paste, which the CLI
-takes as one paste and so as one message however many lines it has.
+@strong{A message typed key by key does not reach Codex.}  Codex takes a
+fast run of typed keys for a paste, and the @code{Enter} after it for a
+newline inside that paste, so a line typed with @code{send-keys -l} and
+an @code{Enter} after it stands unsent in its input box.  A bracketed
+paste says where the paste ends, and the @code{Enter} after it submits.
+Claude Code submits the same paste and @code{Enter}, so one shape serves
+both CLIs and nothing about the message chooses another.
+
+@strong{A message of several lines arrives as one message.}  Typed, each
+newline would be a submit, and a three-line message would arrive as
+three.  The CLI takes a bracketed paste as one paste however many lines
+it has.
 
 The text reaches tmux on standard input, so a paste is never an argument
-vector however long it is.  The paste buffer is named and deleted on the
-way out, so the operator's own paste stack is where he left it.
-
-@strong{A trailing semicolon has to be escaped.}  tmux reads one at the
-end of an argument as the separator between two of its own commands and
-drops it, leaving a backslash before it as the way to write one.  A line
-of SQL is a line that ends in a semicolon.  A semicolon in the middle of
-an argument is untouched, so only the one at the end is escaped.
+vector however long it is, and nothing in it is read as tmux's own
+syntax.  The paste buffer is named and deleted on the way out, so the
+operator's own paste stack is where he left it.
 
 @strong{What tmux says is raised when it exits non-zero.}  The usual
 reason is that the pane has gone — the session was quit, or its window
@@ -1716,6 +1720,11 @@ come back, and one entry of it is spent on the first user message that
 matches.}  A second message saying the very same thing was typed at the
 pane, or submitted here twice, and is shown; so is everything else typed
 at the pane, which matches nothing sent from here.
+
+@strong{The copy is compared as the text that was sent.}  Codex writes a
+pasted message to its rollout as it was sent, of one line or several,
+and Claude Code's copy is that text once the render pass has taken the
+harness's wrapper off it (@pxref{Transcript}).
 
 @strong{Every send is outstanding and not only the last.}  A session that
 is working holds everything submitted at it until the turn it is on has
@@ -1828,13 +1837,14 @@ else (@pxref{Transcript}).
 
 @section Only an idle session is ended
 
-@strong{@code{/exit} is typed and not sent as a command, so it means
-whatever keys mean to the session at that moment.}  To an idle session it
-is a command.  A working session takes what is typed at it as its next
-message, to be read once the turn it is on has finished.  A session
-waiting on a permission prompt reads the keystrokes as answers to the
-dialog, choosing an option the operator never saw.  So both commands
-refuse every status but idle, and say which status they refused.
+@strong{@code{/exit} is pasted as every message is and not sent as a
+command, so it means whatever input means to the session at that
+moment.}  To an idle session it is a command.  A working session takes
+what is pasted at it as its next message, to be read once the turn it is
+on has finished.  A session waiting on a permission prompt reads the
+@code{Enter} after the paste as an answer to the dialog, choosing an
+option the operator never saw.  So both commands refuse every status but
+idle, and say which status they refused.
 
 @strong{@code{unknown} is refused too.}  It is what parley reads when it
 cannot say what the session is doing, and a working or a waiting session
@@ -1844,13 +1854,25 @@ can be behind it as well as an idle one.
 one its header line and the cell in front of its prompt show — so the
 command acts on what the operator was looking at when he ran it.
 
+@section Each kind of session is archived by its own program
+
+@strong{A Claude Code session is archived with @code{ccarchive}, and a
+Codex session with @code{codex archive}}, each given @code{archive} and
+the session's id, which for Codex is the thread's.  Each CLI's sessions
+are its own program's to archive, and @code{codex unarchive} with the
+same id undoes a Codex archive.  The program is chosen by the record's
+vendor, which is what chooses the projection its transcript is read
+through (@pxref{Transcript}).
+
 @section The archive waits for the process to end
 
 @strong{@code{ccarchive} refuses to move a session whose process is still
-running, and @code{/exit} ends a session in its own time}: the keys reach
-the pane at once and the process is gone some time later.  So the archive
-is run not when the keys are sent but once no process by the session's
-pid is running, which is the test @code{ccarchive} itself makes.
+running, and @code{/exit} ends a session in its own time}: the paste
+reaches the pane at once and the process is gone some time later.  So
+the archive is run not when @code{/exit} is sent but once no process by
+the session's pid is running, which is the test @code{ccarchive} itself
+makes.  A Codex thread is archived at the same moment, once its TUI has
+ended, which is the state @code{codex archive} is known to work in.
 
 @strong{The wait is a timer and not a loop.}  Emacs has one thread
 (@pxref{Transcript}), and a loop waiting on another process would hold
@@ -1867,8 +1889,9 @@ session, which the operator asked for whether or not he keeps the
 conversation open, so killing the buffer does not stop it.
 
 @strong{A program that cannot be found refuses the whole command, before
-anything is typed.}  A session ended and then left unarchived for want of
-a program is half of what was asked, and the half that cannot be taken
+anything is typed.}  The program looked for is the one that would archive
+this session.  A session ended and then left unarchived for want of a
+program is half of what was asked, and the half that cannot be taken
 back.
 
 @strong{What the program printed when it fails is in a message.}  It runs

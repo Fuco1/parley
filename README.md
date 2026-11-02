@@ -46,9 +46,10 @@ parley is for reading what it said.
   and `C-c C-n` step to the previous and the next one.
 - `M-x parley-transcript-exit` in a transcript buffer ends its session by
   typing `/exit` into the pane. `M-x parley-transcript-exit-and-archive` does
-  the same and then runs `ccarchive archive` on the session once its process
-  has ended. Both refuse a session that is not idle, and both leave the buffer
-  open.
+  the same and then, once the session's process has ended, archives it: a
+  Claude Code session with `ccarchive archive`, and a Codex session with
+  `codex archive`. Both refuse a session that is not idle, and both leave the
+  buffer open.
 
 ## How it works
 
@@ -68,4 +69,5 @@ builds from [`doc/parley.texi`](doc/parley.texi). Once the package is installed
 - [sallet](https://github.com/Fuco1/sallet) is optional; without it the session
   switcher falls back to `completing-read`.
 - `ccarchive` is optional, and only `parley-transcript-exit-and-archive` needs
-  it.
+  it, to archive a Claude Code session. It archives a Codex session with
+  `codex`.
