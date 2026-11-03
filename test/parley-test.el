@@ -180,6 +180,16 @@ machine.")
     (should (equal (plist-get (nth 2 (parley-sessions)) :name) nil))
     (should (equal (plist-get (nth 2 (parley-sessions)) :status) nil))))
 
+(ert-deftest parley-test-marks-every-claude-code-record-claude ()
+  "Every Claude Code session is listed with `:vendor' `claude'.
+What reads a record dispatches on the key and refuses a record
+without it, so a Claude Code record missing it could be listed
+and then not opened."
+  (parley-test--with-fixtures
+    (should (equal (mapcar (lambda (s) (plist-get s :vendor))
+                           (parley-sessions))
+                   '(claude claude claude)))))
+
 
 ;;; The pane id
 

@@ -436,7 +436,7 @@ argument merely mentions `tail' is not mistaken for it."
             (parley-transcript-test--group pgid)))
 
 (defun parley-transcript-test--session (name lines)
-  "Return a session record called NAME over a fresh transcript of LINES.
+  "Return a Claude Code record called NAME over a fresh transcript of LINES.
 Its transcript doubles as its session id, which no other record
 built here can share -- and which is what the buffers are told
 apart by."
@@ -448,8 +448,8 @@ apart by."
     ;; Its `:status' is what `claude agents' said when the record was
     ;; built, and a buffer holding that instead of what the session's
     ;; file says now is what the status tests are looking for.
-    (list :name name :cwd temporary-file-directory :pid (emacs-pid)
-          :status "idle" :session-id file :transcript file)))
+    (list :vendor 'claude :name name :cwd temporary-file-directory
+          :pid (emacs-pid) :status "idle" :session-id file :transcript file)))
 
 (defun parley-transcript-test--buffers ()
   "Return every buffer following a session."
@@ -552,7 +552,7 @@ transcript -- launched nothing and projects to nothing at all."
                      "done" "a50ad8c674992fc1f")))
              ""))
            (call-process-region (point-min) (point-max) "jq" t t nil
-                                "-M" "-c" parley-transcript--projection)
+                                "-M" "-c" parley-transcript--claude-projection)
            (split-string (buffer-string) "\n" t))))
     (should (equal projected
                    (list (concat "{\"role\":\"user\",\"meta\":false,\"text\":\"\","
@@ -627,7 +627,8 @@ what cannot be parsed would leave the operator watching an empty
 buffer with no idea why."
   (skip-unless (executable-find "jq"))
   (let* ((file (make-temp-file "parley-transcript-test-" nil ".jsonl"))
-         (session (list :name "unspoken" :session-id file :transcript file))
+         (session (list :vendor 'claude :name "unspoken" :session-id file
+                        :transcript file))
          (buffer nil))
     (delete-file file)
     (unwind-protect
@@ -736,6 +737,14 @@ thing."
              (car (last (process-command (get-buffer-process buffer)))))))
   (should-error (parley-transcript--command
                  (list :vendor 'gemini :transcript "/tmp/x.jsonl"))))
+
+(ert-deftest parley-transcript-test-projects-no-record-without-a-vendor ()
+  "A record without `:vendor' is refused, and not read as Claude Code's.
+Nothing says which format its transcript is in, and either
+program over the other's format shows nothing at all."
+  (should (equal (should-error (parley-transcript--command
+                                (list :transcript "/tmp/x.jsonl")))
+                 '(error "No projection for a session of vendor nil"))))
 
 
 ;;; Rendering
@@ -3791,7 +3800,7 @@ process and killed afterwards, and `session', the record whose
   (declare (indent 0) (debug t))
   `(let* ((process (make-process :name "parley-test-session"
                                  :command '("sleep" "60") :noquery t))
-          (session (list :name "exiting" :pane "%7"
+          (session (list :vendor 'claude :name "exiting" :pane "%7"
                          :pid (process-id process)
                          :session-id "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90")))
      (unwind-protect
@@ -3905,12 +3914,13 @@ wrong one would type `/exit' into the pane."
   (parley-transcript-test--with-exiting
     (parley-transcript-test--with-tmux
       (parley-transcript-test--with-archivers 0
-        (dolist (vendor '(nil codex))
+        (dolist (vendor '(claude codex))
           (setq parley-transcript-session (plist-put session :vendor vendor))
           (let* ((missing parley-transcript-test--no-program)
-                 (parley-ccarchive-program (if vendor parley-ccarchive-program
-                                             missing))
-                 (parley-codex-program (if vendor missing parley-codex-program))
+                 (parley-ccarchive-program (if (eq vendor 'claude) missing
+                                             parley-ccarchive-program))
+                 (parley-codex-program (if (eq vendor 'codex) missing
+                                         parley-codex-program))
                  (signalled (should-error
                              (call-interactively
                               #'parley-transcript-exit-and-archive)
@@ -3941,6 +3951,18 @@ being done."
         (should (equal (parley-transcript-test--lines-of ccarchive-log)
                        '("archive" "0f6c2b7e-3a51-4d8e-9c1f-5b2a7d4e8c90")))
         (should-not (file-exists-p codex-log))))))
+
+(ert-deftest parley-transcript-test-archives-no-record-without-a-vendor ()
+  "A record without `:vendor' is refused, and not archived as Claude Code's.
+Nothing says which program owns its id, and each program is
+handed only ids of its own.  A vendor neither program is for is
+refused the same way."
+  (should (equal (should-error (parley-transcript--archive-program
+                                (list :session-id "x")))
+                 '(error "No archive program for a session of vendor nil")))
+  (should (equal (should-error (parley-transcript--archive-program
+                                (list :vendor 'gemini :session-id "x")))
+                 '(error "No archive program for a session of vendor gemini"))))
 
 (ert-deftest parley-transcript-test-archives-a-codex-session-with-codex ()
   "A Codex session is archived by `parley-codex-program' once its TUI is gone.

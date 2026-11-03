@@ -228,7 +228,8 @@ ENTRY is one element of `claude agents --json'."
         (session-id (alist-get 'sessionId entry)))
     (when (and pid cwd session-id
                (parley--terminal-device-p (parley--stdin-target pid)))
-      (list :pid pid
+      (list :vendor 'claude
+            :pid pid
             :name (alist-get 'name entry)
             :kind (alist-get 'kind entry)
             :status (alist-get 'status entry)
@@ -247,8 +248,8 @@ The sessions are the ones `claude agents --json' lists, and
   "Return one record per live Claude Code or Codex session on this machine.
 A record is a plist with these keys:
 
-  :vendor      `codex' for a Codex session, and absent from a Claude
-               Code one
+  :vendor      `claude' for a Claude Code session and `codex' for a
+               Codex one
   :pid         the session process
   :name        the name `claude agents' gives it, or the name Codex
                gave the thread; nil when there is none

@@ -66,7 +66,7 @@
 
 ;;; The pipeline
 
-(defconst parley-transcript--projection
+(defconst parley-transcript--claude-projection
   (concat
    "def joined: if type == \"string\" then ."
    "  else [.[] | select(.type == \"text\") | .text] | join(\"\\n\") end;"
@@ -176,10 +176,10 @@ and joining them is the renderer's job.")
    " else empty end")
   "The jq program every line of a Codex rollout is passed through.
 
-It emits the objects `parley-transcript--projection' emits for a
-Claude Code transcript, so the render pass reads a Codex session
-as it reads any other, and it reads two kinds of line to make
-them.  A `response_item' message from the `user' or the
+It emits the objects `parley-transcript--claude-projection' emits
+for a Claude Code transcript, so the render pass reads a Codex
+session as it reads any other, and it reads two kinds of line to
+make them.  A `response_item' message from the `user' or the
 `assistant' is a turn, its text the `text' of each of its content
 parts joined with newlines.  A `response_item' of one of the six
 call items is one tool call, emitted as a count of one: the run
@@ -214,12 +214,12 @@ field, and a Codex turn is read there as one of those is.")
 SESSION is a record as `parley-transcript' takes one, and its
 transcript is the file its `:transcript' names.  The program the
 transcript is projected through is the one for whoever wrote it:
-`parley-transcript--codex-projection' for a record whose
-`:vendor' is `codex', the thread's rollout, and
-`parley-transcript--projection' for a record without the key,
-which is a Claude Code session.  Any other vendor signals an
-error, because either program over a format it was not written
-for emits nothing, and an empty buffer would not say why.
+`parley-transcript--claude-projection' for a record whose
+`:vendor' is `claude', and `parley-transcript--codex-projection'
+for one whose `:vendor' is `codex', the thread's rollout.  Any
+other vendor signals an error, and so does a record without the
+key, because either program over a format it was not written for
+emits nothing, and an empty buffer would not say why.
 
 `-F' rather than `-f' because a session that has not spoken yet
 has no transcript to open; tail says so on stderr, which shares
@@ -244,7 +244,7 @@ inside a JSON string is written as the six characters \\u001b."
           " | jq -M -c --unbuffered "
           (shell-quote-argument
            (pcase (plist-get session :vendor)
-             ('nil parley-transcript--projection)
+             ('claude parley-transcript--claude-projection)
              ('codex parley-transcript--codex-projection)
              (vendor (error "No projection for a session of vendor %S"
                             vendor))))))
@@ -3161,13 +3161,13 @@ it."
 
 (defun parley-transcript--archive-program (session)
   "Return the program that archives SESSION.
-`parley-codex-program' for a record whose `:vendor' is `codex',
-and `parley-ccarchive-program' for a record without the key,
-which is a Claude Code session.  Any other vendor signals an
-error rather than handing its id to a program that archives
-something else."
+`parley-ccarchive-program' for a record whose `:vendor' is
+`claude', and `parley-codex-program' for one whose `:vendor' is
+`codex'.  Any other vendor signals an error, and so does a record
+without the key, rather than handing its id to a program that
+archives something else."
   (pcase (plist-get session :vendor)
-    ('nil parley-ccarchive-program)
+    ('claude parley-ccarchive-program)
     ('codex parley-codex-program)
     (vendor (error "No archive program for a session of vendor %S" vendor))))
 
