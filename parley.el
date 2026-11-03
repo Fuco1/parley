@@ -201,13 +201,16 @@ typed into is still one to read."
     (parley--remember-pane-locations (parley--tmux-panes)))
   (parley-known-pane-location pane))
 
-(defcustom parley-projects-directory "~/.claude/projects"
+(define-obsolete-variable-alias 'parley-projects-directory
+  'parley-claude-projects-directory "0.0.1")
+
+(defcustom parley-claude-projects-directory "~/.claude/projects"
   "Directory Claude Code keeps session transcripts under.
 Each session's transcript is SESSION-ID.jsonl in the
 subdirectory named after the session's working directory."
   :type 'directory)
 
-(defun parley--transcript-file (cwd session-id)
+(defun parley--claude-transcript-file (cwd session-id)
   "Return the absolute path of the transcript of SESSION-ID run in CWD.
 Claude Code names the directory after CWD with every character
 outside [A-Za-z0-9] replaced by a dash, so `/home/me/a.b' keeps
@@ -215,10 +218,10 @@ its transcripts in `-home-me-a-b'."
   (expand-file-name
    (concat session-id ".jsonl")
    (expand-file-name (replace-regexp-in-string "[^A-Za-z0-9]" "-" cwd)
-                     parley-projects-directory)))
+                     parley-claude-projects-directory)))
 
-(defun parley--session (entry)
-  "Return the session record for ENTRY, nil if parley cannot talk to it.
+(defun parley--claude-session (entry)
+  "Return the Claude Code record for ENTRY, nil if parley cannot talk to it.
 ENTRY is one element of `claude agents --json'."
   (let ((pid (alist-get 'pid entry))
         (cwd (alist-get 'cwd entry))
@@ -232,7 +235,13 @@ ENTRY is one element of `claude agents --json'."
             :cwd cwd
             :session-id session-id
             :pane (parley--environ-tmux-pane (parley--process-environ pid))
-            :transcript (parley--transcript-file cwd session-id)))))
+            :transcript (parley--claude-transcript-file cwd session-id)))))
+
+(defun parley--claude-sessions ()
+  "Return one record per Claude Code session parley can follow.
+The sessions are the ones `claude agents --json' lists, and
+`parley--claude-session' says which of them get a record."
+  (delq nil (mapcar #'parley--claude-session (parley--agents))))
 
 (defun parley-sessions ()
   "Return one record per live Claude Code or Codex session on this machine.
@@ -257,15 +266,15 @@ A record is a plist with these keys:
 
 Sessions whose standard input is not a terminal are headless
 children -- a lane running `claude -p', Codex's daemon, a
-`codex exec' -- and are left out.  The Codex sessions come after
-the Claude Code ones, and `parley--codex-sessions' says which of
-them are listed."
+`codex exec' -- and are left out.  The Claude Code sessions come
+first, and `parley--claude-sessions' says which of them are
+listed.  The Codex sessions come after them, and
+`parley--codex-sessions' says which of those are listed."
   ;; The pane locations go back to unasked and are not resolved here:
   ;; what needs one is a row or a tag, and a list nothing draws asks
   ;; tmux nothing at all -- unless a Codex process asked it already.
   (setq parley--pane-locations 'unasked)
-  (append (delq nil (mapcar #'parley--session (parley--agents)))
-          (parley--codex-sessions)))
+  (append (parley--claude-sessions) (parley--codex-sessions)))
 
 (defun parley-session-tag (session)
   "Return what tells SESSION apart from every other live session.
@@ -435,8 +444,8 @@ asked for again."
 ;;; What a session is doing
 
 ;; A session writes what it is doing to `PID.json' under
-;; `parley-sessions-directory', and that file is where this is read
-;; from: `claude agents --json' reads the same files and costs a
+;; `parley-claude-sessions-directory', and that file is where this is
+;; read from: `claude agents --json' reads the same files and costs a
 ;; subprocess on the one thread Emacs has, and all it adds is the
 ;; liveness filter that the two comparisons below make anyway.
 ;;
@@ -455,7 +464,10 @@ asked for again."
 ;; thread id is read from -- so that is read instead, and the thread
 ;; id in it is what stands in for the comparisons.
 
-(defcustom parley-sessions-directory "~/.claude/sessions"
+(define-obsolete-variable-alias 'parley-sessions-directory
+  'parley-claude-sessions-directory "0.0.1")
+
+(defcustom parley-claude-sessions-directory "~/.claude/sessions"
   "Directory Claude Code keeps one file per session under.
 Each session's file is PID.json and holds that session's own
 account of itself: its `status', the `sessionId' it is running
@@ -496,16 +508,17 @@ that alternate."
                        title)
          (match-string 0 title))))
 
-(defun parley--status-file (pid)
-  "Return what session PID says about itself, nil if it says nothing.
-The contents of `PID.json' under `parley-sessions-directory' as
-an alist, and nil if there is no such file or it does not parse:
-a session that says nothing about itself is not an error, it is a
-session nothing can be said about."
+(defun parley--claude-status-file (pid)
+  "Return what Claude Code session PID says about itself, nil if nothing.
+The contents of `PID.json' under `parley-claude-sessions-directory'
+as an alist, and nil if there is no such file or it does not
+parse: a session that says nothing about itself is not an error,
+it is a session nothing can be said about."
   (ignore-errors
     (with-temp-buffer
       (insert-file-contents
-       (expand-file-name (format "%s.json" pid) parley-sessions-directory))
+       (expand-file-name (format "%s.json" pid)
+                         parley-claude-sessions-directory))
       (json-parse-buffer :object-type 'alist :null-object nil))))
 
 (defun parley--process-start (pid)
@@ -571,7 +584,7 @@ report, return `unknown'."
           'unknown))
     (let* ((pid (plist-get session :pid))
            (id (plist-get session :session-id))
-           (fields (and pid (parley--status-file pid)))
+           (fields (and pid (parley--claude-status-file pid)))
            (start (and fields (parley--process-start pid))))
       (or (and start
                (stringp id)

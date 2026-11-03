@@ -130,7 +130,7 @@ machine.")
 (defmacro parley-test--with-fixtures (&rest body)
   "Run BODY with discovery reading the fixtures instead of the machine."
   (declare (indent 0))
-  `(let ((parley-projects-directory "/home/matus/.claude/projects"))
+  `(let ((parley-claude-projects-directory "/home/matus/.claude/projects"))
      (cl-letf (((symbol-function 'parley--agents-json)
                 (lambda () parley-test--agents-json))
                ((symbol-function 'parley--stdin-target)
@@ -400,23 +400,25 @@ no error either, which is the third tag shape."
 
 (ert-deftest parley-test-slugs-the-working-directory-into-the-transcript-path ()
   "The slug is the working directory with every non-alphanumeric dashed."
-  (let ((parley-projects-directory "/home/matus/.claude/projects"))
-    (should (equal (parley--transcript-file "/home/matus/dev/go/orc" "abc")
+  (let ((parley-claude-projects-directory "/home/matus/.claude/projects"))
+    (should (equal (parley--claude-transcript-file "/home/matus/dev/go/orc"
+                                                   "abc")
                    "/home/matus/.claude/projects/-home-matus-dev-go-orc/abc.jsonl"))
     ;; A dot is not a separator and is replaced all the same, which is
     ;; the case a slug built by splitting on `/' gets wrong.
-    (should (equal (parley--transcript-file
+    (should (equal (parley--claude-transcript-file
                     "/home/matus/dev/ydistri/Ydistri.Pairing" "abc")
                    (concat "/home/matus/.claude/projects/"
                            "-home-matus-dev-ydistri-Ydistri-Pairing/abc.jsonl")))
     ;; Case survives; `/.claude' doubles the dash.
-    (should (equal (parley--transcript-file "/home/matus/.emacs.d" "abc")
+    (should (equal (parley--claude-transcript-file "/home/matus/.emacs.d" "abc")
                    "/home/matus/.claude/projects/-home-matus--emacs-d/abc.jsonl")))
   ;; The path is absolute even though the directory is written with a ~.
-  (let ((parley-projects-directory "~/.claude/projects"))
+  (let ((parley-claude-projects-directory "~/.claude/projects"))
     (should (file-name-absolute-p
-             (parley--transcript-file "/tmp" "abc")))
-    (should-not (string-prefix-p "~" (parley--transcript-file "/tmp" "abc")))))
+             (parley--claude-transcript-file "/tmp" "abc")))
+    (should-not (string-prefix-p
+                 "~" (parley--claude-transcript-file "/tmp" "abc")))))
 
 (ert-deftest parley-test-sessions-carry-the-transcript ()
   "Each record names the transcript of that session, under its own slug."
