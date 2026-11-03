@@ -464,15 +464,17 @@ and the `procStart' of the process writing it."
 
 (defconst parley--statuses
   '(("busy" . working) ("waiting" . waiting) ("idle" . idle)
-    ("Ready" . idle) ("Working" . working) ("Thinking" . working)
-    ("Action Required" . waiting))
+    ("shell" . idle) ("Ready" . idle) ("Working" . working)
+    ("Thinking" . working) ("Action Required" . waiting))
   "What each status a session writes about itself is read as.
-The first three are what Claude Code writes into the file it
-keeps about itself.  The rest are what a Codex TUI writes into its
-pane's title: its run state, which is `Ready', `Working' or
-`Thinking', and `Action Required' while it waits on the operator
-to approve something.  A status not named here is read as
-`unknown'.")
+The first four are what Claude Code writes into the file it
+keeps about itself.  It writes `shell' where it would write
+`idle' while a background shell it started is still running, and
+the session takes what is typed at it all the same.  The rest are
+what a Codex TUI writes into its pane's title: its run state,
+which is `Ready', `Working' or `Thinking', and `Action Required'
+while it waits on the operator to approve something.  A status
+not named here is read as `unknown'.")
 
 (defun parley--status-value (status)
   "Return the value STATUS, as a session writes it, is read as.
