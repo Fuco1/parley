@@ -2229,6 +2229,20 @@ act on."
       (should-not (string-match-p (regexp-quote "%99") line))
       (should-not (string-match-p (regexp-quote "worktrees") line)))))
 
+(ert-deftest parley-transcript-test-header-line-carries-no-vendor-mark ()
+  "The header line of a Codex session carries no mark saying it is one.
+The minibuffer reader marks a Codex row, because one list has no
+header to say which CLI a row runs.  The header line takes its
+mark from `parley-session-mark', as a sallet row does, and that
+gives a session with a pane none."
+  (let ((parley--pane-locations '(("%64" . "orc-b3:4.0"))))
+    (should (equal (parley-transcript-test--header-for
+                    (list :vendor 'codex :name "triage" :pane "%64"
+                          :cwd "/srv/orc/trees/worker-3/orc"
+                          :session-id "019a4a3c-5d10-7c42-9e2a-5d1c0b6f8a21")
+                    'working)
+                   "triage  working  orc-b3:4.0"))))
+
 (ert-deftest parley-transcript-test-header-line-asks-tmux-nothing ()
   "Drawing the header line runs no subprocess, whatever the cache holds.
 `parley--pane-location' fills the cache when it reads `unasked',
