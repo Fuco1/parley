@@ -30,8 +30,9 @@ of it needs to know, is its docstring's, in @kbd{C-h f} and @kbd{C-h v}.
                   is the discriminator, how a Codex session is found by its
                   pane title, and where what it is doing now is read from.
 * Switcher::    Picking a session: why the switcher is built on sallet,
-                  why sallet is optional, and the minibuffer reader the
-                  pick falls back to without it.
+                  why it has a source per CLI, why sallet is optional,
+                  and the minibuffer reader the pick falls back to
+                  without it.
 * Transcript::  The pipeline that reads a transcript, the projection it
                   is filtered through and the one a Codex rollout is, the
                   render pass, the conversation above the input zone
@@ -316,9 +317,9 @@ through the reader's table before it is ranked — otherwise
 @code{waiting} is written in two places in one file that have to agree
 about how Claude Code spells it.
 
-@strong{One sorted list is what both frontends list}, the switcher's rows
-and the minibuffer reader alike, so neither can put a session where the
-other does not.
+@strong{One sorted list is what both frontends list}: the minibuffer
+reader lists all of it, and each sallet source the part of it that is its
+CLI's sessions.  Two sessions of one CLI are in the same order in both.
 
 @section Nothing in a record is guaranteed
 
@@ -469,6 +470,23 @@ head of the name.
 The sallet matcher sends the same word to the name column, and it matches
 only the sessions named with it.
 
+@section A source per CLI, and no mark on a row saying which
+
+@strong{The Claude Code sessions and the Codex sessions are two sallet
+sources in one view, in that order.}  sallet draws each source under a
+header naming the CLI, and draws the header only while the source has a
+row matching the prompt, so the header above a row names the CLI its
+session runs.  @strong{A sallet row carries no mark saying which CLI it
+runs}: under a header naming one CLI, that mark would be the same on every
+row, and it would say again what the header says.
+
+@strong{The view discovers the sessions once.}  sallet makes each
+source's candidates as it opens the view, and a source discovering its
+own sessions would run @code{claude agents --json} and list the
+@code{codex} processes in @file{/proc} once per source.  The switcher
+discovers them before the view opens, and each source takes its CLI's
+sessions out of that one list.
+
 @section sallet is optional
 
 @strong{Only the picker gains from sallet, so parley does not require
@@ -494,6 +512,23 @@ them: a buffer showing one conversation and typing into the other one's
 pane.  The row carries nothing that tells them apart, so the reader
 numbers the second the way a buffer name is made unique.  A sallet
 candidate carries its record and needs no number.
+
+@strong{A Codex row is marked @code{[CX]} after its status}, where a
+session with no pane is marked @code{[RO]}.  The reader lists every
+session in one list, and no header says which CLI a row runs.  A Codex
+session has a record only for a pane whose title gives its thread id
+(@pxref{Discovery}), so a Codex row never carries @code{[RO]}, and the
+two marks never want the one place the status column has for a mark.
+@strong{A Claude Code row carries no mark of its CLI.}  A Claude Code
+session can be without a pane and marked @code{[RO]}, the status column
+has room for one mark beside its longest status, and one CLI marked tells
+the two apart.
+
+@strong{@code{[CX]} is the reader's own mark.}  The read only mark is
+chosen once, below every display of a session (@pxref{Discovery}), and a
+sallet row and a transcript buffer's header line take it from there.  The
+Codex mark is not chosen there, so neither of them carries it, and a
+sallet row has its source's header to say which CLI it runs.
 
 The reader is in @file{parley.el} rather than beside the picker, because
 @code{parley-transcript} reads its session with it as well, and what the
