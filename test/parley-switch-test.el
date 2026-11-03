@@ -41,31 +41,38 @@
 ;; ends with is in the part a row cuts off, and a path in it names a
 ;; worktree another session is working in.
 (defconst parley-switch-test--sessions
-  (list (list :pid 1 :name "app-8e" :kind "interactive" :status "busy"
+  (list (list :vendor 'claude
+              :pid 1 :name "app-8e" :kind "interactive" :status "busy"
               :cwd (expand-file-name "dev/ydistri/Ydistri.Pairing" "~")
               :session-id "eb6ab7cd-21e6-434f-9bf6-f561b5852de2"
               :pane "%23" :transcript "/tmp/eb6ab7cd.jsonl")
-        (list :pid 2 :name "orc-w1" :kind "interactive" :status "idle"
+        (list :vendor 'claude
+              :pid 2 :name "orc-w1" :kind "interactive" :status "idle"
               :cwd "/srv/orc/trees/worker-1/orc"
               :session-id "1111ffff-0000-4000-8000-000000000001"
               :pane "%61" :transcript "/tmp/1111ffff.jsonl")
-        (list :pid 3 :name nil :kind "interactive" :status nil
+        (list :vendor 'claude
+              :pid 3 :name nil :kind "interactive" :status nil
               :cwd "/srv/matus"
               :session-id "7c1d0f9a-0000-4000-8000-000000000003"
               :pane nil :transcript "/tmp/7c1d0f9a.jsonl")
-        (list :pid 4 :name "orc-w1" :kind "interactive" :status "idle"
+        (list :vendor 'claude
+              :pid 4 :name "orc-w1" :kind "interactive" :status "idle"
               :cwd "/srv/orc/trees/worker-2/orc"
               :session-id "2222ffff-0000-4000-8000-000000000002"
               :pane "%62" :transcript "/tmp/2222ffff.jsonl")
-        (list :pid 5 :name "orc-w1" :kind "interactive" :status "busy"
+        (list :vendor 'claude
+              :pid 5 :name "orc-w1" :kind "interactive" :status "busy"
               :cwd "/srv/go/orc"
               :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"
               :pane nil :transcript "/tmp/9a5a5635.jsonl")
-        (list :pid 6 :name "orc-w1" :kind "interactive" :status "idle"
+        (list :vendor 'claude
+              :pid 6 :name "orc-w1" :kind "interactive" :status "idle"
               :cwd "/srv/orc/trees/worker-1/orc"
               :session-id "3333ffff-0000-4000-8000-000000000003"
               :pane "%63" :transcript "/tmp/3333ffff.jsonl")
-        (list :pid 7
+        (list :vendor 'claude
+              :pid 7
               :name (concat "review the diff in /srv/orc/trees/worker-2/orc"
                             " and say whether each of its new tests can fail")
               :kind "background" :status "busy"
