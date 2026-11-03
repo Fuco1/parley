@@ -215,11 +215,12 @@ already carries, so nothing has to be searched for, and one small read
 answers every question parley asks about that session.
 
 @strong{The status is four-valued: working, waiting, idle and unknown.}
-The file says @code{busy}, @code{waiting} or @code{idle}, and
-@strong{waiting is not a slower kind of idle}: an idle session has
-finished and will read what is typed at it next, a waiting one has
-stopped and cannot go on until the operator answers it.  Collapsing the
-two would draw the state that most needs him as the state that needs
+The file says @code{busy}, @code{waiting} or @code{idle}, or
+@code{shell} for an idle session with a background shell still running,
+which reads as idle.  @strong{Waiting is not a slower kind of idle}: an
+idle session has finished and will read what is typed at it next, a
+waiting one has stopped and cannot go on until the operator answers it.
+Collapsing the two would draw the state that most needs him as the state that needs
 nothing from him.  A waiting session's file carries a @code{waitingFor}
 as well, and the one observed on this machine reads @code{input needed};
 one sample is no vocabulary, so that field is not read and the state is

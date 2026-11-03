@@ -693,12 +693,13 @@ written about."
   (parley-session-status (list :pid (or pid (emacs-pid))
                                :session-id parley-test--session-id)))
 
-(ert-deftest parley-test-reads-the-three-statuses-a-session-reports ()
+(ert-deftest parley-test-reads-the-statuses-a-session-reports ()
   "Each status a live session writes about itself reads as its own value.
 Waiting is its own value and not a kind of idle: an idle session
 will read what is typed at it next and a waiting one is going
 nowhere until the operator answers it."
-  (dolist (pair '(("busy" . working) ("waiting" . waiting) ("idle" . idle)))
+  (dolist (pair '(("busy" . working) ("waiting" . waiting) ("idle" . idle)
+                  ("shell" . idle)))
     (parley-fixtures-with-sessions-directory
       (parley-fixtures-write-session-file
        (emacs-pid) parley-test--session-id (car pair))
