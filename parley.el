@@ -659,6 +659,12 @@ times are three sessions the operator has to match up himself."
 Nothing reads it but `parley-session-mark', which every display
 of a session takes the mark from.")
 
+(defconst parley--codex-row-mark "[CX]"
+  "The mark saying a row of `parley-read-session' is a Codex session.
+Nothing reads it but that reader and `parley-session-row', which
+draws it.  `parley-session-mark' does not give it, so neither a
+sallet row nor a transcript buffer's header line carries it.")
+
 (defun parley-session-mark (session)
   "Return the mark saying SESSION cannot be typed into, or nil.
 That is `parley-session-read-only-mark' for a session with no
@@ -772,6 +778,10 @@ the next session in that pane would be handed it."
 (defface parley-row-read-only '((t :inherit font-lock-constant-face))
   "Face for the mark saying a session cannot be typed into.")
 
+(defface parley-row-vendor '((t :inherit font-lock-type-face))
+  "Face for the mark saying a row is a Codex session.
+Only a row of `parley-read-session' carries that mark.")
+
 (defface parley-row-window '((t :inherit font-lock-comment-face))
   "Face for the column of a session row holding its pane's WINDOW.PANE.")
 
@@ -820,13 +830,15 @@ the ellipsis ends the column on every row it is drawn in."
 (defun parley-session-row (fields &optional open)
   "Return FIELDS as one row of three faced columns.
 FIELDS is a plist from `parley-session-fields'.  The columns are
-the name, the status with the read only mark after it, and the
-WINDOW.PANE of the session's pane, which is empty for a session
-with no pane.  A row is what `completing-read' completes over,
-because it matches one flat string and the annotation has to be
-inside it; the sallet renderer draws the same row from the same
-fields.  The faces are on the string itself, so both frontends
-colour a session alike.
+the name, the status with the mark after it, and the WINDOW.PANE
+of the session's pane, which is empty for a session with no pane.
+A row is what `completing-read' completes over, because it
+matches one flat string and the annotation has to be inside it;
+the sallet renderer draws the same row from the same fields.  The
+faces are on the string itself, so both frontends colour a
+session alike.  The mark is drawn in `parley-row-read-only',
+unless it is the one `parley-read-session' gives a Codex row,
+which is drawn in `parley-row-vendor'.
 
 OPEN non-nil says the session already has a buffer, which is
 what `parley-session-buffer' answers, and draws the name column
@@ -849,9 +861,10 @@ status, and has none of its own: a column of its own is blank on
 every session that has a pane, which is nearly all of them, and
 what it holds reads as something about the status anyway.  Twelve
 columns is what the two come to together at their longest,
-\"waiting [RO]\" or \"unknown [RO]\": the column holds one of
-the values `parley--status-value' reads a status as, so a status
-parley does not name is listed `unknown' and never runs past it.
+\"waiting [RO]\" or \"unknown [RO]\", and the Codex mark is as
+wide as the read only one.  The column holds one of the values
+`parley--status-value' reads a status as, so a status parley does
+not name is listed `unknown' and never runs past it.
 
 Neither the working directory nor the tmux session is drawn: the
 sessions on a machine running one fleet share both, so either
@@ -873,7 +886,9 @@ them apart itself: a sallet candidate carries its record, and
       (if (equal mark "")
           (propertize status 'face status-face)
         (concat (propertize (concat status " ") 'face status-face)
-                (propertize mark 'face 'parley-row-read-only)))
+                (propertize mark 'face (if (equal mark parley--codex-row-mark)
+                                           'parley-row-vendor
+                                         'parley-row-read-only))))
       12 status-face)
      "  "
      (propertize window 'face 'parley-row-window))))
@@ -899,14 +914,29 @@ one conversation and typing into the other one's pane.  A session
 `parley-session-buffer' finds a buffer for has its row drawn
 open, as the sallet renderer draws it.
 
+A Codex row carries `parley--codex-row-mark' after its status,
+where a session with no pane carries the read only mark: the
+reader lists every session in one list with no header to say
+which CLI a row runs, as a sallet source's header does.  The two
+marks never want that one place in one row, because
+`parley--codex-session' builds a Codex record only for a pane.
+A Claude Code row carries no mark saying so: a Claude Code
+session can have no pane, the status column has room beside the
+longest status for one mark, and one of the two marked is enough
+to tell them apart.
+
 The completion metadata keeps the rows in the order
 `parley-sessions-by-status' put them in; the default would sort
 them alphabetically and lose the status order."
   (let ((drawn nil)
         (rows nil))
     (dolist (session (parley-sessions-by-status))
-      (let* ((row (parley-session-row (parley-session-fields session)
-                                      (parley-session-buffer session)))
+      (let* ((fields (parley-session-fields session))
+             (row (parley-session-row
+                   (if (eq (plist-get session :vendor) 'codex)
+                       (plist-put fields :mark parley--codex-row-mark)
+                     fields)
+                   (parley-session-buffer session)))
              (before (seq-count (lambda (other) (equal other row)) drawn)))
         (push row drawn)
         (push (cons (if (zerop before) row (format "%s <%d>" row (1+ before)))

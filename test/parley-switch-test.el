@@ -167,6 +167,18 @@ tested there, so the command is stubbed here."
                                (all-completions "" collection))
                        '("parley" "orc-w1" "orc-w1" "orc-w1" "app-8e"
                          "orc-w1" "review" "triage" "unnamed")))
+        ;; One list has no header to say which CLI a row runs, so a
+        ;; Codex row says it in the status column, where a session
+        ;; with no pane says it is read only, and a Claude Code row
+        ;; says nothing.
+        (should (equal (mapcar (lambda (row) (substring row 72 84))
+                               (all-completions "" collection))
+                       '("waiting [CX]" "idle        " "idle        "
+                         "idle        " "working     " "working [RO]"
+                         "working [RO]" "working [CX]" "unknown [RO]")))
+        (should (equal (get-text-property 80 'face (car (all-completions
+                                                         "" collection)))
+                       'parley-row-vendor))
         (should (eq (alist-get 'display-sort-function
                                (cdr (completion-metadata "" collection nil)))
                     #'identity))
