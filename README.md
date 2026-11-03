@@ -23,7 +23,8 @@ parley is for reading what it said.
 
 - `M-x parley-switch` picks a live session and opens its conversation. The
   sessions waiting on you are listed first, then the idle ones, then the busy.
-  With sallet it matches the columns one at a time: `orc` for the name,
+  With sallet the Claude Code sessions and the Codex sessions are listed under
+  a header each, and it matches the columns one at a time: `orc` for the name,
   `@3.1` for the window and pane a session is in, `:idle` for the status. Every column is coloured apart and
   the status by what it says, so the busy session and the one waiting on you
   are seen rather than read for. A session you already have a buffer for has
@@ -35,7 +36,8 @@ parley is for reading what it said.
   `S-<return>` opens another line at the prompt without submitting anything, and
   the whole block goes as one message wherever point stands in it. A session
   outside tmux has no pane and is read only, and the switcher marks it `[RO]`
-  beside the status.
+  beside the status. Without sallet every session is in one list, and the
+  switcher marks a Codex session `[CX]` in that place.
 - `RET` on a turn you took earlier sends that turn again, all of it and without
   the quote the view draws it with. On anything else — an agent's turn, the
   line a run of tool calls collapsed to — it sends nothing and says so.
