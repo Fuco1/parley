@@ -8,14 +8,14 @@
 ;; none of them needs a live session, and no server the machine
 ;; happens to be running can answer instead.
 ;;
-;; The seven records are what the sallet source is matched and
-;; rendered against, and the columns it draws them in are
+;; The nine records are what the sallet sources are matched and
+;; rendered against, and the columns they draw them in are
 ;; `parley-session-fields' -- which lives below both frontends,
 ;; because `parley-transcript' reads a session too.
 ;;
 ;; The check that runs these loads sallet, so the matcher is asked
 ;; through sallet's own dispatch.  The test of the `completing-read'
-;; fallback removes the sallet source, which is the environment that
+;; fallback removes the sallet sources, which is the environment that
 ;; fallback exists for.  What needs sallet itself to run says so with
 ;; `featurep', so a run by hand without sallet skips it.
 
@@ -25,11 +25,21 @@
 (require 'cl-lib)
 (require 'parley-switch)
 
+;; What a test below needs sallet for skips without it, and the
+;; compile runs without it.
+(declare-function sallet-init-source "sallet-source" (source))
+(declare-function sallet-source-get-candidates "sallet-source" (source))
+(declare-function sallet-source-get-matcher "sallet-source" (source))
+(declare-function sallet-render-header "sallet" (source))
+(declare-function sallet-update-candidates "sallet" (state source))
+(declare-function eieio-object-class "eieio" (obj))
+
 
 ;;; Fixtures
 
-;; Seven records as `parley-sessions' returns them, in an order no
-;; frontend should show them in.  Four share the name `orc-w1': that
+;; Nine records as `parley-sessions' returns them, in an order no
+;; frontend should show them in.  Seven are Claude Code sessions and
+;; the last two Codex ones, listed in each other's status order.  Four share the name `orc-w1': that
 ;; is what sibling worktrees really look like.  Two of those four
 ;; share a working directory and a status as well and differ in
 ;; nothing but their pane, which is two sessions started in one repo.
@@ -78,12 +88,24 @@
               :kind "background" :status "busy"
               :cwd "/srv/orc/trees/worker-1/orc"
               :session-id "4444ffff-0000-4000-8000-000000000004"
-              :pane nil :transcript "/tmp/4444ffff.jsonl")))
+              :pane nil :transcript "/tmp/4444ffff.jsonl")
+        (list :vendor 'codex
+              :pid 8 :name "triage" :status "Working"
+              :cwd "/srv/orc/trees/worker-3/orc"
+              :session-id "019a4a3c-5d10-7c42-9e2a-5d1c0b6f8a21"
+              :pane "%64" :transcript "/tmp/019a4a3c.jsonl")
+        (list :vendor 'codex
+              :pid 9 :name "parley" :status "Action Required"
+              :cwd "/srv/parley"
+              :session-id "019a4b7e-0a31-7f05-8b44-0c2d9e1f3b62"
+              :pane "%65" :transcript "/tmp/019a4b7e.jsonl")))
 
 (defconst parley-switch-test--pane-locations
   '(("%23" . "app%8e:1.0")
     ("%61" . "orc-b3743fe3:2.0")
-    ("%62" . "orc-b3743fe3:3.1"))
+    ("%62" . "orc-b3743fe3:3.1")
+    ("%64" . "orc-b3743fe3:4.0")
+    ("%65" . "parley:0.1"))
   "Where tmux says each fixture pane is, keyed by pane id.
 The pane `%63' of the sixth record is missing on purpose: a
 window closed under a session that outlived it is a pane tmux
@@ -127,7 +149,8 @@ tested there, so the command is stubbed here."
           (asked nil)
           (shown nil)
           (collection nil))
-      (cl-letf (((symbol-function 'sallet-source-parley) nil)
+      (cl-letf (((symbol-function 'sallet-source-parley-claude) nil)
+                ((symbol-function 'sallet-source-parley-codex) nil)
                 ((symbol-function 'parley-transcript)
                  (lambda (picked) (setq shown picked)))
                 ((symbol-function 'completing-read)
@@ -142,8 +165,8 @@ tested there, so the command is stubbed here."
         ;; sorting them alphabetically and losing it.
         (should (equal (mapcar (lambda (row) (car (split-string row)))
                                (all-completions "" collection))
-                       '("orc-w1" "orc-w1" "orc-w1" "app-8e" "orc-w1"
-                         "review" "unnamed")))
+                       '("parley" "orc-w1" "orc-w1" "orc-w1" "app-8e"
+                         "orc-w1" "review" "triage" "unnamed")))
         (should (eq (alist-get 'display-sort-function
                                (cdr (completion-metadata "" collection nil)))
                     #'identity))
@@ -157,7 +180,8 @@ tested there, so the command is stubbed here."
 (ert-deftest parley-switch-test-fallback-with-nothing-running ()
   "Reading a session when none is running says so instead of picking one."
   (cl-letf (((symbol-function 'parley-sessions) (lambda () nil))
-            ((symbol-function 'sallet-source-parley) nil))
+            ((symbol-function 'sallet-source-parley-claude) nil)
+            ((symbol-function 'sallet-source-parley-codex) nil))
     (should-error (parley-switch) :type 'user-error)))
 
 
@@ -165,13 +189,25 @@ tested there, so the command is stubbed here."
 
 (ert-deftest parley-switch-test-candidate-carries-the-record ()
   "A candidate is its fields and the record itself, in switcher order.
+The candidates of one vendor are the records of that vendor's
+sessions and no other's, in the order of their statuses.
+
 The windows are written out rather than computed, so a test
 comparing against them compares against something a change to
 the fields cannot move with it.  One location carries a `%'
 because a tmux session name may, and the window is what follows
 the session name all the same."
   (parley-switch-test--with-sessions
-    (let ((candidates (parley-switch--candidates)))
+    (let ((candidates (parley-switch--candidates 'claude))
+          (codex (parley-switch--candidates 'codex)))
+      (should (equal (mapcar (lambda (candidate)
+                               (plist-get (cdr candidate) :pid))
+                             codex)
+                     '(9 8)))
+      (should (equal (mapcar (lambda (candidate)
+                               (plist-get (car candidate) :window))
+                             codex)
+                     '("0.1" "4.0")))
       (should (equal (mapcar (lambda (candidate)
                                (plist-get (car candidate) :window))
                              candidates)
@@ -189,7 +225,7 @@ the session name all the same."
 It is drawn coloured, because it is the row that carries the
 faces and the renderer hands that row over as it is."
   (parley-switch-test--with-sessions
-    (let* ((candidate (nth 1 (parley-switch--candidates)))
+    (let* ((candidate (nth 1 (parley-switch--candidates 'claude)))
            (rendered (parley-switch--renderer candidate nil nil)))
       (should (string-prefix-p "orc-w1" rendered))
       (cl-loop for (_key field) on (car candidate) by #'cddr
@@ -197,6 +233,19 @@ faces and the renderer hands that row over as it is."
       (should (equal (get-text-property 0 'face rendered) 'parley-row-name))
       (should (equal (get-text-property 72 'face rendered)
                      'parley-row-status-idle)))))
+
+(ert-deftest parley-switch-test-renderer-draws-no-vendor-mark ()
+  "A Codex row in a sallet source carries no mark saying it is one.
+The header of the source it is drawn under says that, and the row
+shows only the mark `parley-session-mark' gives, which for a
+session with a pane is none."
+  (parley-switch-test--with-sessions
+    (should (equal (mapcar (lambda (candidate)
+                             (substring (parley-switch--renderer
+                                         candidate nil nil)
+                                        72 84))
+                           (parley-switch--candidates 'codex))
+                   '("waiting     " "working     ")))))
 
 (ert-deftest parley-switch-test-renderer-draws-a-session-with-a-buffer-open ()
   "The rendered row of a session with a buffer has its name drawn open.
@@ -215,7 +264,7 @@ column, and the three sessions sharing its name are not."
                           (list (plist-get (cdr candidate) :pid)
                                 (get-text-property 0 'face row)
                                 (next-single-property-change 0 'face row))))
-                      (parley-switch--candidates))
+                      (parley-switch--candidates 'claude))
                      '((2 parley-row-name 70)
                        (4 parley-row-name-open 70)
                        (6 parley-row-name 70)
@@ -230,12 +279,96 @@ The candidate acted on is one of the four named `orc-w1', which
 is what makes this worth asserting: the record travels with the
 candidate, so nothing has to find it again by a name it shares."
   (parley-switch-test--with-sessions
-    (let ((candidate (nth 4 (parley-switch--candidates)))
+    (let ((candidate (nth 4 (parley-switch--candidates 'claude)))
           (shown nil))
       (cl-letf (((symbol-function 'parley-transcript)
                  (lambda (picked) (setq shown picked))))
         (parley-switch--action nil candidate)
         (should (eq shown (parley-switch-test--session 5)))))))
+
+(defun parley-switch-test--open ()
+  "Open the switcher and return the sallet sources it opened, initialised.
+`sallet' is stood in for by the first thing it does, which is to
+initialise each source it is handed, in order, with sallet's own
+`sallet-init-source': that is where a source's candidates are
+made, and the minibuffer `sallet' reads next has nothing to read
+from in a batch run."
+  (let ((opened nil))
+    (cl-letf (((symbol-function 'sallet)
+               (lambda (sources)
+                 (setq opened (mapcar #'sallet-init-source sources)))))
+      (parley-switch))
+    opened))
+
+(defun parley-switch-test--source-pids (source)
+  "Return the pid of each record SOURCE has a candidate for, in order."
+  (mapcar (lambda (candidate) (plist-get (cdr candidate) :pid))
+          (sallet-source-get-candidates source)))
+
+(ert-deftest parley-switch-test-opens-a-source-per-cli ()
+  "The switcher is one view over a Claude Code source and a Codex source.
+Each source lists the sessions of its own CLI, in status order,
+under a header naming the CLI, and matches with the matcher that
+keeps the columns apart.  A status token typed at the prompt is
+matched by both sources: no Claude Code session is waiting, so
+the Claude Code header is not drawn, and the Codex header counts
+the one Codex session that is.
+
+The sessions are discovered once for the view, whatever number of
+sources it has."
+  (skip-unless (featurep 'sallet))
+  (parley-switch-test--with-sessions
+    (let* ((discovered 0)
+           (listed (symbol-function 'parley-sessions))
+           (sources (cl-letf (((symbol-function 'parley-sessions)
+                               (lambda ()
+                                 (cl-incf discovered)
+                                 (funcall listed))))
+                      (parley-switch-test--open))))
+      (should (= discovered 1))
+      (should-not (fboundp 'sallet-source-parley))
+      (should (equal (mapcar #'eieio-object-class sources)
+                     '(sallet-source-parley-claude
+                       sallet-source-parley-codex)))
+      (should (equal (mapcar #'parley-switch-test--source-pids sources)
+                     '((2 4 6 1 5 7 3) (9 8))))
+      (should (equal (mapcar (lambda (source)
+                               (substring-no-properties
+                                (sallet-render-header source)))
+                             sources)
+                     '(" • Claude Code sessions [7/7]\n"
+                       " • Codex sessions [2/2]\n")))
+      (dolist (source sources)
+        (should (eq (sallet-source-get-matcher source)
+                    'parley-switch--matcher))
+        (sallet-update-candidates (list (cons 'prompt ":waiting")) source))
+      (should (equal (mapcar (lambda (source)
+                               (and (sallet-render-header source)
+                                    (substring-no-properties
+                                     (sallet-render-header source))))
+                             sources)
+                     '(nil " • Codex sessions [1/2]\n"))))))
+
+(ert-deftest parley-switch-test-discovers-once-per-opening ()
+  "Opening the switcher asks `claude agents' once and reads /proc once.
+Both sources take their sessions from the one list the opening
+discovered, so a second source is not a second discovery.  What
+is counted is the run of `claude agents --json' and the listing
+of the `codex' processes, which are what discovery costs; neither
+finds a session here, so tmux is never asked."
+  (skip-unless (featurep 'sallet))
+  (let ((parley--pane-locations 'unasked)
+        (agents 0)
+        (codex 0))
+    (cl-letf (((symbol-function 'parley--agents-json)
+               (lambda () (cl-incf agents) "[]"))
+              ((symbol-function 'parley--processes-named)
+               (lambda (name)
+                 (when (equal name "codex") (cl-incf codex))
+                 nil)))
+      (should (= (length (parley-switch-test--open)) 2)))
+    (should (= agents 1))
+    (should (= codex 1))))
 
 (ert-deftest parley-switch-test-a-field-filter-reads-its-own-column ()
   "A field filter matches its pattern against the column its key names.
@@ -246,7 +379,7 @@ The one function of sallet's the filter calls,
 `sallet-candidate-aref', is stood in for, so this runs where the
 matcher test below is skipped."
   (parley-switch-test--with-sessions
-    (let* ((candidates (vconcat (parley-switch--candidates)))
+    (let* ((candidates (vconcat (parley-switch--candidates 'claude)))
            (indices (number-sequence 0 (1- (length candidates)))))
       (cl-letf (((symbol-function 'sallet-candidate-aref)
                  (lambda (candidates index) (car (aref candidates index)))))
@@ -279,7 +412,7 @@ for, as the field filter test does, so this runs where sallet is
 not on the load path; with sallet there the matcher is asked as
 well."
   (parley-switch-test--with-sessions
-    (let* ((candidates (vconcat (parley-switch--candidates)))
+    (let* ((candidates (vconcat (parley-switch--candidates 'claude)))
            (indices (number-sequence 0 (1- (length candidates))))
            (agent (aref candidates 5))
            (row (parley-switch--renderer agent nil nil)))
@@ -316,7 +449,7 @@ the one the background agent's prompt holds finds it, and not the
 session whose working directory it names."
   (skip-unless (featurep 'sallet))
   (parley-switch-test--with-sessions
-    (let ((candidates (vconcat (parley-switch--candidates))))
+    (let ((candidates (vconcat (parley-switch--candidates 'claude))))
       (cl-flet ((pids (prompt)
                   (mapcar
                    (lambda (index)

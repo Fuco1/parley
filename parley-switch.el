@@ -1,4 +1,4 @@
-;;; parley-switch.el --- Pick a live Claude Code session -*- lexical-binding: t -*-
+;;; parley-switch.el --- Pick a live Claude Code or Codex session -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2026 Matúš Goljer <matus.goljer@gmail.com>
 
@@ -37,6 +37,11 @@
 ;; window is digits a name can hold too, so a word matched against a
 ;; whole row can match rows it was not aimed at.
 ;;
+;; The Claude Code sessions and the Codex sessions are two sources in
+;; that one view, and sallet draws each under a header naming its
+;; CLI, so a row says which CLI its session runs by the header it is
+;; drawn under and carries no mark saying it again.
+;;
 ;; Only the picker gains from sallet, so parley does not require it.
 ;; Without sallet `parley-switch' picks with `parley-read-session', a
 ;; `completing-read' over one row per session, and what it loses is
@@ -62,15 +67,30 @@
 
 ;;; With sallet: the columns kept apart
 
-(defun parley-switch--candidates ()
-  "Return one sallet candidate per live session.
+(defvar parley-switch--sessions 'unasked
+  "The live sessions, ordered by status, while `parley-switch' is open.
+Both sallet sources take their candidates from this one list, so
+opening the switcher discovers the sessions once and not once per
+source.  It is `unasked' anywhere else, and a source used outside
+`parley-switch' discovers the sessions itself.")
+
+(defun parley-switch--candidates (vendor)
+  "Return one sallet candidate per live session whose `:vendor' is VENDOR.
 A candidate is the cons of the fields plist and the record it
 was built from: the fields are what sallet matches and renders,
 the record is what the action needs.  Nothing looks a session up
 by name afterwards, which is what keeps two sessions sharing one
-from being confused."
+from being confused.
+
+The sessions are the list `parley-switch' binds
+`parley-switch--sessions' to, and outside that command what
+`parley-sessions-by-status' returns.  Both are in status order."
   (mapcar (lambda (session) (cons (parley-session-fields session) session))
-          (parley-sessions-by-status)))
+          (seq-filter (lambda (session)
+                        (eq (plist-get session :vendor) vendor))
+                      (if (eq parley-switch--sessions 'unasked)
+                          (parley-sessions-by-status)
+                        parley-switch--sessions))))
 
 (defun parley-switch--field-filter (key)
   "Return a sallet filter matching its pattern against the column KEY.
@@ -115,18 +135,26 @@ it."
   "Show the transcript buffer of the session CANDIDATE was built for."
   (parley-transcript (cdr candidate)))
 
-;; `sallet-defsource' is a macro, so the source cannot be written as a
-;; plain top-level form: with sallet absent from the load path there
-;; is nothing to expand it and byte compiling this file would fail.
-;; Left as data for `eval' it costs nothing when sallet is not there.
+;; `sallet-defsource' is a macro, so the sources cannot be written as
+;; plain top-level forms: with sallet absent from the load path there
+;; is nothing to expand them and byte compiling this file would fail.
+;; Left as data for `eval' they cost nothing when sallet is not there.
 (when (featurep 'sallet)
-  (eval '(sallet-defsource parley nil
-           "Live Claude Code sessions."
-           (candidates parley-switch--candidates)
-           (matcher parley-switch--matcher)
-           (renderer parley-switch--renderer)
-           (action parley-switch--action)
-           (header "Claude Code sessions"))
+  (eval '(progn
+           (sallet-defsource parley-claude nil
+             "Live Claude Code sessions."
+             (candidates (lambda () (parley-switch--candidates 'claude)))
+             (matcher parley-switch--matcher)
+             (renderer parley-switch--renderer)
+             (action parley-switch--action)
+             (header "Claude Code sessions"))
+           (sallet-defsource parley-codex nil
+             "Live Codex sessions."
+             (candidates (lambda () (parley-switch--candidates 'codex)))
+             (matcher parley-switch--matcher)
+             (renderer parley-switch--renderer)
+             (action parley-switch--action)
+             (header "Codex sessions")))
         t))
 
 
@@ -134,23 +162,31 @@ it."
 
 ;;;###autoload
 (defun parley-switch ()
-  "Switch to the transcript buffer of a live Claude Code session.
+  "Switch to the transcript buffer of a live Claude Code or Codex session.
 The sessions are the ones `parley-sessions' finds, ordered by
 status, and the one picked is shown by `parley-transcript': the
 same buffer, with the same pipeline in it, that calling that
 command with the record would have reached.
 
-With sallet installed the pick is a sallet session over the
-source `sallet-source-parley', which matches and renders the
-sessions as columns.  Without it the pick is a `completing-read'
-over one row per session, beginning with its name.  The source is
-what the sallet frontend needs and it exists only if sallet was
-there when this file was loaded, so that -- and not the feature
--- is what decides."
+With sallet installed the pick is one sallet session over two
+sources, `sallet-source-parley-claude' and then
+`sallet-source-parley-codex', which match and render the sessions
+as columns.  Each lists the sessions of its own CLI under a
+header naming it, which is what says which CLI a row runs.  The
+sessions are discovered once, here, and both sources take theirs
+from that one list.
+
+Without sallet the pick is a `completing-read' over one row per
+session, beginning with its name.  The sources are what the
+sallet frontend needs and they exist only if sallet was there
+when this file was loaded, so that -- and not the feature -- is
+what decides."
   (interactive)
-  (if (fboundp 'sallet-source-parley)
-      (sallet (list 'sallet-source-parley))
-    (parley-transcript (parley-read-session))))
+  (let ((sources '(sallet-source-parley-claude sallet-source-parley-codex)))
+    (if (seq-every-p #'fboundp sources)
+        (let ((parley-switch--sessions (parley-sessions-by-status)))
+          (sallet sources))
+      (parley-transcript (parley-read-session)))))
 
 (provide 'parley-switch)
 ;;; parley-switch.el ends here
