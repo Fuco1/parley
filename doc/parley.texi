@@ -594,13 +594,21 @@ against the shapes of the other.  What the two programs emit is one kind
 of object, so the render pass reads a Codex session as it reads a Claude
 Code one.
 
-@strong{It reads two kinds of line.}  A @code{response_item} whose
-@code{payload.type} is @code{message} is a turn when its role is
-@code{user} or @code{assistant}, and its text is the @code{text} of each
-of its content parts, joined.  A @code{response_item} of one of the six
-call items — @code{custom_tool_call}, @code{function_call},
-@code{local_shell_call}, @code{web_search_call}, @code{tool_search_call}
-and @code{image_generation_call} — is one tool call, and is emitted as a
+@strong{A record names its vendor, @code{claude} or @code{codex}, and a
+record naming neither is refused.}  The projection is chosen by
+@code{:vendor}, and a record without the key is not read as either
+vendor's: nothing on it says which format its transcript is in, and
+either program over the other's format emits nothing at all, an empty
+buffer that does not say why.
+
+@strong{The Codex program reads two kinds of line.}  A
+@code{response_item} whose @code{payload.type} is @code{message} is a
+turn when its role is @code{user} or @code{assistant}, and its text is
+the @code{text} of each of its content parts, joined.  A
+@code{response_item} of one of the six call items —
+@code{custom_tool_call}, @code{function_call}, @code{local_shell_call},
+@code{web_search_call}, @code{tool_search_call} and
+@code{image_generation_call} — is one tool call, and is emitted as a
 count of one, which the render pass joins into the run it stands in as it
 joins a Claude Code one.
 
@@ -1862,8 +1870,9 @@ Codex session with @code{codex archive}}, each given @code{archive} and
 the session's id, which for Codex is the thread's.  Each CLI's sessions
 are its own program's to archive, and @code{codex unarchive} with the
 same id undoes a Codex archive.  The program is chosen by the record's
-vendor, which is what chooses the projection its transcript is read
-through (@pxref{Transcript}).
+vendor, as the projection its transcript is read through is, and a
+record naming neither vendor is refused here as it is there
+(@pxref{Transcript}).
 
 @section The archive waits for the process to end
 

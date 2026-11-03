@@ -34,12 +34,12 @@ splitting the line works here and says so independently."
 (cl-defun parley-fixtures-write-session-file
     (pid session-id status &key (proc-start (parley-fixtures-proc-start pid)))
   "Write the file session PID writes about itself.
-It goes into `parley-sessions-directory' and says the process is
-running SESSION-ID and doing STATUS.  Its `procStart' is
-PROC-START, by default what a live session's file really holds:
-the start time /proc reports for PID."
+It goes into `parley-claude-sessions-directory' and says the
+process is running SESSION-ID and doing STATUS.  Its `procStart'
+is PROC-START, by default what a live session's file really
+holds: the start time /proc reports for PID."
   (with-temp-file (expand-file-name (format "%s.json" pid)
-                                    parley-sessions-directory)
+                                    parley-claude-sessions-directory)
     (insert (json-serialize
              `((pid . ,pid)
                (sessionId . ,session-id)
@@ -48,12 +48,13 @@ the start time /proc reports for PID."
                (updatedAt . 1790018687378))))))
 
 (defmacro parley-fixtures-with-sessions-directory (&rest body)
-  "Run BODY with `parley-sessions-directory' an empty directory of its own."
+  "Run BODY with `parley-claude-sessions-directory' an empty directory.
+The directory is one of its own, deleted when BODY returns."
   (declare (indent 0) (debug t))
-  `(let ((parley-sessions-directory
+  `(let ((parley-claude-sessions-directory
           (make-temp-file "parley-fixtures-sessions-" t)))
      (unwind-protect (progn ,@body)
-       (delete-directory parley-sessions-directory t))))
+       (delete-directory parley-claude-sessions-directory t))))
 
 ;;; Running tmux
 
