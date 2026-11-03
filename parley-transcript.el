@@ -3214,12 +3214,13 @@ the operator's to do, and does nothing to the session."
 (defun parley-transcript-exit-and-archive ()
   "End this buffer's session as `parley-transcript-exit' does, then archive it.
 The archive is the session's program run with `archive' and the
-session's id: `parley-ccarchive-program' for a Claude Code
-session, and `parley-codex-program' for one whose `:vendor' is
-`codex'.  It runs only once the process the session's `:pid'
-names has ended, because `ccarchive' refuses a session whose
-process is still running, and a Codex thread is archived once its
-TUI has ended, the state `codex archive' is known to work in.
+session's id: `parley-ccarchive-program' for a session whose
+`:vendor' is `claude', and `parley-codex-program' for one whose
+`:vendor' is `codex'.  It runs only once the process the
+session's `:pid' names has ended, because `ccarchive' refuses a
+session whose process is still running, and a Codex thread is
+archived once its TUI has ended, the state `codex archive' is
+known to work in.
 The process is looked for on a timer and Emacs takes input
 meanwhile; a session still running after
 `parley-transcript--archive-timeout' seconds is not archived, and
