@@ -604,10 +604,11 @@ buffer that does not say why.
 @strong{The Codex program reads two kinds of line.}  A
 @code{response_item} whose @code{payload.type} is @code{message} is a
 turn when its role is @code{user} or @code{assistant}, and its text is
-the @code{text} of each of its content parts, joined.  A @code{response_item} of one of the six
-call items — @code{custom_tool_call}, @code{function_call},
-@code{local_shell_call}, @code{web_search_call}, @code{tool_search_call}
-and @code{image_generation_call} — is one tool call, and is emitted as a
+the @code{text} of each of its content parts, joined.  A
+@code{response_item} of one of the six call items —
+@code{custom_tool_call}, @code{function_call}, @code{local_shell_call},
+@code{web_search_call}, @code{tool_search_call} and
+@code{image_generation_call} — is one tool call, and is emitted as a
 count of one, which the render pass joins into the run it stands in as it
 joins a Claude Code one.
 
