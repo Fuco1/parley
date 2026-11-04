@@ -24,7 +24,7 @@
                            (file-name-directory (macroexp-file-name))))
 
 
-;;; Fixtures
+;;; The transcript a session writes
 
 ;; A string every payload in the fixture carries and no projected
 ;; object may: a tool call's input, a tool result, its top-level
@@ -4290,7 +4290,8 @@ no look is left to find it."
             (should (= looks given-up-after)))
           (should-not opened))))))
 
-;;; Writing a table
+
+;;; Writing the tables
 
 (defconst parley-transcript-test--table
   (concat "| name | what it does |\n"

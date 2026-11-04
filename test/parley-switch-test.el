@@ -35,7 +35,7 @@
 (declare-function eieio-object-class "eieio" (obj))
 
 
-;;; Fixtures
+;;; The live sessions and where tmux says their panes are
 
 ;; Nine records as `parley-sessions' returns them, in an order no
 ;; frontend should show them in.  Seven are Claude Code sessions and
@@ -135,7 +135,8 @@ there, so BODY must not open a buffer over one."
                 (lambda () (copy-sequence parley-switch-test--sessions))))
        ,@body)))
 
-;;; Without sallet
+
+;;; Switching to a session
 
 (ert-deftest parley-switch-test-falls-back-to-completing-read ()
   "With no sallet source the command reads the session in the minibuffer.
@@ -197,7 +198,7 @@ tested there, so the command is stubbed here."
     (should-error (parley-switch) :type 'user-error)))
 
 
-;;; With sallet
+;;; With sallet: the columns kept apart
 
 (ert-deftest parley-switch-test-candidate-carries-the-record ()
   "A candidate is its fields and the record itself, in switcher order.
