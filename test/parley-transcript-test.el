@@ -768,6 +768,30 @@ what the buffer shows."
     (with-current-buffer buffer
       (should (equal '(nil t) font-lock-defaults)))))
 
+(ert-deftest parley-transcript-test-joins-a-split-line-across-a-mode-reentry ()
+  "A line split over two outputs renders as one record, a mode reentered between.
+The pipe hands Emacs whatever it has written so far, which holds
+whole lines only by luck, and the head of a line it has handed
+over it does not hand over again.  So a reentry that forgot the
+head would read the rest of the line as a line of its own, and
+show it as written.
+
+The two halves go through the process's own filter, which is the
+one place a test can choose where the pipe splits a line."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (let* ((process (get-buffer-process buffer))
+           (line (concat "{\"role\":\"assistant\",\"meta\":false,"
+                         "\"text\":\"said in one piece\",\"tools\":0}\n"))
+           (split (string-search "said" line)))
+      (funcall (process-filter process) process (substring line 0 split))
+      (with-current-buffer buffer (parley-transcript-mode))
+      (funcall (process-filter process) process (substring line split))
+      (should (equal (parley-transcript-test--shown buffer)
+                     (append parley-transcript-test--rendered
+                             '("said in one piece")))))))
+
 (ert-deftest parley-transcript-test-collapses-a-run-of-tool-calls ()
   "A run of tool calls is one line, however many messages it spans.
 The count cannot be known when the line is first written, since a
@@ -807,6 +831,27 @@ its own line further up."
                    '("● 15 tool calls" "and here it is")))
     (should (equal (parley-transcript-test--runs buffer)
                    '("● 2 tool calls" "● 15 tool calls")))))
+
+(ert-deftest parley-transcript-test-collapses-a-run-across-a-mode-reentry ()
+  "A run of tool calls stays one line across a major mode reentered over the buffer.
+The line counting the run stays in the buffer, so the count has to
+stay with it: the next call is what takes the line back out and
+writes it again one call longer, and a count forgotten is a line
+left where it is and a second run line under it."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session
+      (list (parley-transcript-test--tool-turn 2))
+    (should (parley-transcript-test--wait
+             (lambda () (equal (parley-transcript-test--shown buffer)
+                               '("● 2 tool calls")))))
+    (with-current-buffer buffer (parley-transcript-mode))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--tool-turn 3)))
+    (should (equal (parley-transcript-test--wait
+                    (lambda ()
+                      (let ((shown (parley-transcript-test--shown buffer)))
+                        (and (not (equal shown '("● 2 tool calls"))) shown))))
+                   '("● 5 tool calls")))))
 
 (ert-deftest parley-transcript-test-faces-a-renderer-line-newline-to-newline ()
   "A line the renderer writes is in `parley-tool-run' from newline to newline.
@@ -2766,6 +2811,27 @@ is a buffer that has seen the message too."
     (parley-transcript-test--pane buffer "%7")
     (parley-transcript-test--with-tmux
       (parley-transcript-test--submit buffer "hello there"))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "hello there")
+                (parley-transcript-test--text-turn "of course")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "of course"
+                                (parley-transcript-test--shown buffer)))))
+    (should (= 1 (seq-count (lambda (line) (equal line "❯ hello there"))
+                            (parley-transcript-test--shown buffer))))))
+
+(ert-deftest parley-transcript-test-drops-an-echo-across-a-mode-reentry ()
+  "A message in flight is shown once, a major mode reentered while it was.
+What was sent is in the buffer already and stays there over the
+reentry, so the transcript's copy arriving after it is still this
+buffer's own echo, and showing it would show the prompt twice."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--pane buffer "%7")
+    (parley-transcript-test--with-tmux
+      (parley-transcript-test--submit buffer "hello there"))
+    (with-current-buffer buffer (parley-transcript-mode))
     (parley-transcript-test--write
      file (list (parley-transcript-test--user-turn "hello there")
                 (parley-transcript-test--text-turn "of course")))
@@ -6048,6 +6114,25 @@ the block it stands in opens with."
       (goto-char (point-min))
       (imenu "what is here")
       (should (looking-at-p "❯ what is here")))))
+
+(ert-deftest parley-transcript-test-indexes-the-prompts-across-a-mode-reentry ()
+  "A prompt rendered before a major mode reentered over the buffer stays indexed.
+A prompt is indexed as it renders, and the pipe does not render it
+again, so an index forgotten would list only what came after the
+reentry -- the prompt that does here, under the one that did not."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-session parley-transcript-test--lines
+    (should (parley-transcript-test--settled buffer))
+    (with-current-buffer buffer (parley-transcript-mode))
+    (parley-transcript-test--write
+     file (list (parley-transcript-test--user-turn "and one more")))
+    (should (parley-transcript-test--wait
+             (lambda () (member "❯ and one more"
+                                (parley-transcript-test--shown buffer)))))
+    (let ((index (parley-transcript-test--index buffer)))
+      (should (equal (mapcar #'car index) '("what is here" "and one more")))
+      (should (equal (parley-transcript-test--at buffer (car index))
+                     "❯ what is here")))))
 
 (ert-deftest parley-transcript-test-indexes-no-injected-turn ()
   "A turn the transcript marked as injected takes no imenu entry.

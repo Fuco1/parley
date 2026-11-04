@@ -893,9 +893,21 @@ out of one line a moment earlier and reaching nobody else."
 (defvar-local parley-transcript--partial ""
   "Output that has arrived without the newline that would end it.")
 
+;; Permanent for the reason `parley-transcript--tasks' is: the pipe does
+;; not deliver the head of the line again over a reentered major mode,
+;; so a reentry that cleared it would leave the rest of that line to be
+;; read as a line of its own.
+(put 'parley-transcript--partial 'permanent-local t)
+
 (defvar-local parley-transcript--run 0
   "How many tool calls the run of them at the end of the buffer made.
 Zero when the buffer does not end in a run.")
+
+;; Permanent, because the run line it counts stays in the buffer over a
+;; reentered major mode.  Cleared, it would leave that line where it is
+;; for `parley-transcript--filter' not to take back, and the next call
+;; would start a second run line under it.
+(put 'parley-transcript--run 'permanent-local t)
 
 (defvar-local parley-transcript--pending nil
   "The prompts the last render pass produced, as a list of (TEXT . OFFSET).
@@ -1936,6 +1948,11 @@ made of this points at.  END is the end of the line START is on,
 which is the line LABEL names: it is there to say whether that
 line is still in the buffer, because deleting it is what brings
 the two markers together and nothing else does.")
+
+;; Permanent, because a prompt is indexed only as it renders, and the
+;; pipe does not deliver it again over a reentered major mode: a cleared
+;; index would list only the prompts that came after the reentry.
+(put 'parley-transcript--index 'permanent-local t)
 
 (defun parley-transcript--index-truncate (string limit)
   "Return STRING cut to LIMIT, in characters as well as in columns.
@@ -2990,6 +3007,12 @@ What order the list is in does not matter, since what is looked
 up in it is the text.  Two entries saying the same thing stand
 for two messages, and the one that arrives may be taken for
 either.")
+
+;; Permanent, because what was sent is in the buffer already and stays
+;; there over a reentered major mode, while the session's copy of it is
+;; still to come.  Cleared, that copy would no longer be known for an
+;; echo, and the prompt would be shown twice.
+(put 'parley-transcript--sent 'permanent-local t)
 
 (defun parley-transcript--echoed-p (record)
   "Non-nil if RECORD is the transcript delivering what was sent from here.
