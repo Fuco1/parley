@@ -24,7 +24,7 @@
                            (file-name-directory (macroexp-file-name))))
 
 
-;;; Fixtures
+;;; What discovery reads off the machine
 
 ;; Entries as `claude agents --json' really prints them: a session
 ;; in a tmux pane, one started outside tmux, a headless worker lane
@@ -145,7 +145,7 @@ machine.")
        ,@body)))
 
 
-;;; The exclusion rule
+;;; Discovery
 
 (ert-deftest parley-test-a-terminal-passes-and-a-pipe-does-not ()
   "A terminal is a terminal; a pipe, a socket and /dev/null are not."
@@ -190,9 +190,6 @@ and then not opened."
                            (parley-sessions))
                    '(claude claude claude)))))
 
-
-;;; The pane id
-
 (ert-deftest parley-test-reads-tmux-pane-whole-and-only-when-it-is-there ()
   "TMUX_PANE is read whole, and only when it is really there."
   (should (equal (parley--environ-tmux-pane "TMUX_PANE=%61\0TERM=dumb\0")
@@ -218,9 +215,6 @@ and then not opened."
   (parley-test--with-fixtures
     (should (equal (mapcar (lambda (s) (plist-get s :pane)) (parley-sessions))
                    '("%61" nil "%238")))))
-
-
-;;; Where the pane is
 
 (defconst parley-test--pane-locations
   '(("%61" . "orc-orc-b3743fe3:3.1")
@@ -404,9 +398,6 @@ no error either, which is the third tag shape."
                            "abc"))))
       (parley-fixtures-tmux "kill-server")
       (delete-directory directory t))))
-
-
-;;; The transcript
 
 (ert-deftest parley-test-slugs-the-working-directory-into-the-transcript-path ()
   "The slug is the working directory with every non-alphanumeric dashed."
