@@ -907,6 +907,23 @@ blockquote's @code{>}, a list bullet and a horizontal rule into a glyph.
 Hiding is the reading buffer's decision and not the property's, so the
 transcript buffer names @code{markdown-markup} in its invisibility spec.
 
+@strong{Point is moved past a hidden delimiter that opens a span, and
+not past one that closes it.}  After a command Emacs moves point out of
+hidden text, but leaves it on an edge of a hidden run where text
+inserted would not inherit @code{invisible} (@pxref{Adjusting Point,,,
+elisp, The Emacs Lisp Reference Manual}).  The position in front of a
+delimiter is such an edge, and the cursor drawn there stands on the
+first character shown after it: the operator sees point on the word of
+@code{`word`} while it is on the backtick, and a mark set there takes
+the backtick in.  So the delimiter opening inline code, bold or italic
+is front-sticky and rear-nonsticky @code{invisible}, which is what makes
+Emacs carry point from in front of it onto the word.  A closing one is
+left as it is, because @kbd{M-f} stops in front of it at the end of the
+word inside, and point carried past it would take it into the region.
+The sealing below is what writes that stickiness, because comint and the
+sealing each write one list over a whole region, which would take back
+a stickiness written before either of them.
+
 @strong{Three properties are copied onto a clean string and nothing else
 is: @code{font-lock-face}, @code{invisible} and @code{display}.}  A
 selected set rather than the buffer string taken whole, because
