@@ -5914,22 +5914,28 @@ but the write itself can seal what it put there."
       (set-frame-width (selected-frame) columns))))
 
 (defconst parley-transcript-test--spans
-  '("`word`" "**word**" "*word*" "**`word`**" "`word`**b**")
+  '("`word`" "**word**" "*word*" "**`word`**" "`word`**b**"
+    "*word***b**" "**word****b**")
   "Spans an agent writes around the one word `word'.
 Inline code, bold and italic; inline code inside bold, which
-opens two spans in one hidden run; and inline code that bold
-follows with no space, whose closing backtick and the bold's
-opening asterisks are one hidden run too.")
+opens two spans in one hidden run; and spans that bold follows
+with no space, whose closing delimiter and the bold's opening
+asterisks are one hidden run too.  After italic, markdown-mode
+hides the asterisk closing the italic as the first of the bold's
+opening two.  The last is bold after bold, which markdown-mode
+may render as one span followed by literal asterisks, and either
+way the word is all a mark from it takes.")
 
 (defmacro parley-transcript-test--with-span (span &rest body)
   "Run BODY over the transcript of an agent's turn saying `a SPAN b'.
-SPAN is one of `parley-transcript-test--spans'.  The buffer is
-current and in the selected window, because the command loop
-moves point out of hidden text only in the selected window's
-buffer, and BODY sees `opening', where SPAN starts, and `word',
-where the word inside it does.  The markup in front of the word
-is asserted hidden first: were it shown, \\[forward-char] from in
-front of a one-character delimiter would reach the word anyway."
+SPAN is markup around the one word `word', such as one of
+`parley-transcript-test--spans'.  The buffer is current and in
+the selected window, because the command loop moves point out of
+hidden text only in the selected window's buffer, and BODY sees
+`opening', where SPAN starts, and `word', where the word inside
+it does.  The markup in front of the word is asserted hidden
+first: were it shown, \\[forward-char] from in front of a
+one-character delimiter would reach the word anyway."
   (declare (indent 1) (debug (form body)))
   `(parley-transcript-test--with-session
        (list (parley-transcript-test--text-turn (concat "a " ,span " b")))
@@ -5976,6 +5982,20 @@ opening one and no other."
       (should (equal (list span "word")
                      (list span (buffer-substring-no-properties
                                  (region-beginning) (region-end))))))))
+
+(ert-deftest parley-transcript-test-marks-the-word-of-a-link-and-no-markup ()
+  "C-SPC M-f from the first character of a link's word marks that word alone.
+markdown-mode hides the markup after a link's text, the URL with
+it, as it hides a closing delimiter, and the face of a link's
+text is none a span is found by.  So the point the command loop
+leaves in front of that markup stays there, and the region is
+not carried past the URL."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-span "[word](https://example.com)"
+    (goto-char word)
+    (execute-kbd-macro (kbd "C-SPC M-f"))
+    (should (equal "word" (buffer-substring-no-properties
+                           (region-beginning) (region-end))))))
 
 
 ;;; The imenu index
