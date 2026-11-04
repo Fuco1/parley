@@ -283,19 +283,21 @@ session changes what it is doing and not otherwise: under
 @command{inotifywait} a write is an @code{OPEN}/@code{MODIFY}/@code{CLOSE_WRITE}
 on the file itself, with no create, no rename and no replacement.  A
 session stays at @code{busy} while its transcript goes on being appended
-to, however old the status in its file.  @strong{So the file is what a
-session says about itself until it says otherwise}, and a reader of it is
-never behind the session by more than its own interval.
+to, however old the @code{statusUpdatedAt} in its file.  @strong{So the
+file is what a session says about itself until it says otherwise}, and a
+reader of it is never behind the session by more than its own interval.
 
 @strong{Nothing but a buffer someone is looking at consumes a status.}
 The switcher is current by construction — @code{parley-sessions} runs
 @code{claude agents --json} on every invocation and every row is built
 from what it returned — and nothing else in the package reads one.  So
 what a file watch would buy over a tick is the status of a buffer no
-window is showing, which is worth nothing to anybody.  The buffer reads
-the file itself, about once a second and only while a window is showing
-it, on a tick of its own — so killing the buffer is the whole of stopping
-it.
+window is showing, which is worth nothing to anybody.  The record a
+buffer is opened with carries the status its session reported when the
+sessions were listed, and a conversation is read for minutes.  The buffer
+reads the file itself, about once a second and only while a window is
+showing it, on a tick of its own — so killing the buffer is the whole of
+stopping it.
 
 @section Sessions are listed waiting first, then idle, then busy
 
