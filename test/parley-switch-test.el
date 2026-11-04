@@ -4,9 +4,10 @@
 
 ;; Switching reads nothing about the machine except the session list
 ;; and where tmux says each session's pane is, so every test here
-;; stubs the first with records and binds the second to a fixture map:
-;; none of them needs a live session, and no server the machine
-;; happens to be running can answer instead.
+;; stubs the first with records and has the second answered by the
+;; tmux of `parley-fixtures-with-pane-locations': none of them needs a
+;; live session, and no server the machine happens to be running can
+;; answer instead.
 ;;
 ;; The nine records are what the sallet sources are matched and
 ;; rendered against, and the columns they draw them in are
@@ -24,6 +25,9 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'parley-switch)
+(require 'parley-fixtures
+         (expand-file-name "parley-fixtures"
+                           (file-name-directory (macroexp-file-name))))
 
 ;; What a test below needs sallet for skips without it, and the
 ;; compile runs without it.
@@ -100,25 +104,6 @@
               :session-id "019a4b7e-0a31-7f05-8b44-0c2d9e1f3b62"
               :pane "%65" :transcript "/tmp/019a4b7e.jsonl")))
 
-(defconst parley-switch-test--pane-locations
-  '(("%23" . "app%8e:1.0")
-    ("%61" . "orc-b3743fe3:2.0")
-    ("%62" . "orc-b3743fe3:3.1")
-    ("%64" . "orc-b3743fe3:4.0")
-    ("%65" . "parley:0.1"))
-  "Where tmux says each fixture pane is, keyed by pane id.
-The pane `%63' of the sixth record is missing on purpose: a
-window closed under a session that outlived it is a pane tmux
-reports nothing for, and that session is still one to read.")
-
-(defmacro parley-switch-test--with-locations (&rest body)
-  "Run BODY with tmux reporting the fixture pane locations.
-Bound and not started: a real tmux would answer with the panes of
-whatever the machine is running."
-  (declare (indent 0))
-  `(let ((parley--pane-locations parley-switch-test--pane-locations))
-     ,@body))
-
 (defun parley-switch-test--session (pid)
   "Return the fixture record whose pid is PID."
   (seq-find (lambda (session) (eq (plist-get session :pid) pid))
@@ -126,11 +111,13 @@ whatever the machine is running."
 
 (defmacro parley-switch-test--with-sessions (&rest body)
   "Run BODY with `parley-sessions' returning the fixture records.
-The list is copied on every call because the switcher sorts it.
+tmux reports the panes `parley-fixtures-pane-locations' names, so
+the pane `%63' is one it reports nothing for.  The list is copied
+on every call because the switcher sorts it.
 The records name working directories and transcripts that are not
 there, so BODY must not open a buffer over one."
   (declare (indent 0))
-  `(parley-switch-test--with-locations
+  `(parley-fixtures-with-pane-locations
      (cl-letf (((symbol-function 'parley-sessions)
                 (lambda () (copy-sequence parley-switch-test--sessions))))
        ,@body)))
@@ -367,21 +354,14 @@ sources it has."
 Both sources take their sessions from the one list the opening
 discovered, so a second source is not a second discovery.  What
 is counted is the run of `claude agents --json' and the listing
-of the `codex' processes, which are what discovery costs; neither
-finds a session here, so tmux is never asked."
+of /proc that finds the `codex' processes, which are what
+discovery costs; neither finds a session here, so tmux is never
+asked."
   (skip-unless (featurep 'sallet))
-  (let ((parley--pane-locations 'unasked)
-        (agents 0)
-        (codex 0))
-    (cl-letf (((symbol-function 'parley--agents-json)
-               (lambda () (cl-incf agents) "[]"))
-              ((symbol-function 'parley--processes-named)
-               (lambda (name)
-                 (when (equal name "codex") (cl-incf codex))
-                 nil)))
-      (should (= (length (parley-switch-test--open)) 2)))
-    (should (= agents 1))
-    (should (= codex 1))))
+  (parley-fixtures-with-pane-locations
+    (should (= (length (parley-switch-test--open)) 2))
+    (should (equal parley-fixtures-asked
+                   (list "/proc" parley-claude-program)))))
 
 (ert-deftest parley-switch-test-a-field-filter-reads-its-own-column ()
   "A field filter matches its pattern against the column its key names.

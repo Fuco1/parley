@@ -1991,40 +1991,38 @@ nothing else -- and the location is printed as tmux prints it.
 
 This needs no session to be running, which is why it is the one
 test here that does not start a pipeline."
-  (let* ((parley--pane-locations '(("%61" . "orc-b3:2.0")
-                                   ("%62" . "orc-b3:3.0")
-                                   ("%1" . "app%8e:1.0")))
-         (one (list :name "orc-w1" :pane "%61"
-                    :session-id "1111ffff-0000-4000-8000-000000000001"))
-         (two (list :name "orc-w1" :pane "%62"
-                    :session-id "2222ffff-0000-4000-8000-000000000002"))
-         (same (list :name "shared" :pane "%1"
-                     :session-id "44444444-0000-4000-8000-000000000004"))
-         (sharing (list :name "shared" :pane "%1"
-                        :session-id "44444444-ffff-4000-8000-000000000005"))
-         (gone (list :name "orc-w1" :pane "%99"
-                     :session-id "5555ffff-0000-4000-8000-000000000006"))
-         (outside (list :name "orc-w1" :pane nil
-                        :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
-         (unnamed (list :name nil :pane nil
-                        :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
-         (names (mapcar #'parley-transcript--buffer-name
-                        (list one two same sharing gone outside unnamed))))
-    (should (equal names
-                   '("*parley: orc-w1 orc-b3:2.0 1111ffff-0000-4000-8000-000000000001*"
-                     "*parley: orc-w1 orc-b3:3.0 2222ffff-0000-4000-8000-000000000002*"
-                     "*parley: shared app%8e:1.0 44444444-0000-4000-8000-000000000004*"
-                     "*parley: shared app%8e:1.0 44444444-ffff-4000-8000-000000000005*"
-                     "*parley: orc-w1 5555ffff-0000-4000-8000-000000000006*"
-                     "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
-                     "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
-    (dolist (session (list one two same sharing gone outside unnamed))
-      (let ((pane (plist-get session :pane)))
-        (should-not
-         (and pane (string-match-p
-                    (regexp-quote pane)
-                    (parley-transcript--buffer-name session))))))
-    (should (equal (length (delete-dups (copy-sequence names))) 7))))
+  (parley-fixtures-with-pane-locations
+    (let* ((one (list :name "orc-w1" :pane "%61"
+                      :session-id "1111ffff-0000-4000-8000-000000000001"))
+           (two (list :name "orc-w1" :pane "%62"
+                      :session-id "2222ffff-0000-4000-8000-000000000002"))
+           (same (list :name "shared" :pane "%23"
+                       :session-id "44444444-0000-4000-8000-000000000004"))
+           (sharing (list :name "shared" :pane "%23"
+                          :session-id "44444444-ffff-4000-8000-000000000005"))
+           (gone (list :name "orc-w1" :pane "%99"
+                       :session-id "5555ffff-0000-4000-8000-000000000006"))
+           (outside (list :name "orc-w1" :pane nil
+                          :session-id "9a5a5635-26c3-4705-b06e-4dc108d75439"))
+           (unnamed (list :name nil :pane nil
+                          :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
+           (names (mapcar #'parley-transcript--buffer-name
+                          (list one two same sharing gone outside unnamed))))
+      (should (equal names
+                     '("*parley: orc-w1 orc-b3743fe3:2.0 1111ffff-0000-4000-8000-000000000001*"
+                       "*parley: orc-w1 orc-b3743fe3:3.1 2222ffff-0000-4000-8000-000000000002*"
+                       "*parley: shared app%8e:1.0 44444444-0000-4000-8000-000000000004*"
+                       "*parley: shared app%8e:1.0 44444444-ffff-4000-8000-000000000005*"
+                       "*parley: orc-w1 5555ffff-0000-4000-8000-000000000006*"
+                       "*parley: orc-w1 9a5a5635-26c3-4705-b06e-4dc108d75439*"
+                       "*parley: unnamed 7c1d0f9a-0000-4000-8000-000000000003*")))
+      (dolist (session (list one two same sharing gone outside unnamed))
+        (let ((pane (plist-get session :pane)))
+          (should-not
+           (and pane (string-match-p
+                      (regexp-quote pane)
+                      (parley-transcript--buffer-name session))))))
+      (should (equal (length (delete-dups (copy-sequence names))) 7)))))
 
 (ert-deftest parley-transcript-test-one-buffer-per-session ()
   "A session gets one buffer however often the command is called.
@@ -2246,33 +2244,35 @@ be typed into is read from the record having no pane -- a
 background agent and a session started outside tmux both have
 none, and `:kind' names only the first.
 
-The location is what `parley--pane-locations' holds for the
-record's pane.  A pane it holds nothing for shows no location at
-all and never the pane id, which locates nothing the operator can
-act on."
-  (let ((parley--pane-locations '(("%61" . "orc-b3:2.0")))
-        (unnamed (list :name nil :pane nil :cwd "/home/me/worktrees/orc-w1"
-                       :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
-        (moved (plist-put (copy-sequence parley-transcript-test--in-pane)
-                          :pane "%99")))
-    (should (equal (mapcar (lambda (status)
-                             (parley-transcript-test--header-for
-                              parley-transcript-test--in-pane status))
-                           '(working waiting idle unknown))
-                   '("orc-w1  working  orc-b3:2.0"
-                     "orc-w1  waiting  orc-b3:2.0"
-                     "orc-w1  idle  orc-b3:2.0"
-                     "orc-w1  unknown  orc-b3:2.0")))
-    (should (equal (parley-transcript-test--header-for unnamed 'idle)
-                   "unnamed  idle  [RO]"))
-    (should (equal (parley-transcript-test--header-for moved 'working)
-                   "orc-w1  working"))
-    (dolist (line (list (parley-transcript-test--header-for
-                         parley-transcript-test--in-pane 'working)
-                        (parley-transcript-test--header-for unnamed 'idle)
-                        (parley-transcript-test--header-for moved 'working)))
-      (should-not (string-match-p (regexp-quote "%99") line))
-      (should-not (string-match-p (regexp-quote "worktrees") line)))))
+The location is where tmux last said the record's pane is, which
+it was asked when the buffer was named.  A pane it said nothing
+for shows no location at all and never the pane id, which locates
+nothing the operator can act on."
+  (parley-fixtures-with-pane-locations
+    (let ((unnamed (list :name nil :pane nil :cwd "/home/me/worktrees/orc-w1"
+                         :session-id "7c1d0f9a-0000-4000-8000-000000000003"))
+          (moved (plist-put (copy-sequence parley-transcript-test--in-pane)
+                            :pane "%99")))
+      ;; What names the buffer is the tag, and the tag is what asks tmux.
+      (parley-session-tag parley-transcript-test--in-pane)
+      (should (equal (mapcar (lambda (status)
+                               (parley-transcript-test--header-for
+                                parley-transcript-test--in-pane status))
+                             '(working waiting idle unknown))
+                     '("orc-w1  working  orc-b3743fe3:2.0"
+                       "orc-w1  waiting  orc-b3743fe3:2.0"
+                       "orc-w1  idle  orc-b3743fe3:2.0"
+                       "orc-w1  unknown  orc-b3743fe3:2.0")))
+      (should (equal (parley-transcript-test--header-for unnamed 'idle)
+                     "unnamed  idle  [RO]"))
+      (should (equal (parley-transcript-test--header-for moved 'working)
+                     "orc-w1  working"))
+      (dolist (line (list (parley-transcript-test--header-for
+                           parley-transcript-test--in-pane 'working)
+                          (parley-transcript-test--header-for unnamed 'idle)
+                          (parley-transcript-test--header-for moved 'working)))
+        (should-not (string-match-p (regexp-quote "%99") line))
+        (should-not (string-match-p (regexp-quote "worktrees") line))))))
 
 (ert-deftest parley-transcript-test-header-line-carries-no-vendor-mark ()
   "The header line of a Codex session carries no mark saying it is one.
@@ -2280,35 +2280,32 @@ The minibuffer reader marks a Codex row, because one list has no
 header to say which CLI a row runs.  The header line takes its
 mark from `parley-session-mark', as a sallet row does, and that
 gives a session with a pane none."
-  (let ((parley--pane-locations '(("%64" . "orc-b3:4.0"))))
-    (should (equal (parley-transcript-test--header-for
-                    (list :vendor 'codex :name "triage" :pane "%64"
-                          :cwd "/srv/orc/trees/worker-3/orc"
-                          :session-id "019a4a3c-5d10-7c42-9e2a-5d1c0b6f8a21")
-                    'working)
-                   "triage  working  orc-b3:4.0"))))
+  (parley-fixtures-with-pane-locations
+    (let ((session (list :vendor 'codex :name "triage" :pane "%64"
+                         :cwd "/srv/orc/trees/worker-3/orc"
+                         :session-id "019a4a3c-5d10-7c42-9e2a-5d1c0b6f8a21")))
+      (parley-session-tag session)
+      (should (equal (parley-transcript-test--header-for session 'working)
+                     "triage  working  orc-b3743fe3:4.0")))))
 
 (ert-deftest parley-transcript-test-header-line-asks-tmux-nothing ()
-  "Drawing the header line runs no subprocess, whatever the cache holds.
-`parley--pane-location' fills the cache when it reads `unasked',
-and filling it is a `tmux list-panes -a' -- from redisplay, in
-every transcript buffer on screen, every time `parley-sessions'
-puts the cache back to `unasked'.  So the lookup is bare: the
-cache is left as this test found it, and a line drawn over an
-`unasked' cache shows no location rather than asking tmux for
-one.
+  "Drawing the header line runs no subprocess, whatever tmux was asked.
+`parley-session-tag' asks tmux when nothing has asked it since the
+sessions were listed, and asking is a `tmux list-panes -a' -- from
+redisplay, in every transcript buffer on screen, every time
+`parley-sessions' drops the answer.  So the lookup is bare: a line
+drawn before tmux has been asked shows no location rather than
+asking tmux for one.
 
-`call-process' is what a fill would reach, and it errors here
-instead: a test that only read the location off the line would
-pass over a header line that ran tmux and got an answer."
-  (let ((parley--pane-locations 'unasked)
-        (line nil))
-    (cl-letf (((symbol-function 'call-process)
-               (lambda (&rest _) (error "The header line asked tmux"))))
-      (setq line (parley-transcript-test--header-for
-                  parley-transcript-test--in-pane 'working)))
-    (should (equal line "orc-w1  working"))
-    (should (eq parley--pane-locations 'unasked))))
+The tmux standing in here would answer for the record's pane, so
+a line that asked it would carry the location -- and what it was
+asked is counted besides, because a line that asked and then
+dropped the answer would carry none."
+  (parley-fixtures-with-pane-locations
+    (should (equal (parley-transcript-test--header-for
+                    parley-transcript-test--in-pane 'working)
+                   "orc-w1  working"))
+    (should-not parley-fixtures-asked)))
 
 (ert-deftest parley-transcript-test-header-line-follows-the-live-status ()
   "A real transcript buffer carries the line, and it says what is true now.
