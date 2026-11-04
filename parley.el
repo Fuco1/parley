@@ -587,12 +587,12 @@ report, return `unknown'."
            (id (plist-get session :session-id))
            (fields (and pid (parley--claude-status-file pid)))
            (start (and fields (parley--process-start pid))))
-      (or (and start
+      (if (and start
                (stringp id)
                (equal (alist-get 'sessionId fields) id)
-               (equal (alist-get 'procStart fields) start)
-               (cdr (assoc (alist-get 'status fields) parley--statuses)))
-          'unknown))))
+               (equal (alist-get 'procStart fields) start))
+          (parley--status-value (alist-get 'status fields))
+        'unknown))))
 
 
 ;;; Listing a session, and reading one
