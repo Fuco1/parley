@@ -1087,31 +1087,43 @@ inserted and then rewritten in place."
   '(markdown-inline-code-face markdown-bold-face markdown-italic-face)
   "The faces of the spans whose hidden opening delimiter point moves past.
 markdown-mode puts each on the text between two delimiters it
-hides, so where one of them starts, the delimiter before it ends.")
+hides, so where one of them starts the delimiter before it ends,
+and where one of them ends the delimiter after it starts.")
+
+(defun parley-transcript--leaves-span-p (position other)
+  "Return non-nil if the character at POSITION is in a span OTHER is not in.
+A span is text in a face of `parley-transcript--span-faces', and
+OTHER is a position too."
+  (let ((faces (ensure-list (get-text-property other 'font-lock-face))))
+    (seq-some (lambda (face)
+                (and (memq face parley-transcript--span-faces)
+                     (not (memq face faces))))
+              (ensure-list (get-text-property position 'font-lock-face)))))
 
 (defun parley-transcript--openings (start end)
   "Return the hidden delimiters opening a span between START and END.
-A list of (FROM . TO), one for each place a face of
-`parley-transcript--span-faces' starts: the run of hidden
-characters before it that repeat the character just before it.
-Only that run, because a delimiter of inline code, bold or italic
-is one character repeated, and the hidden run before a span may
-close another span first: the backtick closing inline code that
-bold follows with no space between them."
+A list of (FROM . TO), one for each place a span starts, a span
+being text in a face of `parley-transcript--span-faces': the
+hidden characters in front of it, walked back to a visible
+character or to the first character after a span, and taking in
+neither.  The first character after a span is where its closing
+delimiter starts, and the position in front of it is where
+\\[forward-word] stops at the end of the word inside.  Without a
+space between them, a closing delimiter and the next span's
+opening one are one hidden run, and markdown-mode may hide one
+asterisk as part of both."
   (let ((at start)
         (openings nil))
     (while (< (setq at (next-single-property-change at 'font-lock-face
                                                     nil end))
               end)
-      (let ((faces (ensure-list (get-text-property at 'font-lock-face)))
-            (before (ensure-list (get-text-property (1- at) 'font-lock-face)))
-            (from at))
-        (when (seq-some (lambda (face)
-                          (and (memq face faces) (not (memq face before))))
-                        parley-transcript--span-faces)
+      (when (parley-transcript--leaves-span-p at (1- at))
+        (let ((from at))
           (while (and (> from start)
-                      (eq (char-before from) (char-before at))
-                      (get-text-property (1- from) 'invisible))
+                      (get-text-property (1- from) 'invisible)
+                      (not (and (> (1- from) start)
+                                (parley-transcript--leaves-span-p
+                                 (- from 2) (1- from)))))
             (setq from (1- from)))
           (when (< from at)
             (push (cons from at) openings)))))
