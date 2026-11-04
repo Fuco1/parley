@@ -58,12 +58,8 @@
 
 ;;; Discovery
 
-;; `claude agents --json' needs no terminal and prints one entry per
-;; live session, but its `kind' field does not say what parley needs to
-;; know: a worker lane running `claude -p --input-format stream-json'
-;; is reported as interactive too.  Standard input is the discriminator
-;; that holds -- a session someone types at has a terminal on fd 0, a
-;; headless child has a pipe.
+;; Why standard input is the discriminator, and not the reported
+;; `kind', is Info node `(parley)Discovery'.
 
 (defcustom parley-claude-program "claude"
   "The `claude' executable session discovery asks for the live sessions."
@@ -118,10 +114,8 @@ value is there whoever started the session -- in the `%N' form
          (pane (and entry (substring entry (length "TMUX_PANE=")))))
     (unless (equal pane "") pane)))
 
-;; A pane id is what `tmux send-keys -t' takes; where the pane is is
-;; what a session is shown by, because `%15' locates nothing the
-;; operator can act on.  `tmux list-panes -a' maps the one to the
-;; other, and it maps the whole server in a single call.
+;; Why a session is shown by where its pane is, and not by its pane
+;; id, is Info node `(parley)Discovery'.
 
 (defvar parley--pane-locations 'unasked
   "Where every tmux pane on this machine is, keyed by pane id.
@@ -444,26 +438,8 @@ asked for again."
 
 ;;; What a session is doing
 
-;; A session writes what it is doing to `PID.json' under
-;; `parley-claude-sessions-directory', and that file is where this is
-;; read from: `claude agents --json' reads the same files and costs a
-;; subprocess on the one thread Emacs has, and all it adds is the
-;; liveness filter that the two comparisons below make anyway.
-;;
-;; There is no heartbeat in the file -- it is written in place when the
-;; session changes what it is doing and not otherwise, so a `busy' with
-;; a `statusUpdatedAt' hours old is a session still working -- and
-;; nothing in it says the session died.  What says that is the pid: the
-;; `sessionId' has to be the one being asked about, because a pane is
-;; reused and the next session in it is another conversation, and the
-;; `procStart' has to be the one /proc reports, because a pid that has
-;; been handed to an unrelated process would otherwise read as that
-;; session forever.
-;;
-;; A Codex session writes no such file, and outside its daemon the one
-;; place it says what it is doing is its pane's title -- the title its
-;; thread id is read from -- so that is read instead, and the thread
-;; id in it is what stands in for the comparisons.
+;; Why a status is read from the session's own file, or from its pane's
+;; title for a Codex session, is Info node `(parley)Discovery'.
 
 (define-obsolete-variable-alias 'parley-sessions-directory
   'parley-claude-sessions-directory "0.0.1")
@@ -751,10 +727,8 @@ the next session in that pane would be handed it."
                             id)))
               (buffer-list))))
 
-;; Both frontends draw this row, so the faces go on it:
-;; `completing-read' displays a face on a candidate as readily as a
-;; sallet buffer does, and faces the picker owned would leave the
-;; minibuffer fallback plain.
+;; Why the faces go on the row and not in the picker is Info node
+;; `(parley)Discovery'.
 
 (defface parley-row-name '((t :inherit font-lock-function-name-face))
   "Face for the name column of a session row.")

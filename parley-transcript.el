@@ -1205,44 +1205,8 @@ would take the sealing back out."
 
 ;;; Writing the tables
 
-;; A table lines up only if the agent lined it up, and a table whose
-;; columns do not line up is a table nobody reads.  What stands in the
-;; buffer is the grid this file writes, put there as text -- this
-;; buffer is a rendering throughout, and a table is the same rendering
-;; as the quote around the operator's turn and the one line a run of
-;; tool calls collapses to.
-;;
-;; The grid is drawn: every column boundary in it is `│', the rule
-;; between the header and the body is `╞═╪═╡', a table whose body
-;; has a row taller than two lines has `├─┼─┤' between every two
-;; rows of it, and a rule of `┌─┬─┐' opens it with `└─┴─┘' to close.
-;; Those characters are what the writer emits, because the writer is
-;; what put every boundary there and is the only thing that knows
-;; where one is.  Nothing scans a finished grid for a bar, so the bar
-;; inside `[[target|link words]]' stands in the cell holding it and
-;; nowhere in the grid.
-;;
-;; One writer for every table, the one that fits the window and the
-;; one wrapped into it alike.  What that buys is the markup in a cell:
-;; a character hidden by `invisible markdown-markup' costs no column,
-;; and only a writer measuring every width on what the rendering shows
-;; can say so.  `parley-transcript--string-width' is that width and
-;; is what every width here is taken with -- a column's, the floor
-;; under it, the room a wrapped line is packed into, and the padding
-;; that fills a cell out.
-;;
-;; The table the agent wrote is carried by an overlay over it, which
-;; is what a resize is rendered from: what the buffer holds is a grid
-;; this file wrote, and reading the cells back out of one would render
-;; the last render instead of the table.  The overlay is also what
-;; says where a table is and what tracks a deletion --
-;; `comint-truncate-buffer' taking the top of the conversation away
-;; brings its ends together, where a text property would survive in
-;; both halves of what was cut.
-;;
-;; What that costs the operator is the source in the buffer: a kill
-;; over a table copies the form he is reading and not the table the
-;; agent typed.
+;; Why a table is a grid this file writes, with the agent's table kept
+;; on an overlay over it, is Info node `(parley)Transcript'.
 
 (defvar-local parley-transcript--aligned-width nil
   "The width this buffer's tables were last aligned to, nil for none.
@@ -1933,13 +1897,8 @@ alone, so nothing but a width that has changed can change it."
 
 ;;; The imenu index
 
-;; Navigating a long conversation means jumping between the prompts in
-;; it, which is what imenu is for.  The index is recorded as the
-;; messages are inserted, because that is where the position of a
-;; message is already known: the render pass has the record in hand
-;; and the offset of the block it made of it, and going back over the
-;; finished buffer instead would mean parsing rendered text into the
-;; structure that was in hand a moment earlier.
+;; Why the index is recorded as messages are inserted, and never
+;; parsed back out of the buffer, is Info node `(parley)Transcript'.
 
 (defvar-local parley-transcript--index nil
   "The prompts in this buffer as (LABEL START END), newest first.
@@ -2453,18 +2412,8 @@ that was asked for."
 
 ;;; The session's live status
 
-;; The record the buffer was opened with carries the status the session
-;; reported then, and a conversation is read for minutes.  What the
-;; session is doing now is in the session's own file, or in its pane's
-;; title for a Codex session, so the buffer reads that itself, on a
-;; tick.
-;;
-;; A tick and not a watch.  Nothing but a buffer someone is looking at
-;; consumes a status -- the switcher builds every row from the `claude
-;; agents --json' it has just run -- so the read is skipped while no
-;; window is showing the buffer, and the status of a buffer nobody can
-;; see is the whole of what a watch would have bought.  The tick is the
-;; buffer's own, so killing the buffer is the whole of stopping it.
+;; Why the buffer reads its session's status itself, on a tick and not
+;; a watch, is Info node `(parley)Discovery'.
 
 (defconst parley-transcript--status-interval 1
   "Seconds between two reads of what the session is doing.
@@ -2543,12 +2492,8 @@ tick would otherwise leave that one running for good."
 
 ;;; The header line
 
-;; The buffer's name is the one thing in it that says which session it
-;; follows, and it is a snapshot: `parley-transcript--buffer-name' runs
-;; once, when the buffer is made, and nothing renames it afterwards.
-;; The header line is parley's own line and is built on every
-;; redisplay, so it says what is true now -- and a mode line says none
-;; of this, being configured by whoever owns the Emacs.
+;; Why the header line, and not the buffer's name or the mode line,
+;; names the session is Info node `(parley)Transcript'.
 
 (defun parley-transcript--running (state noun)
   "Return how many tasks in STATE are running, counted in NOUN.
@@ -2624,18 +2569,8 @@ already is spends a line on nothing."
 ;; chat program puts it.
 (define-key parley-transcript-mode-map (kbd "S-<return>") #'comint-accumulate)
 
-;; Everything past the process mark is what the operator has typed and
-;; not yet sent, and nothing in the buffer says so: the pipeline emits
-;; no prompt, so his text is the tail of a buffer whose tail is
-;; otherwise conversation.  What says it is an overlay from the mark to
-;; the end of the buffer -- an overlay, because the zone holds no text
-;; until something is typed and an empty zone is when he most needs to
-;; see where it is.
-;;
-;; Nothing it shows may be buffer text.  `comint-send-input' sends
-;; (buffer-substring (process-mark proc) (field-end)), so anything
-;; written into the buffer to mark the zone is typed into the session
-;; along with the message.
+;; Why the input zone is marked by an overlay that writes nothing into
+;; the buffer is Info node `(parley)Typing'.
 
 (defface parley-input
   '((((background light)) :background "#e3ebf6" :extend t)
