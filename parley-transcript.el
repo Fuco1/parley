@@ -3046,13 +3046,15 @@ received."
 
 (defun parley-transcript--pane ()
   "Return the tmux pane of this buffer's session.
-Signal a `user-error' naming the session if it has none: a
-session started outside tmux cannot be typed into at all, and an
-error beats a send that silently goes nowhere."
+Signal a `user-error' naming the session if it has none.  A
+session started outside tmux has no pane, and neither has a
+background agent, though it runs inside tmux; neither can be
+typed into at all, and an error beats a send that silently goes
+nowhere.  The name is the one `parley-session-name' gives, which
+every other display of the session shows it under."
   (or (plist-get parley-transcript-session :pane)
-      (user-error "Session %s is outside tmux and has no pane: read only"
-                  (or (plist-get parley-transcript-session :name)
-                      (plist-get parley-transcript-session :session-id)))))
+      (user-error "Session %s has no pane: read only"
+                  (parley-session-name parley-transcript-session))))
 
 (defun parley-transcript--paste (pane string)
   "Paste STRING into tmux PANE as one bracketed paste, and submit it.

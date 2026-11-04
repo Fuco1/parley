@@ -2708,6 +2708,23 @@ sent, which is the worst thing this could do."
         (should (string-match-p "read only" (cadr signalled))))
       (should-not (file-exists-p tmux-log)))))
 
+(ert-deftest parley-transcript-test-names-a-session-without-a-pane-as-every-display-does ()
+  "The error for a session with no pane names it by `parley-session-name'.
+A session `claude agents' named none is shown everywhere else
+under `parley-session-no-name', and an error naming it by its
+session id names it as no other display does."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-record
+      (parley-transcript-test--session nil parley-transcript-test--lines)
+    (should (parley-transcript-test--settled buffer))
+    (parley-transcript-test--with-tmux
+      (let ((message (cadr (should-error
+                            (parley-transcript-test--submit buffer "hello there")
+                            :type 'user-error))))
+        (should (string-match-p (regexp-quote parley-session-no-name) message))
+        (should-not (string-match-p
+                     (regexp-quote (plist-get session :session-id)) message))))))
+
 (ert-deftest parley-transcript-test-quotes-what-was-submitted-at-the-prompt ()
   "A line submitted at the prompt stands in the buffer as a rendered turn does.
 `comint-send-input' inserts what the operator submitted itself,
