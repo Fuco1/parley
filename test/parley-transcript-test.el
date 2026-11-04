@@ -5913,6 +5913,90 @@ but the write itself can seal what it put there."
                                 :type 'text-read-only))))))
       (set-frame-width (selected-frame) columns))))
 
+(defconst parley-transcript-test--spans
+  '("`word`" "**word**" "*word*" "**`word`**" "`word`**b**"
+    "*word***b**" "**word****b**")
+  "Spans an agent writes around the one word `word'.
+Inline code, bold and italic; inline code inside bold, which
+opens two spans in one hidden run; and spans that bold follows
+with no space, whose closing delimiter and the bold's opening
+asterisks are one hidden run too.  After italic, markdown-mode
+hides the asterisk closing the italic as the first of the bold's
+opening two.  The last is bold after bold, which markdown-mode
+may render as one span followed by literal asterisks, and either
+way the word is all a mark from it takes.")
+
+(defmacro parley-transcript-test--with-span (span &rest body)
+  "Run BODY over the transcript of an agent's turn saying `a SPAN b'.
+SPAN is markup around the one word `word', such as one of
+`parley-transcript-test--spans'.  The buffer is current and in
+the selected window, because the command loop moves point out of
+hidden text only in the selected window's buffer, and BODY sees
+`opening', where SPAN starts, and `word', where the word inside
+it does.  The markup in front of the word is asserted hidden
+first: were it shown, \\[forward-char] from in front of a
+one-character delimiter would reach the word anyway."
+  (declare (indent 1) (debug (form body)))
+  `(parley-transcript-test--with-session
+       (list (parley-transcript-test--text-turn (concat "a " ,span " b")))
+     (with-current-buffer buffer
+       (should (parley-transcript-test--wait
+                (lambda () (save-excursion
+                             (goto-char (point-min))
+                             (search-forward ,span nil t)))))
+       (goto-char (point-min))
+       (search-forward ,span)
+       (let* ((opening (match-beginning 0))
+              (word (+ opening (string-search "word" ,span))))
+         (should (invisible-p opening))
+         (should (invisible-p (1- word)))
+         (should-not (invisible-p word))
+         (save-window-excursion
+           (set-window-buffer (selected-window) buffer)
+           ,@body)))))
+
+(ert-deftest parley-transcript-test-moves-point-past-an-opening-delimiter ()
+  "C-f onto a hidden opening delimiter leaves point on the word after it.
+The cursor is drawn on the first character shown, so point left
+in front of the delimiter is on markup the operator cannot see,
+and a mark set there takes the markup in.  Through the command
+loop, which is what moves point out of hidden text, and after a
+command only."
+  (skip-unless (executable-find "jq"))
+  (dolist (span parley-transcript-test--spans)
+    (parley-transcript-test--with-span span
+      (goto-char (1- opening))
+      (execute-kbd-macro (kbd "C-f"))
+      (should (equal (list span word) (list span (point)))))))
+
+(ert-deftest parley-transcript-test-marks-the-word-in-a-span-and-no-markup ()
+  "C-SPC M-f from the first character of a span's word marks that word alone.
+M-f stops in front of the closing delimiter, and point stays
+there only because the delimiter that moves point past it is the
+opening one and no other."
+  (skip-unless (executable-find "jq"))
+  (dolist (span parley-transcript-test--spans)
+    (parley-transcript-test--with-span span
+      (goto-char word)
+      (execute-kbd-macro (kbd "C-SPC M-f"))
+      (should (equal (list span "word")
+                     (list span (buffer-substring-no-properties
+                                 (region-beginning) (region-end))))))))
+
+(ert-deftest parley-transcript-test-marks-the-word-of-a-link-and-no-markup ()
+  "C-SPC M-f from the first character of a link's word marks that word alone.
+markdown-mode hides the markup after a link's text, the URL with
+it, as it hides a closing delimiter, and the face of a link's
+text is none a span is found by.  So the point the command loop
+leaves in front of that markup stays there, and the region is
+not carried past the URL."
+  (skip-unless (executable-find "jq"))
+  (parley-transcript-test--with-span "[word](https://example.com)"
+    (goto-char word)
+    (execute-kbd-macro (kbd "C-SPC M-f"))
+    (should (equal "word" (buffer-substring-no-properties
+                           (region-beginning) (region-end))))))
+
 
 ;;; The imenu index
 

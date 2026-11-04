@@ -1083,6 +1083,52 @@ inserted and then rewritten in place."
 ;; leaves the operator typing at the mark, and would leave him typing
 ;; anywhere in the conversation were it not front-sticky as well.
 
+(defconst parley-transcript--span-faces
+  '(markdown-inline-code-face markdown-bold-face markdown-italic-face)
+  "The faces of the spans whose hidden opening delimiter point moves past.
+markdown-mode puts each on the text between two delimiters it
+hides, so where one of them starts the delimiter before it ends,
+and where one of them ends the delimiter after it starts.")
+
+(defun parley-transcript--leaves-span-p (position other)
+  "Return non-nil if the character at POSITION is in a span OTHER is not in.
+A span is text in a face of `parley-transcript--span-faces', and
+OTHER is a position too."
+  (let ((faces (ensure-list (get-text-property other 'font-lock-face))))
+    (seq-some (lambda (face)
+                (and (memq face parley-transcript--span-faces)
+                     (not (memq face faces))))
+              (ensure-list (get-text-property position 'font-lock-face)))))
+
+(defun parley-transcript--openings (start end)
+  "Return the hidden delimiters opening a span between START and END.
+A list of (FROM . TO), one for each place a span starts, a span
+being text in a face of `parley-transcript--span-faces': the
+hidden characters in front of it, walked back to a visible
+character or to the first character after a span, and taking in
+neither.  The first character after a span is where its closing
+delimiter starts, and the position in front of it is where
+\\[forward-word] stops at the end of the word inside.  Without a
+space between them, a closing delimiter and the next span's
+opening one are one hidden run, and markdown-mode may hide one
+asterisk as part of both."
+  (let ((at start)
+        (openings nil))
+    (while (< (setq at (next-single-property-change at 'font-lock-face
+                                                    nil end))
+              end)
+      (when (parley-transcript--leaves-span-p at (1- at))
+        (let ((from at))
+          (while (and (> from start)
+                      (get-text-property (1- from) 'invisible)
+                      (not (and (> (1- from) start)
+                                (parley-transcript--leaves-span-p
+                                 (- from 2) (1- from)))))
+            (setq from (1- from)))
+          (when (< from at)
+            (push (cons from at) openings)))))
+    openings))
+
 (defun parley-transcript--seal (start end)
   "Make the text from START to END read-only, insertion inside it included.
 `read-only' joins the region's `front-sticky' and `rear-nonsticky',
@@ -1098,6 +1144,17 @@ newline before it.  That newline ends a block and carries the
 block's face: `parley-tool-run' under a renderer line, and
 `parley-user' under a turn of his.
 
+`invisible' joins both over each hidden delimiter
+`parley-transcript--openings' finds.  The cursor drawn in front of
+one stands on the first character shown after it, and that
+stickiness is what makes the command loop carry point a command
+left there onto that character: see Info node
+`(elisp)Adjusting Point'.  Only an opening delimiter, because the
+position in front of a closing one is where \\[forward-word] stops
+at the end of the word inside.  Here, because this is the last
+write of stickiness over the region, and both it and comint write
+one list over the whole of it.
+
 Comint makes both rear-nonsticky itself only while
 `comint-use-prompt-regexp' is nil, and only over its own output,
 so the sealing does not leave either to comint.  Silently,
@@ -1105,14 +1162,19 @@ because it is no edit of the operator's and nothing for `undo' to
 reach."
   (when (< start end)
     (with-silent-modifications
-      (add-text-properties
-       start end
-       (mapcan (lambda (stickiness)
-                 (let ((value (get-text-property start (car stickiness))))
-                   (list (car stickiness)
-                         (if (eq value t) t (append (cdr stickiness) value)))))
-               '((front-sticky read-only)
-                 (rear-nonsticky read-only font-lock-face))))
+      (let* ((front (get-text-property start 'front-sticky))
+             (rear (get-text-property start 'rear-nonsticky))
+             (stickiness
+              (lambda (more)
+                (list 'front-sticky
+                      (if (eq front t) t (append more '(read-only) front))
+                      'rear-nonsticky
+                      (if (eq rear t)
+                          t
+                        (append more '(read-only font-lock-face) rear))))))
+        (add-text-properties start end (funcall stickiness nil))
+        (pcase-dolist (`(,from . ,to) (parley-transcript--openings start end))
+          (add-text-properties from to (funcall stickiness '(invisible)))))
       (put-text-property start end 'read-only t))))
 
 (defun parley-transcript--output (process string)
